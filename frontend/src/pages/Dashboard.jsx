@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FolderKanban, FolderOpen, Plug, MessagesSquare, Layers, ArrowUpRight, Sparkles } from "lucide-react";
+import { FolderKanban, FolderOpen, Plug, MessagesSquare, Layers, ArrowUpRight, Sparkles, CheckSquare, Circle } from "lucide-react";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { PageShell, PageHeader, Loader } from "@/components/Stitch";
@@ -17,9 +17,11 @@ export default function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [stats, setStats] = useState(null);
+  const [myTasks, setMyTasks] = useState([]);
 
   useEffect(() => {
     api.get("/dashboard/stats").then(({ data }) => setStats(data)).catch(() => setStats({}));
+    api.get("/tasks/mine").then(({ data }) => setMyTasks(data)).catch(() => setMyTasks([]));
   }, []);
 
   if (!stats) return <PageShell><Loader /></PageShell>;
@@ -84,6 +86,31 @@ export default function Dashboard() {
             <Sparkles className="w-5 h-5" /> Ask Stitch AI
           </button>
         </div>
+      </div>
+
+      <div className="neu-raised rounded-[1.75rem] p-7 animate-fade-up mt-6" data-testid="my-tasks-widget">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="font-head font-bold text-2xl flex items-center gap-2" style={{ color: "var(--text)" }}>
+            <CheckSquare className="w-6 h-6 text-primary-stitch" /> My Tasks
+          </h2>
+          <span className="neu-sm text-xs px-3 py-1 rounded-full text-muted-stitch font-semibold">{myTasks.filter((t) => t.status !== "done").length} open</span>
+        </div>
+        {myTasks.length === 0 ? (
+          <p className="text-muted-stitch py-6 text-center">No tasks yet. Open a project's board to add some.</p>
+        ) : (
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {myTasks.filter((t) => t.status !== "done").slice(0, 9).map((t) => (
+              <button key={t.task_id} data-testid="my-task-row" onClick={() => navigate(`/projects/${t.project_id}/board`)}
+                className="neu-pressed neu-hover rounded-2xl p-4 text-left flex items-start gap-3">
+                <Circle className={`w-4 h-4 mt-0.5 shrink-0 ${t.status === "doing" ? "text-primary-stitch" : "text-muted-stitch"}`} />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>{t.title}</p>
+                  <p className="text-xs text-muted-stitch truncate">{t.project_name} · {t.status === "doing" ? "In progress" : "To do"}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </PageShell>
   );

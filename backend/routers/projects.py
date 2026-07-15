@@ -60,6 +60,18 @@ async def _task_for_member(task_id: str, user: dict) -> dict:
     return t
 
 
+@router.get("/tasks/mine")
+async def my_tasks(user: dict = Depends(get_current_user)):
+    projs = await db.projects.find({"members": user["user_id"]}, {"_id": 0, "project_id": 1, "name": 1}).to_list(500)
+    pmap = {p["project_id"]: p["name"] for p in projs}
+    if not pmap:
+        return []
+    tasks = await db.tasks.find({"project_id": {"$in": list(pmap.keys())}}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    for t in tasks:
+        t["project_name"] = pmap.get(t["project_id"])
+    return tasks
+
+
 @router.get("/projects/{project_id}/tasks")
 async def list_tasks(project_id: str, user: dict = Depends(get_current_user)):
     await _require_project_member(project_id, user)

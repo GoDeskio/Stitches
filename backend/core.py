@@ -202,6 +202,16 @@ async def get_seo_settings():
     return seo
 
 
+async def get_google_oauth_cfg():
+    doc = await db.settings.find_one({"key": "google_oauth"})
+    val = (doc or {}).get("value", {})
+    return {
+        "client_id": val.get("client_id") or os.environ.get("GOOGLE_CLIENT_ID", ""),
+        "client_secret": val.get("client_secret") or os.environ.get("GOOGLE_CLIENT_SECRET", ""),
+        "redirect_uri": os.environ.get("GOOGLE_DRIVE_REDIRECT_URI") or (os.environ.get("FRONTEND_URL", "").rstrip("/") + "/api/integrations/google/callback"),
+    }
+
+
 # ---------------- Storage ----------------
 storage_key = None
 

@@ -55,11 +55,11 @@ INTEGRATION_CATALOG = [
          "help": "Go to dropbox.com/developers/apps → your app → Settings → 'Generate access token' and paste it here.",
          "fields": [{"key": "access_token", "label": "Access token", "type": "password"}]}]},
     {"type": "google_drive", "name": "Google Drive", "category": "Storage", "actions": ["files", "test"],
-     "description": "Browse and download files from Google Drive.",
+     "description": "Connect your Google account in one click — no keys needed.", "oauth": True,
      "methods": [
-        {"id": "token", "label": "Access token",
-         "help": "Paste an OAuth access token from Google's OAuth Playground (developers.google.com/oauthplayground) with Drive scope.",
-         "fields": [{"key": "access_token", "label": "OAuth access token", "type": "password"}]}]},
+        {"id": "oauth", "label": "Connect with Google (one click)",
+         "help": "Click Connect and sign in with your Google account. We only request read-only access to browse and download your files.",
+         "fields": []}]},
     {"type": "llm", "name": "AI LLM", "category": "AI", "actions": ["test"],
      "description": "Connect an external LLM provider API key for AI features.",
      "methods": [
@@ -189,10 +189,11 @@ async def integration_files(integration_id: str, path: str = "", user: dict = De
     elif t == "google_drive":
         import httpx
         try:
+            token = await _google_access_token(integration_id, cfg)
             async with httpx.AsyncClient() as client:
                 r = await client.get("https://www.googleapis.com/drive/v3/files",
                                      params={"pageSize": 100, "fields": "files(id,name,size)"},
-                                     headers={"Authorization": f"Bearer {cfg.get('access_token')}"}, timeout=20.0)
+                                     headers={"Authorization": f"Bearer {token}"}, timeout=20.0)
             r.raise_for_status()
             files = [{"name": f["name"], "size": int(f.get("size", 0) or 0), "key": f["id"]} for f in r.json().get("files", [])]
         except Exception as e:
@@ -284,13 +285,98 @@ async def test_integration(integration_id: str, user: dict = Depends(get_current
             await run_in_threadpool(_t)
             return {"ok": True, "message": "Dropbox account connected."}
         if t == "google_drive":
+            token = await _google_access_token(integration_id, cfg)
             async with httpx.AsyncClient() as client:
                 r = await client.get("https://www.googleapis.com/drive/v3/about", params={"fields": "user"},
-                                     headers={"Authorization": f"Bearer {cfg.get('access_token')}"}, timeout=10.0)
+                                     headers={"Authorization": f"Bearer {token}"}, timeout=10.0)
             return {"ok": r.status_code == 200, "message": "Google Drive connected." if r.status_code == 200 else "Token invalid or expired."}
     except Exception as e:
         return {"ok": False, "message": str(e)[:300]}
     return {"ok": False, "message": "Unknown integration type"}
+
+
+def _google_client_config(oc):
+    return {"web": {"client_id": oc["client_id"], "client_secret": oc["client_secret"],
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "redirect_uris": [oc["redirect_uri"]]}}
+
+
+async def _google_access_token(integration_id, cfg):
+    from fastapi.concurrency import run_in_threadpool
+    from datetime import datetime as _dt
+
+    def _refresh():
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request as GReq
+        scopes = cfg.get("scopes")
+        if isinstance(scopes, str):
+            scopes = scopes.split()
+        creds = Credentials(token=cfg.get("access_token") or None,
+                            refresh_token=cfg.get("refresh_token") or None,
+                            token_uri=cfg.get("token_uri") or "https://oauth2.googleapis.com/token",
+                            client_id=cfg.get("client_id"), client_secret=cfg.get("client_secret"),
+                            scopes=scopes)
+        exp = cfg.get("expiry")
+        if exp:
+            try:
+                creds.expiry = _dt.fromisoformat(exp).replace(tzinfo=None)
+            except Exception:
+                creds.expiry = None
+        refreshed = False
+        if creds.refresh_token and (not creds.token or creds.expiry is None or creds.expired):
+            creds.refresh(GReq())
+            refreshed = True
+        return creds.token, (creds.expiry.isoformat() if creds.expiry else ""), refreshed
+
+    token, expiry, refreshed = await run_in_threadpool(_refresh)
+    if refreshed:
+        newcfg = dict(cfg); newcfg["access_token"] = token; newcfg["expiry"] = expiry
+        await db.integrations.update_one({"integration_id": integration_id}, {"$set": {"config": encrypt_config(newcfg)}})
+    return token
+
+
+@router.get("/integrations/google/authorize")
+async def google_authorize(user: dict = Depends(get_current_user)):
+    from google_auth_oauthlib.flow import Flow
+    oc = await get_google_oauth_cfg()
+    if not oc["client_id"]:
+        raise HTTPException(status_code=400, detail="Google Drive isn't configured yet. Ask an admin to add the Google credentials.")
+    flow = Flow.from_client_config(_google_client_config(oc),
+                                   scopes=["https://www.googleapis.com/auth/drive.readonly"],
+                                   redirect_uri=oc["redirect_uri"])
+    state = create_access_token(user["user_id"], user.get("email", ""))
+    url, _ = flow.authorization_url(access_type="offline", include_granted_scopes="true", prompt="consent", state=state)
+    return {"authorization_url": url}
+
+
+@router.get("/integrations/google/callback")
+async def google_callback(code: str = Query(None), state: str = Query(None), error: str = Query(None)):
+    from fastapi.responses import RedirectResponse
+    from fastapi.concurrency import run_in_threadpool
+    from google_auth_oauthlib.flow import Flow
+    frontend = os.environ.get("FRONTEND_URL", "").rstrip("/")
+    if error or not code or not state:
+        return RedirectResponse(f"{frontend}/integrations?google=error")
+    user = await resolve_user_from_token(state)
+    if not user:
+        return RedirectResponse(f"{frontend}/integrations?google=error")
+    oc = await get_google_oauth_cfg()
+    flow = Flow.from_client_config(_google_client_config(oc), scopes=None, redirect_uri=oc["redirect_uri"])
+    try:
+        await run_in_threadpool(lambda: flow.fetch_token(code=code))
+        creds = flow.credentials
+    except Exception:
+        return RedirectResponse(f"{frontend}/integrations?google=error")
+    cfg = {"access_token": creds.token, "refresh_token": creds.refresh_token or "",
+           "token_uri": creds.token_uri, "client_id": creds.client_id, "client_secret": creds.client_secret,
+           "scopes": list(creds.scopes or []), "expiry": creds.expiry.isoformat() if creds.expiry else ""}
+    doc = {"integration_id": f"int_{uuid.uuid4().hex[:12]}", "type": "google_drive",
+           "name": "Google Drive", "config": encrypt_config(cfg), "owner_id": user["user_id"],
+           "auth_method": "oauth", "status": "connected", "created_at": now_iso()}
+    await db.integrations.insert_one(doc)
+    await log_activity(user["user_id"], "integration_connect", {"type": "google_drive"})
+    return RedirectResponse(f"{frontend}/integrations?google=connected")
 
 
 @router.get("/admin/integrations")
@@ -300,5 +386,26 @@ async def admin_list_integrations(user: dict = Depends(require_admin)):
     for it in items:
         it["owner_name"] = owners.get(it.get("owner_id"), "Unknown")
     return items
+
+
+@router.get("/admin/google-oauth")
+async def get_google_oauth_admin(user: dict = Depends(require_admin)):
+    oc = await get_google_oauth_cfg()
+    return {"client_id": oc["client_id"], "client_secret": ("••••••" if oc["client_secret"] else ""),
+            "redirect_uri": oc["redirect_uri"]}
+
+
+@router.put("/admin/google-oauth")
+async def set_google_oauth_admin(data: GoogleOAuthInput, user: dict = Depends(require_admin)):
+    update = {}
+    if data.client_id is not None:
+        update["client_id"] = data.client_id
+    if data.client_secret is not None and data.client_secret and "••" not in data.client_secret:
+        update["client_secret"] = data.client_secret
+    existing = await db.settings.find_one({"key": "google_oauth"})
+    val = (existing or {}).get("value", {})
+    val.update(update)
+    await db.settings.update_one({"key": "google_oauth"}, {"$set": {"key": "google_oauth", "value": val}}, upsert=True)
+    return {"ok": True}
 
 

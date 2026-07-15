@@ -92,6 +92,11 @@ class TaskUpdate(BaseModel):
     status: Optional[str] = None
 
 
+class GoogleOAuthInput(BaseModel):
+    client_id: Optional[str] = None
+    client_secret: Optional[str] = None
+
+
 class IntegrationInput(BaseModel):
     type: str
     name: str

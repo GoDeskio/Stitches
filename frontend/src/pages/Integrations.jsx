@@ -25,7 +25,17 @@ export default function Integrations() {
   useEffect(() => {
     api.get("/integrations/catalog").then(({ data }) => setCatalog(data));
     load();
+    const p = new URLSearchParams(window.location.search).get("google");
+    if (p === "connected") { toast.success("Google Drive connected"); window.history.replaceState({}, "", "/integrations"); }
+    else if (p === "error") { toast.error("Google Drive connection failed. Check the admin Google credentials & redirect URI."); window.history.replaceState({}, "", "/integrations"); }
   }, []);
+
+  const connectGoogle = async () => {
+    try {
+      const { data } = await api.get("/integrations/google/authorize");
+      window.location.href = data.authorization_url;
+    } catch (e) { toast.error(e.response?.data?.detail || "Google Drive isn't configured yet."); }
+  };
 
   const methodsOf = (item) => item.methods || [{ id: "default", label: "Connect", fields: item.fields || [] }];
   const openWizard = (item) => { setWizard(item); setStep(0); setForm({}); setName(item.name); setMethod(methodsOf(item)[0]); };
@@ -103,7 +113,7 @@ export default function Integrations() {
         {catalog.map((item, i) => {
           const Icon = ICONS[item.type] || Plug;
           return (
-            <button key={item.type} onClick={() => openWizard(item)} data-testid={`integration-${item.type}`}
+            <button key={item.type} onClick={() => item.oauth ? connectGoogle() : openWizard(item)} data-testid={`integration-${item.type}`}
               className="neu-raised neu-hover rounded-[1.75rem] p-7 text-left flex items-center gap-5 animate-fade-up" style={{ animationDelay: `${i * 60}ms` }}>
               <div className="neu-sm w-16 h-16 rounded-3xl flex items-center justify-center shrink-0"><Icon className="w-8 h-8 text-primary-stitch" /></div>
               <div className="flex-1 min-w-0">

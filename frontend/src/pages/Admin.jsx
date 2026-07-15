@@ -435,17 +435,54 @@ function SeoField({ label, value, onChange, testid }) {
 
 function IntegrationsTab() {
   const [items, setItems] = useState(null);
-  useEffect(() => { api.get("/admin/integrations").then(({ data }) => setItems(data)).catch(() => setItems([])); }, []);
-  if (!items) return <Loader />;
+  const [goog, setGoog] = useState(null);
+  const [savingG, setSavingG] = useState(false);
+  useEffect(() => {
+    api.get("/admin/integrations").then(({ data }) => setItems(data)).catch(() => setItems([]));
+    api.get("/admin/google-oauth").then(({ data }) => setGoog(data)).catch(() => setGoog({ client_id: "", client_secret: "", redirect_uri: "" }));
+  }, []);
+  const saveGoogle = async () => {
+    setSavingG(true);
+    try {
+      await api.put("/admin/google-oauth", { client_id: goog.client_id, client_secret: goog.client_secret });
+      toast.success("Google credentials saved");
+      const { data } = await api.get("/admin/google-oauth"); setGoog(data);
+    } catch (e) { toast.error("Save failed"); } finally { setSavingG(false); }
+  };
+  if (!items || !goog) return <Loader />;
   return (
-    <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up">
-      <p className="text-muted-stitch mb-6">All integrations connected by members across the platform. Credentials are never exposed here.</p>
-      {items.length === 0 ? (
-        <p className="text-sm text-muted-stitch">No integrations connected yet.</p>
-      ) : (
-        <div className="space-y-3">
-          {items.map((it) => (
-            <div key={it.integration_id} className="neu-pressed rounded-2xl p-4 flex items-center gap-4" data-testid="admin-integration-row">
+    <div className="space-y-6">
+      <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="google-oauth-card">
+        <div className="flex items-center gap-3 mb-2">
+          <div className="neu-sm w-10 h-10 rounded-2xl flex items-center justify-center"><Plug className="w-5 h-5 text-primary-stitch" /></div>
+          <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Google Drive OAuth</h3>
+        </div>
+        <p className="text-sm text-muted-stitch mb-4">Editable credentials for the one-click "Connect with Google" flow. Add the redirect URI below to your Google Cloud OAuth app.</p>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div>
+            <label className="text-sm font-semibold text-muted-stitch">Client ID</label>
+            <input data-testid="google-client-id" value={goog.client_id || ""} onChange={(e) => setGoog({ ...goog, client_id: e.target.value })} className="neu-input w-full rounded-2xl py-3 px-5 mt-2" />
+          </div>
+          <div>
+            <label className="text-sm font-semibold text-muted-stitch">Client Secret</label>
+            <input data-testid="google-client-secret" type="password" value={goog.client_secret || ""} onChange={(e) => setGoog({ ...goog, client_secret: e.target.value })} className="neu-input w-full rounded-2xl py-3 px-5 mt-2" />
+          </div>
+        </div>
+        <div className="mt-4">
+          <label className="text-sm font-semibold text-muted-stitch">Authorized redirect URI (add this in Google Cloud)</label>
+          <div className="neu-pressed rounded-2xl py-3 px-5 mt-2 font-mono-stitch text-sm break-all" style={{ color: "var(--text)" }}>{goog.redirect_uri}</div>
+        </div>
+        <button data-testid="save-google-oauth" onClick={saveGoogle} disabled={savingG} className="neu-primary rounded-2xl px-6 py-3 font-semibold mt-4">{savingG ? "Saving…" : "Save credentials"}</button>
+      </div>
+
+      <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up">
+        <p className="text-muted-stitch mb-6">All integrations connected by members across the platform. Credentials are never exposed here.</p>
+        {items.length === 0 ? (
+          <p className="text-sm text-muted-stitch">No integrations connected yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {items.map((it) => (
+              <div key={it.integration_id} className="neu-pressed rounded-2xl p-4 flex items-center gap-4" data-testid="admin-integration-row">
               <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center shrink-0"><Plug className="w-5 h-5 text-primary-stitch" /></div>
               <div className="flex-1 min-w-0">
                 <p className="font-semibold truncate" style={{ color: "var(--text)" }}>{it.name}</p>
@@ -456,6 +493,7 @@ function IntegrationsTab() {
           ))}
         </div>
       )}
+      </div>
     </div>
   );
 }
