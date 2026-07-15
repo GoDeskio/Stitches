@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Plus, Hash, Send, Layers, X, UserPlus, Mail, UserMinus, MessageSquare } from "lucide-react";
+import { Plus, Hash, Send, Layers, X, UserPlus, Mail, UserMinus, MessageSquare, Smile } from "lucide-react";
 import { toast } from "sonner";
 import api, { API } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -85,6 +85,8 @@ export default function Messages() {
           setTypingName(data.user_name);
           clearTimeout(typingTimerRef.current);
           typingTimerRef.current = setTimeout(() => setTypingName(null), 3000);
+        } else if (data.type === "reaction") {
+          setMessages((prev) => prev.map((mm) => mm.message_id === data.message_id ? { ...mm, reactions: data.reactions } : mm));
         }
       };
       wsRef.current = ws;
@@ -116,6 +118,13 @@ export default function Messages() {
       typingSentRef.current = now;
       wsRef.current.send(JSON.stringify({ type: "typing" }));
     }
+  };
+
+  const react = async (messageId, emoji) => {
+    try {
+      const { data } = await api.post(`/messages/${messageId}/react`, { emoji });
+      setMessages((prev) => prev.map((mm) => mm.message_id === messageId ? { ...mm, reactions: data.reactions } : mm));
+    } catch (e) {}
   };
 
   const loadDms = async () => { const { data } = await api.get("/dms"); setDms(data); };
@@ -304,14 +313,27 @@ export default function Messages() {
                         {m.author_avatar ? <img src={m.author_avatar} alt="" className="w-full h-full object-cover" /> :
                           <span className="font-head font-bold text-sm text-primary-stitch">{(m.author_name || "U")[0]}</span>}
                       </div>
-                      <div className={`max-w-[70%] ${mine ? "text-right" : ""}`}>
+                      <div className={`max-w-[70%] group ${mine ? "text-right" : ""}`}>
                         <div className="flex items-center gap-2 mb-1" style={{ flexDirection: mine ? "row-reverse" : "row" }}>
                           <span className="text-sm font-semibold" style={{ color: "var(--text)" }}>{m.author_name}</span>
                           <span className="text-xs text-muted-stitch">{new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                         </div>
-                        <div className="rounded-2xl px-4 py-2.5 inline-block text-left" style={{ background: mine ? "var(--primary)" : "var(--neu-light)", color: mine ? "#fff" : "var(--text)" }}>
-                          {m.text}
+                        <div className={`flex items-center gap-2 ${mine ? "flex-row-reverse" : ""}`}>
+                          <div className="rounded-2xl px-4 py-2.5 inline-block text-left" style={{ background: mine ? "var(--primary)" : "var(--neu-light)", color: mine ? "#fff" : "var(--text)" }}>
+                            {m.text}
+                          </div>
+                          <ReactionPicker onPick={(e) => react(m.message_id, e)} />
                         </div>
+                        {m.reactions && Object.keys(m.reactions).length > 0 && (
+                          <div className={`flex flex-wrap gap-1.5 mt-1.5 ${mine ? "justify-end" : ""}`}>
+                            {Object.entries(m.reactions).map(([emoji, users]) => (
+                              <button key={emoji} data-testid="reaction-chip" onClick={() => react(m.message_id, emoji)}
+                                className={`neu-sm rounded-full px-2 py-0.5 text-xs flex items-center gap-1 ${users.includes(user?.user_id) ? "text-primary-stitch" : "text-muted-stitch"}`}>
+                                <span>{emoji}</span> <span>{users.length}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -485,3 +507,31 @@ function CreateModal({ title, placeholder, onClose, onCreate, testid }) {
     </div>
   );
 }
+
+const REACT_EMOJIS = ["👍", "❤️", "😂", "🎉", "🙌", "👀"];
+
+function ReactionPicker({ onPick }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button data-testid="react-btn" onClick={() => setOpen((o) => !o)}
+        className="neu-btn w-7 h-7 rounded-full flex items-center justify-center text-muted-stitch opacity-0 group-hover:opacity-100 transition-opacity">
+        <Smile className="w-4 h-4" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="neu-raised absolute z-50 bottom-9 left-0 rounded-full p-1.5 flex gap-1 animate-fade-up">
+            {REACT_EMOJIS.map((e) => (
+              <button key={e} data-testid="react-option" onClick={() => { onPick(e); setOpen(false); }}
+                className="w-8 h-8 rounded-full hover:neu-pressed text-lg flex items-center justify-center transition-all">
+                {e}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+

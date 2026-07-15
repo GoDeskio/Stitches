@@ -238,6 +238,10 @@ class NotifGlobalInput(BaseModel):
     settings: Dict[str, bool]
 
 
+class ReactInput(BaseModel):
+    emoji: str
+
+
 class WorkspaceInput(BaseModel):
     name: str
     description: Optional[str] = ""
@@ -531,6 +535,26 @@ async def post_message(data: MessageInput, user: dict = Depends(get_current_user
     return doc
 
 
+@api_router.post("/messages/{message_id}/react")
+async def react_message(message_id: str, data: ReactInput, user: dict = Depends(get_current_user)):
+    msg = await db.messages.find_one({"message_id": message_id})
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+    reactions = msg.get("reactions") or {}
+    users = reactions.get(data.emoji, [])
+    if user["user_id"] in users:
+        users = [u for u in users if u != user["user_id"]]
+    else:
+        users = users + [user["user_id"]]
+    if users:
+        reactions[data.emoji] = users
+    else:
+        reactions.pop(data.emoji, None)
+    await db.messages.update_one({"message_id": message_id}, {"$set": {"reactions": reactions}})
+    await ws_manager.broadcast(msg["channel_id"], {"type": "reaction", "message_id": message_id, "reactions": reactions})
+    return {"ok": True, "reactions": reactions}
+
+
 # ---------------- WebSocket for realtime ----------------
 class WSManager:
     def __init__(self):
@@ -786,6 +810,9 @@ async def ai_chat(data: AiInput, user: dict = Depends(get_current_user)):
 AGENT_ACTIONS_USER = """- create_project {"name": str, "description"?: str}: create a new project
 - create_workspace {"name": str}: create a new workspace (auto-adds general & random channels)
 - add_friend {"email": str}: add a connection by their email
+- send_message {"workspace": str, "channel": str, "text": str}: post a message to a channel in one of your workspaces
+- invite_to_workspace {"workspace": str, "email": str}: add a person (by email) to one of your workspaces
+- invite_to_project {"project": str, "email": str}: add a person (by email) to one of your projects
 - list_projects {}: list the user's projects
 - list_workspaces {}: list the user's workspaces
 - get_stats {}: get the user's dashboard counts (workspaces, projects, assets, integrations, messages)"""
@@ -842,6 +869,44 @@ async def execute_agent_action(action, params, user):
             await db.users.update_one({"user_id": user["user_id"]}, {"$addToSet": {"friends": friend["user_id"]}})
             await db.users.update_one({"user_id": friend["user_id"]}, {"$addToSet": {"friends": user["user_id"]}})
             return {"ok": True, "summary": f"Added {friend.get('name')} as a connection"}
+        if action == "send_message":
+            wss = await db.workspaces.find({"members": user["user_id"]}, {"_id": 0}).to_list(200)
+            ws = next((w for w in wss if w["name"].lower() == (p.get("workspace") or "").lower()), None)
+            if not ws:
+                return {"ok": False, "error": f"You are not in a workspace named '{p.get('workspace')}'"}
+            chans = await db.channels.find({"workspace_id": ws["workspace_id"]}, {"_id": 0}).to_list(200)
+            ch = next((c for c in chans if c["name"].lower() == (p.get("channel") or "").lower().lstrip("#")), None)
+            if not ch:
+                return {"ok": False, "error": f"No channel '{p.get('channel')}' in {ws['name']}"}
+            if not (p.get("text") or "").strip():
+                return {"ok": False, "error": "Message text is required"}
+            msg = await _create_message(ch["channel_id"], user, p["text"].strip())
+            await ws_manager.broadcast(ch["channel_id"], {"type": "message", "message": msg})
+            return {"ok": True, "summary": f"Posted to #{ch['name']} in {ws['name']}"}
+        if action == "invite_to_workspace":
+            wss = await db.workspaces.find({"members": user["user_id"]}, {"_id": 0}).to_list(200)
+            ws = next((w for w in wss if w["name"].lower() == (p.get("workspace") or "").lower()), None)
+            if not ws:
+                return {"ok": False, "error": f"You are not in a workspace named '{p.get('workspace')}'"}
+            invitee = await db.users.find_one({"email": (p.get("email") or "").lower()})
+            if not invitee:
+                return {"ok": False, "error": "No Stitches user found with that email"}
+            await db.workspaces.update_one({"workspace_id": ws["workspace_id"]}, {"$addToSet": {"members": invitee["user_id"]}})
+            await create_notification(invitee["user_id"], "workspace", "Added to a workspace",
+                                      f"{user.get('name')} added you to '{ws['name']}'", "/messages")
+            return {"ok": True, "summary": f"Added {invitee.get('name')} to {ws['name']}"}
+        if action == "invite_to_project":
+            projs = await db.projects.find({"members": user["user_id"]}, {"_id": 0}).to_list(200)
+            pr = next((x for x in projs if x["name"].lower() == (p.get("project") or "").lower()), None)
+            if not pr:
+                return {"ok": False, "error": f"No project named '{p.get('project')}'"}
+            invitee = await db.users.find_one({"email": (p.get("email") or "").lower()})
+            if not invitee:
+                return {"ok": False, "error": "No Stitches user found with that email"}
+            await db.projects.update_one({"project_id": pr["project_id"]}, {"$addToSet": {"members": invitee["user_id"]}})
+            await create_notification(invitee["user_id"], "project", "Added to a project",
+                                      f"{user.get('name')} added you to '{pr['name']}'", "/projects")
+            return {"ok": True, "summary": f"Added {invitee.get('name')} to {pr['name']}"}
         if action == "list_projects":
             projs = await db.projects.find({"members": user["user_id"]}, {"_id": 0, "name": 1, "status": 1}).to_list(100)
             return {"ok": True, "summary": f"{len(projs)} project(s)", "items": [f"{x['name']} ({x['status']})" for x in projs]}
