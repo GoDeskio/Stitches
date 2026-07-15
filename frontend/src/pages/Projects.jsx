@@ -90,20 +90,24 @@ export default function Projects() {
 
 function ProjectMembersModal({ project, onClose }) {
   const [members, setMembers] = useState([]);
+  const [friends, setFriends] = useState([]);
   const [email, setEmail] = useState("");
   const [inviting, setInviting] = useState(false);
 
   const load = () => api.get(`/projects/${project.project_id}/members`).then(({ data }) => setMembers(data));
-  useEffect(() => { load(); }, []); // eslint-disable-line
+  useEffect(() => { load(); api.get("/friends").then(({ data }) => setFriends(data)); }, []); // eslint-disable-line
 
+  const inviteEmail = async (target) => { await api.post(`/projects/${project.project_id}/invite`, { email: target }); load(); };
   const invite = async (e) => {
     e.preventDefault();
     if (!email.trim()) return;
     setInviting(true);
-    try {
-      await api.post(`/projects/${project.project_id}/invite`, { email: email.trim() });
-      toast.success(`Added ${email.trim()}`); setEmail(""); load();
-    } catch (err) { toast.error(err.response?.data?.detail || "Could not add"); } finally { setInviting(false); }
+    try { await inviteEmail(email.trim()); toast.success(`Added ${email.trim()}`); setEmail(""); }
+    catch (err) { toast.error(err.response?.data?.detail || "Could not add"); } finally { setInviting(false); }
+  };
+  const quickAdd = async (f) => {
+    try { await inviteEmail(f.email); toast.success(`Added ${f.name}`); }
+    catch (err) { toast.error(err.response?.data?.detail || "Could not add"); }
   };
   const remove = async (uid) => {
     try { await api.post(`/projects/${project.project_id}/remove`, { user_id: uid }); toast.success("Removed"); load(); }
@@ -128,6 +132,21 @@ function ProjectMembersModal({ project, onClose }) {
           </div>
           <button data-testid="project-invite-btn" type="submit" disabled={inviting} className="neu-primary rounded-2xl px-5 font-semibold"><UserPlus className="w-5 h-5" /></button>
         </form>
+        {friends.filter((f) => !members.some((m) => m.user_id === f.user_id)).length > 0 && (
+          <div className="mb-5">
+            <p className="text-xs uppercase tracking-widest text-muted-stitch mb-2">Add from your connections</p>
+            <div className="flex flex-wrap gap-2">
+              {friends.filter((f) => !members.some((m) => m.user_id === f.user_id)).map((f) => (
+                <button key={f.user_id} data-testid="project-quick-add-friend" onClick={() => quickAdd(f)}
+                  className="neu-btn rounded-full pl-2 pr-3 py-1.5 flex items-center gap-2 text-sm">
+                  <span className="neu-sm w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-primary-stitch">{(f.name || "U")[0].toUpperCase()}</span>
+                  <span style={{ color: "var(--text)" }}>{f.name}</span>
+                  <UserPlus className="w-3.5 h-3.5 text-primary-stitch" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="space-y-2 max-h-72 overflow-y-auto">
           {members.map((m) => (
             <div key={m.user_id} className="neu-pressed rounded-2xl p-3 flex items-center gap-3">

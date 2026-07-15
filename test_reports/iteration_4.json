@@ -1,0 +1,22 @@
+{
+  "summary": "Full UI+backend verification of the 4 requested feature areas: (1) Logo blend: img[alt='Stitches'] on /login (both lg and mobile positions) and Home renders /logo.png with no wrapping white box/neu-raised container on Home; on Login only the mobile fallback has a neu-raised container (transparent PNG cutout sits cleanly on dark surface). Screenshot confirms clean voodoo-doll cutout on dark burgundy background. (2) Password eye toggle works: toggle-password flips input.type between 'password' and 'text' on both clicks. (3) Direct Messages e2e across two independent browser contexts: Alice logged in, added Bob via /api/friends; Bob logged in on separate context and added Alice via People UI; Alice opened Messages > Direct > New DM > picked Bob, sent 'Hello Bob from Alice ...' — message rendered. Bob opened Messages > Direct, saw the DM item (with green online dot next to Alice), opened it, saw Alice's message, sent a reply. Alice's page received Bob's reply within 6s (WebSocket + 5s polling). (4) Online presence green dot showed for Alice on Bob's DM list (bg-green-500 present). (5) message-friend-btn on People navigates to /messages and auto-opens the DM (message-input visible). (6) MembersModal in Messages: quick-add-friend chip appears (1 connection) and clicking it added Bob to a newly-created TEST_WS. (7) ProjectMembersModal: project-quick-add-friend chip appears on a newly-created TEST_PROJ and successfully added Bob. (8) Non-admin (Alice) can create both workspace and project. All flows pass; no functional issues.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/backend_test.py"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Messages.jsx (~430 lines) is trending long; consider extracting MembersModal, CreateModal, DmPicker into separate files for readability.",
+    "Messages.jsx line 66: 5s polling interval remains active alongside WebSocket; on WS-open, polling is redundant. Gate the setInterval on ws.readyState !== OPEN to reduce load.",
+    "Login.jsx mobile brand still wraps the logo in neu-raised (line 69) — this creates a small rounded square around the cutout on <lg viewports. If the requirement is 'NO box anywhere', remove the neu-raised wrapper on the mobile variant too. Desktop and Home already render bare img (correct).",
+    "server.py still monolithic (~1000+ lines) — recommend splitting into routers/modules (auth, dms, workspaces, projects, admin).",
+    "presence heartbeat every 30s from Layout.jsx is reasonable; consider suspending it when document.hidden to save background traffic on many-tab users."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (dms create/list, presence ping, friends, workspaces/projects members endpoints all verified via UI-driven API + curl)", "frontend": "100% (logo, eye toggle, DM two-user flow, presence dot, quick-add for workspace & project, non-admin create — all pass)"},
+  "test_credentials": "admin@stitches.app/Admin@123, alice@stitches.app/Alice@123, bob@stitches.app/Bob@123 — unchanged.",
+  "seed_data_creation": "Alice & Bob are now mutual friends. Created one TEST_WS_<ts> workspace (owner: Alice, member: Bob) and one TEST_PROJ_<ts> project (owner: Alice, member: Bob). One DM (dm_a865662f1f90 style) between Alice and Bob with a few messages. Feature flags untouched. No admin/role changes.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Two-context Playwright pattern works: `ctx = await page.context.browser.new_context(); pg = await ctx.new_page()`. WS URL is API.replace(/^http/, 'ws') + `/ws/{channel_id}?token=`. For DM realtime, allow ~5–6s for polling fallback (Alice sees Bob's reply). Logo file is /logo.png (naturalWidth 906, transparent PNG). Only remaining minor design note: the mobile-variant Login brand still wraps logo in neu-raised (a subtle rounded box).",
+  "rca of the issue": "N/A — all feature paths verified working."
+}

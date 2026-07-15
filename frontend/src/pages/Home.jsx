@@ -39,16 +39,7 @@ export default function Home() {
 
         {/* Top-left: logo placeholder + brand */}
         <div className="absolute top-6 left-6 flex items-center gap-3 z-10" data-testid="home-brand">
-          <div
-            className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 p-1.5"
-            style={{
-              background: "rgba(20,15,17,0.55)",
-              boxShadow: "6px 6px 14px rgba(0,0,0,0.55), -4px -4px 12px rgba(255,255,255,0.06)",
-              backdropFilter: "blur(6px)",
-            }}
-          >
-            <img src="/logo.png" alt="Stitches" className="w-full h-full object-contain" />
-          </div>
+          <img src="/logo.png" alt="Stitches" className="w-12 h-12 object-contain shrink-0" />
           <span className="font-head font-semibold text-sm tracking-wide" style={{ color: "#F3E8EA" }}>
             Too Many Stitches
           </span>

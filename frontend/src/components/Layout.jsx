@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -9,6 +9,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
 import { FeaturesProvider, useFeatures } from "@/context/FeaturesContext";
 import NotificationBell from "@/components/NotificationBell";
+import api from "@/lib/api";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, flag: null },
@@ -35,6 +36,13 @@ function LayoutInner() {
   const { flags } = useFeatures();
   const navigate = useNavigate();
 
+  useEffect(() => {
+    const ping = () => api.post("/presence/ping").catch(() => {});
+    ping();
+    const t = setInterval(ping, 30000);
+    return () => clearInterval(t);
+  }, []);
+
   const doLogout = async () => {
     await logout();
     navigate("/login", { replace: true });
@@ -52,9 +60,7 @@ function LayoutInner() {
         data-testid="sidebar"
       >
         <div className="flex items-center gap-3 p-5">
-          <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 p-1.5">
-            <img src="/logo.png" alt="Stitches" className="w-full h-full object-contain" />
-          </div>
+          <img src="/logo.png" alt="Stitches" className="w-11 h-11 object-contain shrink-0" />
           {!collapsed && <span className="font-head font-black text-2xl tracking-tight" style={{ color: "var(--text)" }}>Stitches</span>}
         </div>
 

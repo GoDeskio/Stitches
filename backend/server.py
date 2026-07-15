@@ -921,6 +921,8 @@ async def list_friends(user: dict = Depends(get_current_user)):
     me = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0, "friends": 1})
     ids = (me or {}).get("friends", [])
     friends = await db.users.find({"user_id": {"$in": ids}}, {"_id": 0, "password_hash": 0}).to_list(500)
+    for f in friends:
+        f["online"] = is_online(f.get("last_seen"))
     return friends
 
 
@@ -1024,6 +1026,62 @@ async def admin_activity_export(authorization: str = Header(None), auth: str = Q
                     l.get("action"), json.dumps(l.get("meta", {}))])
     return FastResponse(content=buf.getvalue(), media_type="text/csv",
                         headers={"Content-Disposition": "attachment; filename=stitches_activity.csv"})
+
+
+PRESENCE_WINDOW = 90
+
+
+def is_online(last_seen):
+    if not last_seen:
+        return False
+    try:
+        dt = datetime.fromisoformat(last_seen)
+    except Exception:
+        return False
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - dt).total_seconds() < PRESENCE_WINDOW
+
+
+@api_router.post("/presence/ping")
+async def presence_ping(user: dict = Depends(get_current_user)):
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"last_seen": now_iso()}})
+    return {"ok": True}
+
+
+# ---------------- Direct Messages ----------------
+@api_router.post("/dms")
+async def create_dm(data: UserIdInput, user: dict = Depends(get_current_user)):
+    if data.user_id == user["user_id"]:
+        raise HTTPException(status_code=400, detail="You cannot message yourself")
+    other = await db.users.find_one({"user_id": data.user_id}, {"_id": 0, "password_hash": 0})
+    if not other:
+        raise HTTPException(status_code=404, detail="User not found")
+    parts = sorted([user["user_id"], data.user_id])
+    conv = await db.dm_conversations.find_one({"participants": parts}, {"_id": 0})
+    if not conv:
+        conv = {"dm_id": f"dm_{uuid.uuid4().hex[:12]}", "participants": parts, "created_at": now_iso()}
+        await db.dm_conversations.insert_one(dict(conv))
+    conv.pop("_id", None)
+    conv["other"] = {**public_user(other), "online": is_online(other.get("last_seen"))}
+    return conv
+
+
+@api_router.get("/dms")
+async def list_dms(user: dict = Depends(get_current_user)):
+    convs = await db.dm_conversations.find({"participants": user["user_id"]}, {"_id": 0}).to_list(200)
+    result = []
+    for c in convs:
+        others = [p for p in c["participants"] if p != user["user_id"]]
+        other_id = others[0] if others else user["user_id"]
+        other = await db.users.find_one({"user_id": other_id}, {"_id": 0, "password_hash": 0})
+        last = await db.messages.find({"channel_id": c["dm_id"]}, {"_id": 0}).sort("created_at", -1).to_list(1)
+        c["other"] = {**public_user(other), "online": is_online(other.get("last_seen"))} if other else {}
+        c["last_message"] = last[0]["text"] if last else ""
+        c["last_at"] = last[0]["created_at"] if last else c["created_at"]
+        result.append(c)
+    result.sort(key=lambda x: x["last_at"], reverse=True)
+    return result
 
 
 @api_router.get("/")

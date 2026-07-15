@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Loader2, Mail, Lock, User, ArrowRight } from "lucide-react";
+import { Loader2, Mail, Lock, User, ArrowRight, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { formatApiErrorDetail } from "@/lib/api";
 
@@ -47,9 +47,7 @@ export default function Login() {
         {/* Brand side */}
         <div className="hidden lg:flex flex-col gap-8 p-10 animate-fade-up">
           <div className="flex items-center gap-3">
-            <div className="neu-raised w-14 h-14 rounded-2xl flex items-center justify-center p-1.5">
-              <img src="/logo.png" alt="Stitches" className="w-full h-full object-contain" />
-            </div>
+            <img src="/logo.png" alt="Stitches" className="w-16 h-16 object-contain" />
             <span className="font-head font-black text-3xl tracking-tight" style={{ color: "var(--text)" }}>Stitches</span>
           </div>
           <h1 className="font-head font-black text-5xl leading-[1.05] tracking-tight" style={{ color: "var(--text)" }}>
@@ -122,18 +120,27 @@ export default function Login() {
 }
 
 function Field({ icon: Icon, type = "text", placeholder, value, onChange, testid }) {
+  const [show, setShow] = useState(false);
+  const isPassword = type === "password";
+  const effectiveType = isPassword ? (show ? "text" : "password") : type;
   return (
     <div className="relative">
       <Icon className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-muted-stitch" />
       <input
         data-testid={testid}
-        type={type}
+        type={effectiveType}
         required
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="neu-input w-full rounded-2xl py-3.5 pl-12 pr-4 text-[0.95rem]"
+        className={`neu-input w-full rounded-2xl py-3.5 pl-12 text-[0.95rem] ${isPassword ? "pr-12" : "pr-4"}`}
       />
+      {isPassword && (
+        <button type="button" data-testid="toggle-password" onClick={() => setShow((s) => !s)}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-stitch hover:text-primary-stitch transition-colors">
+          {show ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+        </button>
+      )}
     </div>
   );
 }

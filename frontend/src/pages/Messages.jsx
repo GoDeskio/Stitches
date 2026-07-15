@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Plus, Hash, Send, Layers, X, UserPlus, Mail, UserMinus } from "lucide-react";
+import { Plus, Hash, Send, Layers, X, UserPlus, Mail, UserMinus, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import api, { API } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -16,6 +16,10 @@ export default function Messages() {
   const [showWsModal, setShowWsModal] = useState(false);
   const [showChModal, setShowChModal] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
+  const [mode, setMode] = useState("channels");
+  const [dms, setDms] = useState([]);
+  const [friends, setFriends] = useState([]);
+  const [showDmPicker, setShowDmPicker] = useState(false);
   const wsRef = useRef(null);
   const bottomRef = useRef(null);
 
@@ -78,6 +82,34 @@ export default function Messages() {
     }
   };
 
+  const loadDms = async () => { const { data } = await api.get("/dms"); setDms(data); };
+  const openDirect = async () => {
+    setMode("direct");
+    loadDms();
+    const { data } = await api.get("/friends");
+    setFriends(data);
+  };
+  const selectDm = (d) => {
+    setActiveWs(null);
+    setActiveCh({ channel_id: d.dm_id, name: d.other?.name || "Direct message", type: "dm", other: d.other });
+  };
+  const startDm = async (friendId) => {
+    const { data } = await api.post("/dms", { user_id: friendId });
+    setShowDmPicker(false);
+    await loadDms();
+    selectDm(data);
+  };
+
+  useEffect(() => {
+    const pending = localStorage.getItem("stitches_open_dm");
+    if (pending) {
+      localStorage.removeItem("stitches_open_dm");
+      setMode("direct");
+      api.get("/friends").then(({ data }) => setFriends(data));
+      startDm(pending);
+    }
+  }, []); // eslint-disable-line
+
   if (workspaces === null) return <div className="p-10"><Loader /></div>;
 
   return (
@@ -85,35 +117,68 @@ export default function Messages() {
       {/* Workspace + channels rail */}
       <div className="w-72 shrink-0 p-4 flex flex-col gap-4">
         <div className="neu-raised rounded-3xl p-4 flex-1 flex flex-col min-h-0">
-          <div className="flex items-center justify-between mb-3">
-            <span className="font-head font-bold text-sm uppercase tracking-widest text-muted-stitch">Workspaces</span>
-            <button data-testid="new-workspace-btn" onClick={() => setShowWsModal(true)} className="neu-btn w-8 h-8 rounded-lg flex items-center justify-center text-primary-stitch">
-              <Plus className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="space-y-2 mb-4">
-            {workspaces.map((w) => (
-              <button key={w.workspace_id} onClick={() => setActiveWs(w)}
-                className={`w-full rounded-xl py-2 px-3 flex items-center gap-2 text-sm font-medium ${activeWs?.workspace_id === w.workspace_id ? "neu-pressed text-primary-stitch" : "text-muted-stitch neu-hover"}`}>
-                <Layers className="w-4 h-4 shrink-0" /> <span className="truncate">{w.name}</span>
-              </button>
-            ))}
-            {workspaces.length === 0 && <p className="text-xs text-muted-stitch">No workspaces yet.</p>}
+          <div className="neu-pressed rounded-full p-1 flex mb-4">
+            <button data-testid="mode-channels" onClick={() => setMode("channels")}
+              className={`flex-1 rounded-full py-2 text-xs font-bold uppercase tracking-wider transition-all ${mode === "channels" ? "neu-primary" : "text-muted-stitch"}`}>Channels</button>
+            <button data-testid="mode-direct" onClick={openDirect}
+              className={`flex-1 rounded-full py-2 text-xs font-bold uppercase tracking-wider transition-all ${mode === "direct" ? "neu-primary" : "text-muted-stitch"}`}>Direct</button>
           </div>
 
-          {activeWs && (
+          {mode === "channels" ? (
             <>
-              <div className="flex items-center justify-between mb-3 mt-2">
-                <span className="font-head font-bold text-sm uppercase tracking-widest text-muted-stitch">Channels</span>
-                <button data-testid="new-channel-btn" onClick={() => setShowChModal(true)} className="neu-btn w-8 h-8 rounded-lg flex items-center justify-center text-primary-stitch">
+              <div className="flex items-center justify-between mb-3">
+                <span className="font-head font-bold text-sm uppercase tracking-widest text-muted-stitch">Workspaces</span>
+                <button data-testid="new-workspace-btn" onClick={() => setShowWsModal(true)} className="neu-btn w-8 h-8 rounded-lg flex items-center justify-center text-primary-stitch">
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="space-y-2 mb-4">
+                {workspaces.map((w) => (
+                  <button key={w.workspace_id} onClick={() => setActiveWs(w)}
+                    className={`w-full rounded-xl py-2 px-3 flex items-center gap-2 text-sm font-medium ${activeWs?.workspace_id === w.workspace_id ? "neu-pressed text-primary-stitch" : "text-muted-stitch neu-hover"}`}>
+                    <Layers className="w-4 h-4 shrink-0" /> <span className="truncate">{w.name}</span>
+                  </button>
+                ))}
+                {workspaces.length === 0 && <p className="text-xs text-muted-stitch">No workspaces yet.</p>}
+              </div>
+
+              {activeWs && (
+                <>
+                  <div className="flex items-center justify-between mb-3 mt-2">
+                    <span className="font-head font-bold text-sm uppercase tracking-widest text-muted-stitch">Channels</span>
+                    <button data-testid="new-channel-btn" onClick={() => setShowChModal(true)} className="neu-btn w-8 h-8 rounded-lg flex items-center justify-center text-primary-stitch">
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="space-y-2 overflow-y-auto">
+                    {channels.map((c) => (
+                      <button key={c.channel_id} onClick={() => setActiveCh(c)}
+                        className={`w-full rounded-xl py-2 px-3 flex items-center gap-2 text-sm font-medium ${activeCh?.channel_id === c.channel_id ? "neu-pressed text-primary-stitch" : "text-muted-stitch neu-hover"}`}>
+                        <Hash className="w-4 h-4 shrink-0" /> <span className="truncate">{c.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="flex items-center justify-between mb-3">
+                <span className="font-head font-bold text-sm uppercase tracking-widest text-muted-stitch">Direct Messages</span>
+                <button data-testid="new-dm-btn" onClick={() => setShowDmPicker(true)} className="neu-btn w-8 h-8 rounded-lg flex items-center justify-center text-primary-stitch">
                   <Plus className="w-4 h-4" />
                 </button>
               </div>
               <div className="space-y-2 overflow-y-auto">
-                {channels.map((c) => (
-                  <button key={c.channel_id} onClick={() => setActiveCh(c)}
-                    className={`w-full rounded-xl py-2 px-3 flex items-center gap-2 text-sm font-medium ${activeCh?.channel_id === c.channel_id ? "neu-pressed text-primary-stitch" : "text-muted-stitch neu-hover"}`}>
-                    <Hash className="w-4 h-4 shrink-0" /> <span className="truncate">{c.name}</span>
+                {dms.length === 0 && <p className="text-xs text-muted-stitch">No conversations yet. Start one with a connection.</p>}
+                {dms.map((d) => (
+                  <button key={d.dm_id} data-testid="dm-item" onClick={() => selectDm(d)}
+                    className={`w-full rounded-xl py-2 px-3 flex items-center gap-2 text-sm font-medium ${activeCh?.channel_id === d.dm_id ? "neu-pressed text-primary-stitch" : "text-muted-stitch neu-hover"}`}>
+                    <span className="relative shrink-0">
+                      <MessageSquare className="w-4 h-4" />
+                      {d.other?.online && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-green-500" />}
+                    </span>
+                    <span className="truncate">{d.other?.name}</span>
                   </button>
                 ))}
               </div>
@@ -121,6 +186,35 @@ export default function Messages() {
           )}
         </div>
       </div>
+
+      {showDmPicker && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.5)" }} onClick={() => setShowDmPicker(false)}>
+          <div onClick={(e) => e.stopPropagation()} className="neu-raised rounded-3xl p-8 w-full max-w-md animate-fade-up">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="font-head font-bold text-2xl" style={{ color: "var(--text)" }}>New message</h3>
+              <button onClick={() => setShowDmPicker(false)} className="text-muted-stitch"><X className="w-5 h-5" /></button>
+            </div>
+            <p className="text-sm text-muted-stitch mb-4">Pick a connection to message. Add more people from the People page.</p>
+            <div className="space-y-2 max-h-80 overflow-y-auto">
+              {friends.length === 0 && <p className="text-sm text-muted-stitch">You have no connections yet.</p>}
+              {friends.map((f) => (
+                <button key={f.user_id} data-testid="dm-friend-option" onClick={() => startDm(f.user_id)}
+                  className="w-full neu-hover rounded-2xl p-3 flex items-center gap-3 text-left">
+                  <span className="relative neu-sm w-9 h-9 rounded-full flex items-center justify-center overflow-hidden shrink-0">
+                    {f.avatar ? <img src={f.avatar} alt="" className="w-full h-full object-cover" /> :
+                      <span className="font-head font-bold text-sm text-primary-stitch">{(f.name || "U")[0].toUpperCase()}</span>}
+                    {f.online && <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-green-500 border border-[var(--surface)]" />}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>{f.name}</p>
+                    <p className="text-xs text-muted-stitch truncate">{f.online ? "Online" : "Offline"}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Chat area */}
       <div className="flex-1 p-4 pl-0 min-w-0">
@@ -141,15 +235,21 @@ export default function Messages() {
           ) : (
             <>
               <div className="p-5 border-b flex items-center gap-3" style={{ borderColor: "var(--border)" }}>
-                <Hash className="w-6 h-6 text-primary-stitch" />
+                {activeCh.type === "dm" ? <MessageSquare className="w-6 h-6 text-primary-stitch" /> : <Hash className="w-6 h-6 text-primary-stitch" />}
                 <div>
                   <h2 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>{activeCh.name}</h2>
-                  <p className="text-xs text-muted-stitch">{activeWs?.name}</p>
+                  <p className="text-xs text-muted-stitch flex items-center gap-1.5">
+                    {activeCh.type === "dm" ? (
+                      <>{activeCh.other?.online && <span className="w-2 h-2 rounded-full bg-green-500" />}{activeCh.other?.online ? "Online" : "Direct message"}</>
+                    ) : (activeWs?.name)}
+                  </p>
                 </div>
-                <button data-testid="workspace-members-btn" onClick={() => setShowMembers(true)}
-                  className="neu-btn ml-auto rounded-xl px-4 py-2 flex items-center gap-2 text-sm font-semibold text-primary-stitch">
-                  <UserPlus className="w-4 h-4" /> Members
-                </button>
+                {activeWs && activeCh.type !== "dm" && (
+                  <button data-testid="workspace-members-btn" onClick={() => setShowMembers(true)}
+                    className="neu-btn ml-auto rounded-xl px-4 py-2 flex items-center gap-2 text-sm font-semibold text-primary-stitch">
+                    <UserPlus className="w-4 h-4" /> Members
+                  </button>
+                )}
               </div>
 
               <div className="neu-pressed m-4 rounded-2xl flex-1 overflow-y-auto p-5 space-y-4">
@@ -208,25 +308,34 @@ export default function Messages() {
 
 function MembersModal({ workspace, onClose }) {
   const [members, setMembers] = useState([]);
+  const [friends, setFriends] = useState([]);
   const [email, setEmail] = useState("");
   const [inviting, setInviting] = useState(false);
 
   const load = useCallback(() => {
     api.get(`/workspaces/${workspace.workspace_id}/members`).then(({ data }) => setMembers(data));
   }, [workspace.workspace_id]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); api.get("/friends").then(({ data }) => setFriends(data)); }, [load]);
 
+  const inviteEmail = async (target) => {
+    await api.post(`/workspaces/${workspace.workspace_id}/invite`, { email: target });
+    load();
+  };
   const invite = async (e) => {
     e.preventDefault();
     if (!email.trim()) return;
     setInviting(true);
     try {
-      await api.post(`/workspaces/${workspace.workspace_id}/invite`, { email: email.trim() });
+      await inviteEmail(email.trim());
       toast.success(`Invited ${email.trim()}`);
-      setEmail(""); load();
+      setEmail("");
     } catch (err) {
       toast.error(err.response?.data?.detail || "Could not invite");
     } finally { setInviting(false); }
+  };
+  const quickAdd = async (f) => {
+    try { await inviteEmail(f.email); toast.success(`Added ${f.name}`); }
+    catch (err) { toast.error(err.response?.data?.detail || "Could not add"); }
   };
 
   const removeMember = async (uid) => {
@@ -257,6 +366,22 @@ function MembersModal({ workspace, onClose }) {
             {inviting ? "…" : "Invite"}
           </button>
         </form>
+
+        {friends.filter((f) => !members.some((m) => m.user_id === f.user_id)).length > 0 && (
+          <div className="mb-5">
+            <p className="text-xs uppercase tracking-widest text-muted-stitch mb-2">Add from your connections</p>
+            <div className="flex flex-wrap gap-2">
+              {friends.filter((f) => !members.some((m) => m.user_id === f.user_id)).map((f) => (
+                <button key={f.user_id} data-testid="quick-add-friend" onClick={() => quickAdd(f)}
+                  className="neu-btn rounded-full pl-2 pr-3 py-1.5 flex items-center gap-2 text-sm">
+                  <span className="neu-sm w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-primary-stitch">{(f.name || "U")[0].toUpperCase()}</span>
+                  <span style={{ color: "var(--text)" }}>{f.name}</span>
+                  <UserPlus className="w-3.5 h-3.5 text-primary-stitch" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="space-y-2 max-h-72 overflow-y-auto">
           {members.map((m) => (
