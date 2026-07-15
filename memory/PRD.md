@@ -60,6 +60,11 @@ Build a fully functional, dynamic, beautiful, heavily neumorphic web app (Slack/
 - Live typing indicators on channels and DMs via WebSocket (`{type:'typing'}` broadcast), auto-dismiss after 3s.
 - Verified (iteration_5): unread badges (rail + sidebar, clear on open) and typing indicator pass 100% across two browser sessions.
 
+## Implemented (2026-06-20)
+- Notification controls: user Settings > Notifications toggles (master + workspace/project/friend) and admin Notifications tab for platform-wide on/off. create_notification gates on both admin-global and per-user prefs.
+- Actionable AI assistant (`/api/ai/agent`): Stitch AI can create projects/workspaces, add connections, list/show stats for users, and (admin-only, guardrailed) toggle features and manage user accounts; shows an action chip + result items. Robust envelope parser (fixed double-envelope/tool-prefix bug in iteration_6→7).
+- Verified (iteration_6 & 7, 100%): notification prefs gate delivery, admin global controls work, AI actions execute with non-admin guardrails, and no raw JSON leaks.
+
 ## Backlog / Next
 - P1: Direct messages (1:1), workspace member invites, message edit/delete + typing indicators.
 - P1: Actually invoke connected integrations (trigger N8N workflows, pull files from connected cloud storage).
