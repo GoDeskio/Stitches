@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Users, Layers, FolderKanban, FolderOpen, Plug, MessagesSquare, Shield,
   ToggleRight, Search, Activity, Grid3x3, LayoutDashboard, KeyRound, LogIn, BadgeCheck, Bell,
+  Ban, UserCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import api, { API } from "@/lib/api";
@@ -95,7 +96,7 @@ function UsersTab() {
 
   const toggleActive = async (u) => {
     await api.put(`/admin/users/${u.user_id}`, { is_active: u.is_active === false });
-    toast.success(u.is_active === false ? "Account enabled" : "Account disabled"); load();
+    toast.success(u.is_active === false ? "Account reinstated" : "Account disabled"); load();
   };
   const toggleRole = async (u) => {
     await api.put(`/admin/users/${u.user_id}`, { role: u.role === "admin" ? "user" : "admin" });
@@ -126,9 +127,16 @@ function UsersTab() {
           </div>
           {u.is_active === false && <span className="text-xs px-3 py-1 rounded-full neu-sm text-red-500 font-semibold">Disabled</span>}
           <RolePill role={u.role} />
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center flex-wrap">
+            <button
+              data-testid="btn-active"
+              onClick={() => toggleActive(u)}
+              className={`text-sm font-semibold rounded-xl px-4 py-2 flex items-center gap-2 transition-transform hover:scale-[1.03] ${u.is_active === false ? "neu-primary" : "neu-sm text-red-500"}`}
+              title={u.is_active === false ? "Reinstate this account" : "Disable this account"}
+            >
+              {u.is_active === false ? <><UserCheck className="w-4 h-4" /> Reinstate Account</> : <><Ban className="w-4 h-4" /> Disable Account</>}
+            </button>
             <ActionBtn onClick={() => toggleRole(u)} icon={BadgeCheck} title="Toggle admin" testid="btn-role" />
-            <ActionBtn onClick={() => toggleActive(u)} icon={ToggleRight} title="Enable/disable" testid="btn-active" />
             <ActionBtn onClick={() => resetPw(u)} icon={KeyRound} title="Reset password" testid="btn-reset" />
             <ActionBtn onClick={() => impersonate(u)} icon={LogIn} title="Login as user" testid="btn-impersonate" primary />
           </div>
