@@ -18,6 +18,8 @@ import AiAssistant from "@/pages/AiAssistant";
 import Profile from "@/pages/Profile";
 import People from "@/pages/People";
 import Notes from "@/pages/Notes";
+import Activity from "@/pages/Activity";
+import Downloads from "@/pages/Downloads";
 import Settings from "@/pages/Settings";
 import Admin from "@/pages/Admin";
 
@@ -60,6 +62,8 @@ function AppRouter() {
         <Route path="/profile" element={<Profile />} />
         <Route path="/people" element={<People />} />
         <Route path="/notes" element={<Notes />} />
+        <Route path="/activity" element={<Activity />} />
+        <Route path="/downloads" element={<Downloads />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/admin" element={<Admin />} />
       </Route>

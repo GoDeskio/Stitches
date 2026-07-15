@@ -1,0 +1,30 @@
+{
+  "summary": "Tested encryption-at-rest for integrations, user activity log isolation, admin search-by-user (Monitoring), Downloads page, and login regression for all 4 seed accounts. Backend pytest 14/14 passed. Frontend flows all verified end-to-end.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_encryption_activity_admin.py",
+    "/app/test_reports/pytest/iteration_11.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is ~1700 lines - splitting into modules (auth, integrations, admin, activity) is overdue.",
+    "ENCRYPTION_KEY is read at module import (`os.environ[...]` without default) - good fail-fast, but consider logging a startup-time confirmation that encryption is active.",
+    "Fernet decrypt in list_integrations happens per row - fine at current scale, but if a stored ciphertext is corrupted, decrypt_config raises InvalidToken and the entire GET /api/integrations 500s; consider wrapping per-field with try/except and marking the field as unrecoverable.",
+    "GET /api/admin/users/{id}/activity has no pagination/limit param beyond the hard-coded 300 - acceptable for now, revisit if activity_log grows."
+  ],
+  "updated_files": ["/app/backend/tests/test_encryption_activity_admin.py"],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100% verified flows"},
+  "test_credentials": "admin@stitches.app/Admin@123, demo@stitches.app/Demo@123, alice@stitches.app/Alice@123, bob@stitches.app/Bob@123",
+  "seed_data_creation": "Created and cleaned up TEST_ n8n and s3 integrations for demo user; created and deleted a TEST note for alice. No residue.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend tests in /app/backend/tests/test_encryption_activity_admin.py directly inspect Mongo to verify Fernet ciphertext (gAAAAA prefix). httpbin.org/post used as N8N target. Admin search-by-user uses /admin/users then /admin/users/{id}/activity; testids: user-activity-search, user-search-result, drilldown-logs, clear-user-selection. Downloads page testids: download-{windows,macos,linux}.",
+  "verification_details": {
+    "encryption": "raw 'config' absent from all API responses (create, list, admin); secret fields (api_key/token/access_key/secret_key/access_token/password) rendered as bullets in config_masked; non-secret fields (region/bucket/provider/model) cleartext; Mongo integrations.config.token stored as Fernet ciphertext starting 'gAAAAA' - direct DB inspection confirmed. N8N /run to httpbin.org/post returned status=200 (decrypt path works). S3 /files with bad creds returned 400 (graceful).",
+    "activity_isolation": "GET /api/activity/me returns only entries where user_id == caller (verified for alice and bob). Alice created a note via API -> 'Created a note' appeared as top row on /activity page (112 rows total).",
+    "admin_search": "Search 'alice' returned 1 result; clicking loaded 112 drilldown-logs entries; 'Back to search' cleared selection.",
+    "downloads": "/downloads renders all 3 platform cards + build-instructions; no console errors.",
+    "regression": "All 4 accounts login OK; integrations catalog still returns 6 connectors."
+  }
+}

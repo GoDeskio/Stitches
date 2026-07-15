@@ -238,6 +238,7 @@ function MonitoringTab() {
   const [users, setUsers] = useState([]);
   const [selUser, setSelUser] = useState("");
   const [userLogs, setUserLogs] = useState(null);
+  const [userSearch, setUserSearch] = useState("");
   useEffect(() => {
     api.get("/admin/monitoring").then(({ data }) => setData(data));
     api.get("/admin/users").then(({ data }) => setUsers(data));
@@ -306,15 +307,36 @@ function MonitoringTab() {
       </div>
 
       <div className="neu-raised rounded-[1.75rem] p-7 animate-fade-up">
-        <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
-          <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Per-user Activity</h3>
-          <select data-testid="drilldown-user-select" value={selUser} onChange={(e) => loadUser(e.target.value)}
-            className="neu-input rounded-2xl py-2.5 px-4 font-medium cursor-pointer" style={{ color: "var(--text)" }}>
-            <option value="">Select a user…</option>
-            {users.map((u) => <option key={u.user_id} value={u.user_id}>{u.name} ({u.email})</option>)}
-          </select>
+        <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+          <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>User Activity — search by user</h3>
         </div>
-        {!selUser && <p className="text-muted-stitch text-sm">Choose a member to trace exactly what they did and when.</p>}
+        <div className="relative mb-4">
+          <Search className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-muted-stitch" />
+          <input data-testid="user-activity-search" value={userSearch} onChange={(e) => setUserSearch(e.target.value)}
+            placeholder="Search members by name or email…" className="neu-input w-full rounded-2xl py-3 pl-12 pr-4" />
+        </div>
+        {userSearch.trim() && !selUser && (
+          <div className="space-y-2 max-h-56 overflow-y-auto mb-2" data-testid="user-search-results">
+            {users.filter((u) => `${u.name} ${u.email}`.toLowerCase().includes(userSearch.toLowerCase())).slice(0, 20).map((u) => (
+              <button key={u.user_id} data-testid="user-search-result" onClick={() => loadUser(u.user_id)}
+                className="w-full neu-pressed neu-hover rounded-2xl p-3 flex items-center gap-3 text-left">
+                <Avatar u={u} />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>{u.name}</p>
+                  <p className="text-xs text-muted-stitch truncate">{u.email}</p>
+                </div>
+              </button>
+            ))}
+            {users.filter((u) => `${u.name} ${u.email}`.toLowerCase().includes(userSearch.toLowerCase())).length === 0 && (
+              <p className="text-sm text-muted-stitch p-2">No members match “{userSearch}”.</p>
+            )}
+          </div>
+        )}
+        {selUser && (
+          <button data-testid="clear-user-selection" onClick={() => { setSelUser(""); setUserLogs(null); }}
+            className="neu-btn rounded-full px-4 py-1.5 text-sm font-semibold text-primary-stitch mb-4">← Back to search</button>
+        )}
+        {!selUser && !userSearch.trim() && <p className="text-muted-stitch text-sm">Search for a member to trace exactly what they did and when.</p>}
         {selUser && userLogs === null && <Loader />}
         {userLogs && userLogs.length === 0 && <p className="text-muted-stitch text-sm">No recorded activity for this user.</p>}
         {userLogs && userLogs.length > 0 && (

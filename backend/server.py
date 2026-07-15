@@ -132,6 +132,34 @@ async def log_activity(user_id, action, meta=None):
         "created_at": now_iso()})
 
 
+from cryptography.fernet import Fernet
+_fernet = Fernet(os.environ["ENCRYPTION_KEY"].encode())
+SECRET_FIELDS = {"api_key", "token", "access_key", "secret_key", "access_token", "password"}
+
+
+def encrypt_config(cfg: dict) -> dict:
+    out = {}
+    for k, v in (cfg or {}).items():
+        if v in (None, "") or not isinstance(v, str):
+            out[k] = v
+        else:
+            out[k] = _fernet.encrypt(v.encode()).decode()
+    return out
+
+
+def decrypt_config(cfg: dict) -> dict:
+    out = {}
+    for k, v in (cfg or {}).items():
+        if isinstance(v, str) and v:
+            try:
+                out[k] = _fernet.decrypt(v.encode()).decode()
+            except Exception:
+                out[k] = v  # legacy plaintext
+        else:
+            out[k] = v
+    return out
+
+
 async def get_notif_global():
     doc = await db.settings.find_one({"key": "notifications_global"})
     prefs = dict(DEFAULT_NOTIF_PREFS)
@@ -763,8 +791,8 @@ async def list_integrations(user: dict = Depends(get_current_user)):
     items = await db.integrations.find({"owner_id": user["user_id"]}, {"_id": 0}).to_list(200)
     actions_by_type = {c["type"]: c.get("actions", []) for c in INTEGRATION_CATALOG}
     for it in items:
-        cfg = it.get("config", {})
-        it["config_masked"] = {k: ("••••••" if k in ("api_key", "token", "access_key", "secret_key", "access_token") and v else v) for k, v in cfg.items()}
+        cfg = decrypt_config(it.get("config", {}))
+        it["config_masked"] = {k: ("••••••" if k in SECRET_FIELDS and v else v) for k, v in cfg.items()}
         it["actions"] = actions_by_type.get(it.get("type"), [])
         it.pop("config", None)
     return items
@@ -774,7 +802,7 @@ async def list_integrations(user: dict = Depends(get_current_user)):
 async def create_integration(data: IntegrationInput, user: dict = Depends(get_current_user)):
     await ensure_feature("integrations")
     doc = {"integration_id": f"int_{uuid.uuid4().hex[:12]}", "type": data.type,
-           "name": data.name, "config": data.config, "owner_id": user["user_id"],
+           "name": data.name, "config": encrypt_config(data.config), "owner_id": user["user_id"],
            "status": "connected", "created_at": now_iso()}
     await db.integrations.insert_one(doc)
     await log_activity(user["user_id"], "integration_connect", {"type": data.type})
@@ -796,6 +824,7 @@ async def _get_owned_integration(integration_id: str, user: dict) -> dict:
     it = await db.integrations.find_one(q)
     if not it:
         raise HTTPException(status_code=404, detail="Integration not found")
+    it["config"] = decrypt_config(it.get("config", {}))
     return it
 
 
@@ -1302,6 +1331,12 @@ async def admin_set_seo(data: SeoInput, user: dict = Depends(require_admin)):
 
 
 # ---------------- Monitoring & Heatmap ----------------
+@api_router.get("/activity/me")
+async def my_activity(user: dict = Depends(get_current_user)):
+    logs = await db.activity_log.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).to_list(300)
+    return logs
+
+
 @api_router.get("/admin/monitoring")
 async def admin_monitoring(user: dict = Depends(require_admin)):
     now = datetime.now(timezone.utc)

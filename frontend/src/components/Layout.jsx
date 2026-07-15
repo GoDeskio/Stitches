@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import {
   LayoutDashboard, MessagesSquare, FolderKanban, FolderOpen, Plug,
   Sparkles, User, Settings, Shield, LogOut, Menu, Sun, Moon, Users, Eye, StickyNote,
+  Activity, Download,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -20,6 +21,8 @@ const NAV = [
   { to: "/assistant", label: "AI Assistant", icon: Sparkles, flag: "ai_assistant" },
   { to: "/notes", label: "Notes", icon: StickyNote, flag: null },
   { to: "/people", label: "People", icon: Users, flag: "friends" },
+  { to: "/activity", label: "Activity", icon: Activity, flag: null },
+  { to: "/downloads", label: "Downloads", icon: Download, flag: null },
 ];
 
 export default function Layout() {

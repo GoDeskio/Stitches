@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="14" time="6.864" timestamp="2026-07-15T22:18:37.195126+00:00" hostname="agent-env-0ad19cd9-5677-4eba-9ff7-ba7a5374d6b2"><testcase classname="tests.test_encryption_activity_admin.TestLoginRegression" name="test_login_ok[admin]" time="0.359" /><testcase classname="tests.test_encryption_activity_admin.TestLoginRegression" name="test_login_ok[demo]" time="0.514" /><testcase classname="tests.test_encryption_activity_admin.TestLoginRegression" name="test_login_ok[alice]" time="0.516" /><testcase classname="tests.test_encryption_activity_admin.TestLoginRegression" name="test_login_ok[bob]" time="0.506" /><testcase classname="tests.test_encryption_activity_admin.TestEncryption" name="test_create_masks_and_no_config_returned" time="2.408" /><testcase classname="tests.test_encryption_activity_admin.TestEncryption" name="test_list_returns_masked_and_no_raw_config" time="0.104" /><testcase classname="tests.test_encryption_activity_admin.TestEncryption" name="test_at_rest_encrypted_in_mongo" time="0.001"><failure message="pymongo.errors.InvalidURI: Invalid URI scheme: URI must begin with 'mongodb://' or 'mongodb+srv://'">backend/tests/test_encryption_activity_admin.py:117: in test_at_rest_encrypted_in_mongo
+    asyncio.run(_check())
+/usr/local/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/asyncio/base_events.py:654: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+backend/tests/test_encryption_activity_admin.py:105: in _check
+    cli = AsyncIOMotorClient(mongo_url)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/motor/core.py:148: in __init__
+    delegate = self.__delegate_class__(*args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/pymongo/mongo_client.py:771: in __init__
+    res = uri_parser.parse_uri(
+/root/.venv/lib/python3.11/site-packages/pymongo/uri_parser.py:497: in parse_uri
+    raise InvalidURI(f"Invalid URI scheme: URI must begin with '{SCHEME}' or '{SRV_SCHEME}'")
+E   pymongo.errors.InvalidURI: Invalid URI scheme: URI must begin with 'mongodb://' or 'mongodb+srv://'</failure></testcase><testcase classname="tests.test_encryption_activity_admin.TestEncryption" name="test_n8n_run_still_works_after_encryption" time="0.659" /><testcase classname="tests.test_encryption_activity_admin.TestEncryption" name="test_storage_bad_creds_graceful" time="0.362" /><testcase classname="tests.test_encryption_activity_admin.TestAdminUserActivity" name="test_admin_lists_users_and_pulls_activity" time="1.931" /><testcase classname="tests.test_encryption_activity_admin.TestEncryption" name="test_cleanup" time="1.659" /><testcase classname="tests.test_encryption_activity_admin.TestAdminUserActivity" name="test_non_admin_cannot_pull_others_activity" time="0.209" /><testcase classname="tests.test_encryption_activity_admin.TestIntegrationCatalog" name="test_catalog_six" time="0.092" /><testcase classname="tests.test_encryption_activity_admin.TestActivity" name="test_me_returns_own_only" time="0.932" /></testsuite></testsuites>
