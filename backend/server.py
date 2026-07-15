@@ -483,10 +483,15 @@ async def update_profile(data: ProfileUpdate, user: dict = Depends(get_current_u
 
 @api_router.post("/users/me/avatar")
 async def upload_avatar(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    ct = file.content_type or ""
+    if not ct.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
     ext = file.filename.split(".")[-1].lower() if "." in file.filename else "png"
-    path = f"{APP_NAME}/avatars/{user['user_id']}/{uuid.uuid4()}.{ext}"
     data = await file.read()
-    result = put_object(path, data, file.content_type or "image/png")
+    if len(data) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image too large (max 5MB)")
+    path = f"{APP_NAME}/avatars/{user['user_id']}/{uuid.uuid4()}.{ext}"
+    result = put_object(path, data, ct or "image/png")
     base = os.environ.get("FRONTEND_URL", "").rstrip("/")
     avatar_url = f"{base}/api/users/{user['user_id']}/avatar-image?v={uuid.uuid4().hex[:8]}"
     await db.users.update_one({"user_id": user["user_id"]},
@@ -723,13 +728,32 @@ async def update_project(project_id: str, data: ProjectUpdate, user: dict = Depe
 
 @api_router.delete("/projects/{project_id}")
 async def delete_project(project_id: str, user: dict = Depends(get_current_user)):
-    await db.projects.delete_one({"project_id": project_id, "owner_id": user["user_id"]})
-    await db.tasks.delete_many({"project_id": project_id})
+    res = await db.projects.delete_one({"project_id": project_id, "owner_id": user["user_id"]})
+    if res.deleted_count:
+        await db.tasks.delete_many({"project_id": project_id})
     return {"ok": True}
+
+
+async def _require_project_member(project_id: str, user: dict) -> dict:
+    proj = await db.projects.find_one({"project_id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if user.get("role") != "admin" and user["user_id"] not in proj.get("members", []):
+        raise HTTPException(status_code=403, detail="You are not a member of this project")
+    return proj
+
+
+async def _task_for_member(task_id: str, user: dict) -> dict:
+    t = await db.tasks.find_one({"task_id": task_id})
+    if not t:
+        raise HTTPException(status_code=404, detail="Task not found")
+    await _require_project_member(t["project_id"], user)
+    return t
 
 
 @api_router.get("/projects/{project_id}/tasks")
 async def list_tasks(project_id: str, user: dict = Depends(get_current_user)):
+    await _require_project_member(project_id, user)
     tasks = await db.tasks.find({"project_id": project_id}, {"_id": 0}).sort("created_at", 1).to_list(500)
     return tasks
 
@@ -737,6 +761,7 @@ async def list_tasks(project_id: str, user: dict = Depends(get_current_user)):
 @api_router.post("/projects/{project_id}/tasks")
 async def create_task(project_id: str, data: TaskInput, user: dict = Depends(get_current_user)):
     await ensure_feature("projects")
+    await _require_project_member(project_id, user)
     doc = {"task_id": f"task_{uuid.uuid4().hex[:12]}", "project_id": project_id,
            "title": data.title, "description": data.description or "",
            "status": data.status or "todo", "owner_id": user["user_id"], "created_at": now_iso()}
@@ -748,6 +773,7 @@ async def create_task(project_id: str, data: TaskInput, user: dict = Depends(get
 
 @api_router.put("/tasks/{task_id}")
 async def update_task(task_id: str, data: TaskUpdate, user: dict = Depends(get_current_user)):
+    await _task_for_member(task_id, user)
     updates = {k: v for k, v in data.model_dump().items() if v is not None}
     if updates:
         await db.tasks.update_one({"task_id": task_id}, {"$set": updates})
@@ -757,6 +783,7 @@ async def update_task(task_id: str, data: TaskUpdate, user: dict = Depends(get_c
 
 @api_router.delete("/tasks/{task_id}")
 async def delete_task(task_id: str, user: dict = Depends(get_current_user)):
+    await _task_for_member(task_id, user)
     await db.tasks.delete_one({"task_id": task_id})
     return {"ok": True}
 

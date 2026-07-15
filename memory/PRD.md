@@ -88,8 +88,14 @@ Build a fully functional, dynamic, beautiful, heavily neumorphic web app (Slack/
 - **Downloads page** (`/downloads`, left-nav) + **Electron desktop client** scaffold in `/app/desktop` (main.js loads the live dashboard with a persistent session so users stay signed in; README + build scripts). NOTE: installers must be built from `/app/desktop` outside this sandbox — no binaries are compiled here.
 - Verified (iteration_11, 14/14 backend + 100% frontend): encryption no-leak (Mongo stores `gAAAAA…` ciphertext), activity isolation, admin search-by-user, downloads render, all-account login regression.
 
+## Implemented (2026-07-16, part 3)
+- **Avatar image upload**: upload a photo from device in Settings → object storage; served via public `GET /api/users/{id}/avatar-image`; shows across app. Validated image MIME + 5MB cap.
+- **Kanban task boards** per project (`/projects/:id/board`): To Do / In Progress / Done, drag-and-drop + move buttons, add/delete tasks, cascade-delete with project. Task endpoints are project-membership gated (IDOR-safe; non-members 403).
+- **Dynamic UI scaling** confirmed working: Settings slider (80%–130%) → `--ui-scale` → root font-size, persisted.
+- **GitHub Actions CI** (`.github/workflows/desktop-build.yml`): builds Win/macOS/Linux desktop installers on tag push and publishes a Release.
+- Verified (iteration_12, 9/9 backend + 100% frontend) + post-review security hardening (task membership checks, avatar validation, owner-scoped cascade).
+
 ## Backlog / Next
-- P2: Dynamic UI text-size / accessibility scaling control (theme toggle already exists).
-- P2: Refactor server.py (~1700 lines) into routers (auth/messages/integrations/admin/activity); split Messages.jsx.
-- P2: Google Drive OAuth refresh-token flow (currently manual token); avatar image upload; kanban task boards on Projects.
-- P3: Build & host actual desktop installers (GitHub Actions) and wire the Downloads buttons to releases.
+- P2: Refactor server.py (~1760 lines) into routers; split Messages.jsx.
+- P2: Google Drive OAuth refresh-token flow (needs user's Google OAuth client_id/secret; manual access token works for listing today).
+- P3: delete-avatar option; task descriptions/assignees/due dates; wire Downloads buttons to CI-published release URLs.
