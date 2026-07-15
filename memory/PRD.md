@@ -70,9 +70,14 @@ Build a fully functional, dynamic, beautiful, heavily neumorphic web app (Slack/
 - AI assistant acts on your behalf: new agent actions send_message (post to a channel), invite_to_workspace and invite_to_project (add people by email) with name resolution + notifications.
 - Verified (iteration_8, 100%): reactions single + cross-user (count 2) on channels and DMs, AI send/invite actions execute and reflect in the UI, no raw JSON leaks.
 
+## Implemented (2026-07-15)
+- Notes: private personal notes page (`/notes`, left-nav item) — create/edit/delete with title, content and color tag; owner-scoped via `/api/notes` (GET/POST/PUT/DELETE, owner_id filtered).
+- Admin user moderation: clear labeled **Disable Account** / **Reinstate Account** button next to each user in Admin > Users (toggles `is_active`); disabled users are blocked at login (403). Admin account is never a disable target.
+- Verified (iteration_9, 100%): Notes CRUD + per-user isolation and admin disable→login-blocked→reinstate all pass; reusable pytest at `/app/backend/tests/test_notes_and_admin.py`.
+
 ## Backlog / Next
-- P1: Direct messages (1:1), workspace member invites, message edit/delete + typing indicators.
-- P1: Actually invoke connected integrations (trigger N8N workflows, pull files from connected cloud storage).
-- P2: Notifications, presence/online status, project task boards (kanban).
-- P2: Split server.py into routers; use async HTTP client for storage; unique per-item data-testids.
-- P2: Avatar image upload (currently URL field).
+- P1: Reply threads + @mentions with mention notifications in channels.
+- P1: Actually invoke connected integrations (trigger N8N workflows, pull files from connected cloud storage) — currently placeholder catalogs.
+- P2: Dynamic UI text-size / accessibility scaling control (theme toggle already exists).
+- P2: Split server.py (~1460 lines) into routers; split Messages.jsx; use async HTTP client for storage.
+- P2: Avatar image upload (currently URL field); project task boards (kanban).
