@@ -1,0 +1,40 @@
+{
+  "summary": "Full backend + frontend e2e testing of Stitches. Backend: 14/14 pytest tests pass (auth, dashboard, workspaces/channels/messages, projects CRUD, assets upload/download/share/delete, integrations CRUD, profile update, AI SSE streaming, admin). Frontend: login (admin), dashboard render, sidebar toggle, workspace+channel+message send, project create, asset upload, integration wizard (n8n), AI Assistant streaming reply from Emergent LLM (Hi, great day!), settings save+persist+theme+scale, profile, admin dashboard, and non-admin correctly does not see nav-admin. All core flows work.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Assets", "issues": ["'Upload Asset' primary button is partly hidden behind the 'file(s) uploaded' toast notification (see screenshot); the toast overlaps the top-right buttons"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Data-testid mismatch vs spec (functionality OK, only affects future automated tests):",
+    "  - Login page uses submit-btn / email-input / password-input (spec expected login-submit-btn / login-email-input / login-password-input)",
+    "  - Dashboard has NO data-testid on stat cards; spec expected stat-card-workspaces/projects/assets/integrations/messages. Add data-testid=stat-card-{key} for each of the 5 cards and for the recent-projects/quick-actions blocks",
+    "  - Messages: individual workspaces and channels lack per-item testids; spec expected channel-item-{id} / workspace-item-{id}. Currently only new-workspace-btn, new-channel-btn, message-input, send-message-btn exist. Also there is no create-workspace-submit / workspace-name-input on the create-workspace modal (form only exposes generic input)",
+    "  - Projects: uses shared data-testid=\"project-card\" on every card instead of unique project-card-{id}; status pill and delete button lack testids",
+    "  - Assets: uses shared data-testid=\"asset-card\"; download/share/delete icon buttons on each card lack testids",
+    "  - Integrations: available items use integration-{type} (spec expected available-integration-{type}); wizard exposes only wizard-name and wizard-next, but wizard-field-{key} and wizard-connect are MISSING; connected items lack connected-integration-{id} testids and delete button lacks a testid",
+    "  - AI Assistant: page is served at /assistant (not /ai as implied by request)",
+    "Move the top-right toast notification below the primary action buttons on Assets page (currently overlaps 'Upload Asset')"
+  ],
+  "critical_code_review_comments": [
+    "server.py is 700+ lines and mixes auth, storage, WS, AI, admin, dashboard. Consider splitting into routers (auth.py, workspaces.py, assets.py, ai.py, admin.py).",
+    "init_storage() and put_object()/get_object() use blocking requests inside async endpoints; upload/download will block the event loop. Use httpx.AsyncClient or run_in_threadpool.",
+    "login_attempts: locked_until is only refreshed on failure; even after the 15-minute window, count is never reset unless a successful login occurs (successful login deletes the record). If the user keeps trying with a wrong password past the lock window, count keeps growing. Consider resetting count when locked_until expires.",
+    "download_asset() reads full object into memory then returns a Response; use StreamingResponse for large files.",
+    "AI ai_chat imports emergentintegrations lazily inside the endpoint on every request - acceptable but move to module-level.",
+    "CORS uses env FRONTEND_URL default localhost:3000 - production URL is behind Kubernetes ingress; verify FRONTEND_URL is set correctly to production preview URL, otherwise credentialed requests from prod origin will be blocked.",
+    "Frontend uses generic (non-unique) data-testids for list items (project-card, asset-card), which is a testability anti-pattern. Add unique suffixes."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100% functional (all 12 requested flows work); ~65% of spec-defined data-testids present"},
+  "test_credentials": "admin@stitches.app / Admin@123 (admin), demo@stitches.app / Demo@123 (verified via login). Registered ephemeral test users work.",
+  "seed_data_creation": "Created 1 test workspace (TEST_WS_*), 1 test channel, 1 test project, 2 uploaded assets, 1 connected n8n integration under the admin account and 1 non-admin test user for admin-visibility check.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Login testids are submit-btn/email-input/password-input; AI page route is /assistant; use text selectors for channel items until per-item testids are added; wizard-connect testid is not present, but hitting wizard-next after the field step does complete the integration.",
+  "rca of the issue": "No functional bugs. Only testability/labeling gaps between the implementation and the spec's expected data-testids."
+}

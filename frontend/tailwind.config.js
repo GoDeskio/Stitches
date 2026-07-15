@@ -24,7 +24,7 @@ module.exports = {
           foreground: 'hsl(var(--popover-foreground))'
         },
         primary: {
-          DEFAULT: 'hsl(var(--primary))',
+          DEFAULT: 'hsl(var(--primary-c))',
           foreground: 'hsl(var(--primary-foreground))'
         },
         secondary: {
@@ -43,7 +43,7 @@ module.exports = {
           DEFAULT: 'hsl(var(--destructive))',
           foreground: 'hsl(var(--destructive-foreground))'
         },
-        border: 'hsl(var(--border))',
+        border: 'hsl(var(--border-c))',
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',
         chart: {
