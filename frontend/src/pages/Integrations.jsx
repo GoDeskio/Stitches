@@ -31,6 +31,13 @@ export default function Integrations() {
   const openWizard = (item) => { setWizard(item); setStep(0); setForm({}); setName(item.name); setMethod(methodsOf(item)[0]); };
   const closeWizard = () => setWizard(null);
 
+  useEffect(() => {
+    if (!wizard) return;
+    const onKey = (e) => { if (e.key === "Escape") closeWizard(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [wizard]);
+
   const connect = async () => {
     setSaving(true);
     try {

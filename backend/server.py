@@ -1091,7 +1091,7 @@ async def test_integration(integration_id: str, user: dict = Depends(get_current
         if t == "email":
             def _t():
                 import imaplib
-                m = imaplib.IMAP4_SSL(cfg.get("imap_host"))
+                m = imaplib.IMAP4_SSL(cfg.get("imap_host"), timeout=10)
                 m.login(cfg.get("email"), cfg.get("password"))
                 m.logout()
                 return True
@@ -1101,6 +1101,8 @@ async def test_integration(integration_id: str, user: dict = Depends(get_current
             base = cfg.get("base_url")
             if not base:
                 return {"ok": False, "message": "No app URL configured."}
+            if not (cfg.get("username") or cfg.get("password") or cfg.get("api_key")):
+                return {"ok": False, "message": "Enter a username & password or an API key to connect."}
             auth = (cfg.get("username", ""), cfg.get("password", "")) if cfg.get("username") or cfg.get("password") else None
             headers = {"Authorization": f"Bearer {cfg['api_key']}"} if cfg.get("api_key") else {}
             async with httpx.AsyncClient() as client:

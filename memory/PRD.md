@@ -95,7 +95,11 @@ Build a fully functional, dynamic, beautiful, heavily neumorphic web app (Slack/
 - **GitHub Actions CI** (`.github/workflows/desktop-build.yml`): builds Win/macOS/Linux desktop installers on tag push and publishes a Release.
 - Verified (iteration_12, 9/9 backend + 100% frontend) + post-review security hardening (task membership checks, avatar validation, owner-scoped cascade).
 
+## Implemented (2026-07-16, part 4)
+- **Beginner-friendly integration connections**: each connector now offers one or more **connection methods** with plain-language help + placeholders. Added **Email (IMAP)** (connect with email + password) and **Custom App** (username+password OR API key) connectors. N8N adds a "link + username/password" (Basic Auth) method; N8N run supports Basic Auth. Test actions do real checks (IMAP login, HTTP basic-auth), fail gracefully. Wizard has method tabs, help callouts, Escape-to-close. All creds Fernet-encrypted at rest, masked in responses.
+- Verified (iteration_13, 12/12 backend pytest + 100% frontend). Hardening: IMAP socket timeout, Custom App test requires credentials.
+
 ## Backlog / Next
-- P2: Refactor server.py (~1760 lines) into routers; split Messages.jsx.
-- P2: Google Drive OAuth refresh-token flow (needs user's Google OAuth client_id/secret; manual access token works for listing today).
-- P3: delete-avatar option; task descriptions/assignees/due dates; wire Downloads buttons to CI-published release URLs.
+- P2 (NEXT, isolated): Refactor server.py (~1855 lines) into routers (auth/users/projects+tasks/integrations/admin/activity/messages); split Messages.jsx. Rename SECRET_FIELDS → MASKED_FIELDS.
+- P2: Google Drive / Dropbox one-click OAuth (needs platform OAuth client_id/secret from owner).
+- P3: Kanban due dates + assignees + "My tasks" dashboard widget; delete-avatar option; wire Downloads buttons to CI release URLs.
