@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Plus, Hash, Send, Layers, X, UserPlus, Mail } from "lucide-react";
+import { Plus, Hash, Send, Layers, X, UserPlus, Mail, UserMinus } from "lucide-react";
 import { toast } from "sonner";
 import api, { API } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -229,6 +229,13 @@ function MembersModal({ workspace, onClose }) {
     } finally { setInviting(false); }
   };
 
+  const removeMember = async (uid) => {
+    try {
+      await api.post(`/workspaces/${workspace.workspace_id}/remove`, { user_id: uid });
+      toast.success("Member removed"); load();
+    } catch (err) { toast.error(err.response?.data?.detail || "Could not remove"); }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.5)" }} onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} className="neu-raised rounded-3xl p-8 w-full max-w-md animate-fade-up">
@@ -258,10 +265,13 @@ function MembersModal({ workspace, onClose }) {
                 {m.avatar ? <img src={m.avatar} alt="" className="w-full h-full object-cover" /> :
                   <span className="font-head font-bold text-sm text-primary-stitch">{(m.name || "U")[0].toUpperCase()}</span>}
               </div>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>{m.name}</p>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>{m.name} {m.is_owner && <span className="text-xs text-muted-stitch">(owner)</span>}</p>
                 <p className="text-xs text-muted-stitch truncate">{m.email}</p>
               </div>
+              {!m.is_owner && (
+                <button data-testid="remove-member-btn" onClick={() => removeMember(m.user_id)} className="neu-btn w-8 h-8 rounded-lg flex items-center justify-center text-muted-stitch"><UserMinus className="w-4 h-4" /></button>
+              )}
             </div>
           ))}
         </div>

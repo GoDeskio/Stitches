@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, FolderKanban, Trash2, X } from "lucide-react";
+import { Plus, FolderKanban, Trash2, X, Users, UserMinus, UserPlus, Mail } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { PageShell, PageHeader, Loader, EmptyState } from "@/components/Stitch";
@@ -9,6 +9,7 @@ const STATUSES = ["active", "planning", "on-hold", "completed"];
 export default function Projects() {
   const [projects, setProjects] = useState(null);
   const [showModal, setShowModal] = useState(false);
+  const [memberProject, setMemberProject] = useState(null);
   const [form, setForm] = useState({ name: "", description: "", status: "active" });
 
   const load = () => api.get("/projects").then(({ data }) => setProjects(data));
@@ -50,7 +51,12 @@ export default function Projects() {
               </div>
               <h3 className="font-head font-bold text-xl mb-1" style={{ color: "var(--text)" }}>{p.name}</h3>
               <p className="text-sm text-muted-stitch flex-1 line-clamp-3">{p.description || "No description"}</p>
-              <button onClick={() => cycleStatus(p)} className="neu-sm mt-4 self-start text-xs px-4 py-1.5 rounded-full capitalize text-primary-stitch font-semibold">{p.status}</button>
+              <div className="flex items-center gap-2 mt-4">
+                <button onClick={() => cycleStatus(p)} className="neu-sm text-xs px-4 py-1.5 rounded-full capitalize text-primary-stitch font-semibold">{p.status}</button>
+                <button data-testid="project-members-btn" onClick={() => setMemberProject(p)} className="neu-btn text-xs px-4 py-1.5 rounded-full text-muted-stitch font-semibold flex items-center gap-1 ml-auto">
+                  <Users className="w-3.5 h-3.5" /> Members
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -77,6 +83,69 @@ export default function Projects() {
           </form>
         </div>
       )}
+      {memberProject && <ProjectMembersModal project={memberProject} onClose={() => setMemberProject(null)} />}
     </PageShell>
+  );
+}
+
+function ProjectMembersModal({ project, onClose }) {
+  const [members, setMembers] = useState([]);
+  const [email, setEmail] = useState("");
+  const [inviting, setInviting] = useState(false);
+
+  const load = () => api.get(`/projects/${project.project_id}/members`).then(({ data }) => setMembers(data));
+  useEffect(() => { load(); }, []); // eslint-disable-line
+
+  const invite = async (e) => {
+    e.preventDefault();
+    if (!email.trim()) return;
+    setInviting(true);
+    try {
+      await api.post(`/projects/${project.project_id}/invite`, { email: email.trim() });
+      toast.success(`Added ${email.trim()}`); setEmail(""); load();
+    } catch (err) { toast.error(err.response?.data?.detail || "Could not add"); } finally { setInviting(false); }
+  };
+  const remove = async (uid) => {
+    try { await api.post(`/projects/${project.project_id}/remove`, { user_id: uid }); toast.success("Removed"); load(); }
+    catch (err) { toast.error(err.response?.data?.detail || "Could not remove"); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.5)" }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="neu-raised rounded-3xl p-8 w-full max-w-md animate-fade-up">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h3 className="font-head font-bold text-2xl" style={{ color: "var(--text)" }}>Project Members</h3>
+            <p className="text-sm text-muted-stitch">{project.name}</p>
+          </div>
+          <button onClick={onClose} className="text-muted-stitch"><X className="w-5 h-5" /></button>
+        </div>
+        <form onSubmit={invite} className="flex gap-2 mb-6">
+          <div className="relative flex-1">
+            <Mail className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-muted-stitch" />
+            <input data-testid="project-invite-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+              placeholder="Add member by email" className="neu-input w-full rounded-2xl py-3 pl-12 pr-4" />
+          </div>
+          <button data-testid="project-invite-btn" type="submit" disabled={inviting} className="neu-primary rounded-2xl px-5 font-semibold"><UserPlus className="w-5 h-5" /></button>
+        </form>
+        <div className="space-y-2 max-h-72 overflow-y-auto">
+          {members.map((m) => (
+            <div key={m.user_id} className="neu-pressed rounded-2xl p-3 flex items-center gap-3">
+              <div className="neu-sm w-9 h-9 rounded-full flex items-center justify-center overflow-hidden shrink-0">
+                {m.avatar ? <img src={m.avatar} alt="" className="w-full h-full object-cover" /> :
+                  <span className="font-head font-bold text-sm text-primary-stitch">{(m.name || "U")[0].toUpperCase()}</span>}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>{m.name} {m.is_owner && <span className="text-xs text-muted-stitch">(owner)</span>}</p>
+                <p className="text-xs text-muted-stitch truncate">{m.email}</p>
+              </div>
+              {!m.is_owner && (
+                <button onClick={() => remove(m.user_id)} className="neu-btn w-8 h-8 rounded-lg flex items-center justify-center text-muted-stitch"><UserMinus className="w-4 h-4" /></button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }

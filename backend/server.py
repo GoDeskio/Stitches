@@ -117,6 +117,49 @@ def set_auth_cookie(response: Response, key: str, value: str, max_age: int):
                         samesite="none", max_age=max_age, path="/")
 
 
+DEFAULT_FEATURES = {"chat": True, "projects": True, "assets": True,
+                    "integrations": True, "ai_assistant": True, "friends": True}
+DEFAULT_SEO = {"title": "Stitches — Where Ideas are Stitched together",
+               "description": "A tactile neumorphic workspace for business & creative teams to chat, collaborate and share.",
+               "keywords": "collaboration, workspace, chat, projects, teams, creative",
+               "og_image": ""}
+
+
+async def log_activity(user_id, action, meta=None):
+    await db.activity_log.insert_one({
+        "user_id": user_id, "action": action, "meta": meta or {},
+        "created_at": now_iso()})
+
+
+async def create_notification(user_id, ntype, title, body, link=""):
+    await db.notifications.insert_one({
+        "notification_id": f"ntf_{uuid.uuid4().hex[:12]}", "user_id": user_id,
+        "type": ntype, "title": title, "body": body, "link": link,
+        "read": False, "created_at": now_iso()})
+
+
+async def get_feature_flags():
+    doc = await db.settings.find_one({"key": "feature_flags"})
+    flags = dict(DEFAULT_FEATURES)
+    if doc:
+        flags.update(doc.get("value", {}))
+    return flags
+
+
+async def ensure_feature(name):
+    flags = await get_feature_flags()
+    if not flags.get(name, True):
+        raise HTTPException(status_code=403, detail="This feature has been disabled by the administrator")
+
+
+async def get_seo_settings():
+    doc = await db.settings.find_one({"key": "seo"})
+    seo = dict(DEFAULT_SEO)
+    if doc:
+        seo.update(doc.get("value", {}))
+    return seo
+
+
 # ---------------- Storage ----------------
 storage_key = None
 
@@ -222,6 +265,34 @@ class AiInput(BaseModel):
     conversation_id: Optional[str] = None
 
 
+class SeoInput(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    keywords: Optional[str] = None
+    og_image: Optional[str] = None
+
+
+class FeatureFlagsInput(BaseModel):
+    flags: Dict[str, bool]
+
+
+class SetPasswordInput(BaseModel):
+    password: str
+
+
+class UserAdminUpdate(BaseModel):
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class EmailInput(BaseModel):
+    email: EmailStr
+
+
+class UserIdInput(BaseModel):
+    user_id: str
+
+
 # ---------------- Auth Routes ----------------
 @api_router.post("/auth/register")
 async def register(data: RegisterInput, response: Response):
@@ -235,11 +306,13 @@ async def register(data: RegisterInput, response: Response):
         "username": email.split("@")[0], "avatar": None, "phone": "", "address": "",
         "company": "", "company_role": "", "bio": "", "project_info": "",
         "theme": "dark", "ui_scale": 1.0, "auth_provider": "password",
+        "is_active": True, "friends": [],
         "created_at": now_iso(),
     }
     await db.users.insert_one(doc)
     token = create_access_token(user_id, email)
     set_auth_cookie(response, "access_token", token, 604800)
+    await log_activity(user_id, "register")
     return {"user": public_user(doc), "token": token}
 
 
@@ -262,9 +335,12 @@ async def login(data: LoginInput, response: Response, request: Request):
             {"$inc": {"count": 1}, "$set": {"locked_until": (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()}},
             upsert=True)
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    if user.get("is_active") is False:
+        raise HTTPException(status_code=403, detail="Your account has been disabled by an administrator")
     await db.login_attempts.delete_one({"identifier": identifier})
     token = create_access_token(user["user_id"], email)
     set_auth_cookie(response, "access_token", token, 604800)
+    await log_activity(user["user_id"], "login")
     return {"user": public_user(user), "token": token}
 
 
@@ -288,6 +364,7 @@ async def google_session(request: Request, response: Response):
             "role": "user", "username": email.split("@")[0], "avatar": d.get("picture"),
             "phone": "", "address": "", "company": "", "company_role": "", "bio": "",
             "project_info": "", "theme": "dark", "ui_scale": 1.0, "auth_provider": "google",
+            "is_active": True, "friends": [],
             "created_at": now_iso(),
         }
         await db.users.insert_one(user)
@@ -369,6 +446,8 @@ async def workspace_members(workspace_id: str, user: dict = Depends(get_current_
         raise HTTPException(status_code=404, detail="Workspace not found")
     members = await db.users.find({"user_id": {"$in": ws.get("members", [])}},
                                   {"_id": 0, "password_hash": 0}).to_list(500)
+    for m in members:
+        m["is_owner"] = m["user_id"] == ws.get("owner_id")
     return members
 
 
@@ -384,6 +463,8 @@ async def invite_member(workspace_id: str, data: InviteInput, user: dict = Depen
         raise HTTPException(status_code=400, detail="User is already a member")
     await db.workspaces.update_one({"workspace_id": workspace_id},
                                    {"$addToSet": {"members": invitee["user_id"]}})
+    await create_notification(invitee["user_id"], "workspace", "Added to a workspace",
+                              f"{user.get('name')} added you to '{ws.get('name')}'", "/messages")
     return {"ok": True, "member": public_user(invitee)}
 
 
@@ -422,8 +503,10 @@ async def _create_message(channel_id: str, user: dict, text: str) -> dict:
 
 @api_router.post("/messages")
 async def post_message(data: MessageInput, user: dict = Depends(get_current_user)):
+    await ensure_feature("chat")
     doc = await _create_message(data.channel_id, user, data.text)
     await ws_manager.broadcast(data.channel_id, {"type": "message", "message": doc})
+    await log_activity(user["user_id"], "message", {"channel_id": data.channel_id})
     return doc
 
 
@@ -480,11 +563,13 @@ async def list_projects(user: dict = Depends(get_current_user)):
 
 @api_router.post("/projects")
 async def create_project(data: ProjectInput, user: dict = Depends(get_current_user)):
+    await ensure_feature("projects")
     doc = {"project_id": f"proj_{uuid.uuid4().hex[:12]}", "name": data.name,
            "description": data.description, "status": data.status,
            "workspace_id": data.workspace_id, "owner_id": user["user_id"],
            "members": [user["user_id"]], "created_at": now_iso()}
     await db.projects.insert_one(doc)
+    await log_activity(user["user_id"], "project_create", {"name": data.name})
     doc.pop("_id", None)
     return doc
 
@@ -507,6 +592,7 @@ async def delete_project(project_id: str, user: dict = Depends(get_current_user)
 # ---------------- Assets / Files ----------------
 @api_router.post("/assets/upload")
 async def upload_asset(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    await ensure_feature("assets")
     ext = file.filename.split(".")[-1].lower() if "." in file.filename else "bin"
     path = f"{APP_NAME}/uploads/{user['user_id']}/{uuid.uuid4()}.{ext}"
     data = await file.read()
@@ -516,6 +602,7 @@ async def upload_asset(file: UploadFile = File(...), user: dict = Depends(get_cu
            "size": result.get("size", len(data)), "owner_id": user["user_id"],
            "shared_with": [], "is_shared": False, "is_deleted": False, "created_at": now_iso()}
     await db.assets.insert_one(doc)
+    await log_activity(user["user_id"], "asset_upload", {"name": file.filename})
     doc.pop("_id", None)
     return doc
 
@@ -598,10 +685,12 @@ async def list_integrations(user: dict = Depends(get_current_user)):
 
 @api_router.post("/integrations")
 async def create_integration(data: IntegrationInput, user: dict = Depends(get_current_user)):
+    await ensure_feature("integrations")
     doc = {"integration_id": f"int_{uuid.uuid4().hex[:12]}", "type": data.type,
            "name": data.name, "config": data.config, "owner_id": user["user_id"],
            "status": "connected", "created_at": now_iso()}
     await db.integrations.insert_one(doc)
+    await log_activity(user["user_id"], "integration_connect", {"type": data.type})
     doc.pop("_id", None)
     doc.pop("config", None)
     return doc
@@ -628,6 +717,7 @@ async def get_conversation(conversation_id: str, user: dict = Depends(get_curren
 
 @api_router.post("/ai/chat")
 async def ai_chat(data: AiInput, user: dict = Depends(get_current_user)):
+    await ensure_feature("ai_assistant")
     from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, StreamDone
 
     conversation_id = data.conversation_id
@@ -636,6 +726,7 @@ async def ai_chat(data: AiInput, user: dict = Depends(get_current_user)):
         await db.ai_conversations.insert_one({
             "conversation_id": conversation_id, "owner_id": user["user_id"],
             "title": data.message[:40], "created_at": now_iso(), "updated_at": now_iso()})
+    await log_activity(user["user_id"], "ai_chat")
     await db.ai_messages.insert_one({
         "conversation_id": conversation_id, "role": "user", "content": data.message,
         "created_at": now_iso()})
@@ -695,6 +786,214 @@ async def admin_stats(user: dict = Depends(require_admin)):
             "recent_users": recent_users}
 
 
+# ---------------- Notifications ----------------
+@api_router.get("/notifications")
+async def list_notifications(user: dict = Depends(get_current_user)):
+    items = await db.notifications.find({"user_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    unread = sum(1 for i in items if not i.get("read"))
+    return {"notifications": items, "unread": unread}
+
+
+@api_router.post("/notifications/{notification_id}/read")
+async def read_notification(notification_id: str, user: dict = Depends(get_current_user)):
+    await db.notifications.update_one({"notification_id": notification_id, "user_id": user["user_id"]}, {"$set": {"read": True}})
+    return {"ok": True}
+
+
+@api_router.post("/notifications/read-all")
+async def read_all_notifications(user: dict = Depends(get_current_user)):
+    await db.notifications.update_many({"user_id": user["user_id"]}, {"$set": {"read": True}})
+    return {"ok": True}
+
+
+# ---------------- Feature flags ----------------
+@api_router.get("/features")
+async def features(user: dict = Depends(get_current_user)):
+    return await get_feature_flags()
+
+
+@api_router.get("/admin/features")
+async def admin_get_features(user: dict = Depends(require_admin)):
+    return await get_feature_flags()
+
+
+@api_router.put("/admin/features")
+async def admin_set_features(data: FeatureFlagsInput, user: dict = Depends(require_admin)):
+    flags = await get_feature_flags()
+    flags.update(data.flags)
+    await db.settings.update_one({"key": "feature_flags"}, {"$set": {"value": flags}}, upsert=True)
+    return flags
+
+
+# ---------------- SEO ----------------
+@api_router.get("/seo")
+async def seo_public():
+    return await get_seo_settings()
+
+
+@api_router.put("/admin/seo")
+async def admin_set_seo(data: SeoInput, user: dict = Depends(require_admin)):
+    seo = await get_seo_settings()
+    seo.update({k: v for k, v in data.model_dump().items() if v is not None})
+    await db.settings.update_one({"key": "seo"}, {"$set": {"value": seo}}, upsert=True)
+    return seo
+
+
+# ---------------- Monitoring & Heatmap ----------------
+@api_router.get("/admin/monitoring")
+async def admin_monitoring(user: dict = Depends(require_admin)):
+    now = datetime.now(timezone.utc)
+    recent = await db.activity_log.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    by_action, daily = {}, {}
+    for r in recent:
+        by_action[r["action"]] = by_action.get(r["action"], 0) + 1
+        d = r.get("created_at", "")[:10]
+        if d:
+            daily[d] = daily.get(d, 0) + 1
+    today = now.date().isoformat()
+    active_today = len({r["user_id"] for r in recent if r.get("created_at", "")[:10] == today and r.get("user_id")})
+    feed = recent[:15]
+    uids = list({f.get("user_id") for f in feed if f.get("user_id")})
+    users = await db.users.find({"user_id": {"$in": uids}}, {"_id": 0, "user_id": 1, "name": 1, "email": 1}).to_list(100)
+    umap = {u["user_id"]: u for u in users}
+    for f in feed:
+        u = umap.get(f.get("user_id"))
+        f["user_name"] = u["name"] if u else "System"
+        f["user_email"] = u["email"] if u else ""
+    return {"total_events": await db.activity_log.count_documents({}),
+            "active_today": active_today, "by_action": by_action,
+            "daily": [{"date": k, "count": daily[k]} for k in sorted(daily.keys())][-7:],
+            "feed": feed}
+
+
+@api_router.get("/admin/heatmap")
+async def admin_heatmap(user: dict = Depends(require_admin)):
+    grid = [[0] * 24 for _ in range(7)]
+    logs = await db.activity_log.find({}, {"_id": 0, "created_at": 1}).to_list(5000)
+    for l in logs:
+        try:
+            dt = datetime.fromisoformat(l["created_at"])
+            grid[dt.weekday()][dt.hour] += 1
+        except Exception:
+            continue
+    return {"grid": grid}
+
+
+# ---------------- Admin user management ----------------
+@api_router.get("/admin/users")
+async def admin_users(user: dict = Depends(require_admin)):
+    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(500)
+    return users
+
+
+@api_router.put("/admin/users/{user_id}")
+async def admin_update_user(user_id: str, data: UserAdminUpdate, user: dict = Depends(require_admin)):
+    updates = {k: v for k, v in data.model_dump().items() if v is not None}
+    if updates:
+        await db.users.update_one({"user_id": user_id}, {"$set": updates})
+    u = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
+    return u
+
+
+@api_router.post("/admin/users/{user_id}/set-password")
+async def admin_set_password(user_id: str, data: SetPasswordInput, user: dict = Depends(require_admin)):
+    target = await db.users.find_one({"user_id": user_id})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    await db.users.update_one({"user_id": user_id}, {"$set": {"password_hash": hash_password(data.password)}})
+    await log_activity(user["user_id"], "admin_reset_password", {"target": user_id})
+    return {"ok": True, "message": "Password updated"}
+
+
+@api_router.post("/admin/users/{user_id}/impersonate")
+async def admin_impersonate(user_id: str, user: dict = Depends(require_admin)):
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    token = create_access_token(target["user_id"], target["email"])
+    await log_activity(user["user_id"], "impersonate", {"target": user_id})
+    return {"token": token, "user": public_user(target)}
+
+
+# ---------------- Friends ----------------
+@api_router.get("/friends")
+async def list_friends(user: dict = Depends(get_current_user)):
+    me = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0, "friends": 1})
+    ids = (me or {}).get("friends", [])
+    friends = await db.users.find({"user_id": {"$in": ids}}, {"_id": 0, "password_hash": 0}).to_list(500)
+    return friends
+
+
+@api_router.post("/friends")
+async def add_friend(data: EmailInput, user: dict = Depends(get_current_user)):
+    friend = await db.users.find_one({"email": data.email.lower()})
+    if not friend:
+        raise HTTPException(status_code=404, detail="No Stitches user found with that email")
+    if friend["user_id"] == user["user_id"]:
+        raise HTTPException(status_code=400, detail="You cannot add yourself")
+    await db.users.update_one({"user_id": user["user_id"]}, {"$addToSet": {"friends": friend["user_id"]}})
+    await db.users.update_one({"user_id": friend["user_id"]}, {"$addToSet": {"friends": user["user_id"]}})
+    await create_notification(friend["user_id"], "friend", "New connection", f"{user.get('name')} connected with you")
+    return {"ok": True, "friend": public_user(friend)}
+
+
+@api_router.delete("/friends/{friend_id}")
+async def remove_friend(friend_id: str, user: dict = Depends(get_current_user)):
+    await db.users.update_one({"user_id": user["user_id"]}, {"$pull": {"friends": friend_id}})
+    await db.users.update_one({"user_id": friend_id}, {"$pull": {"friends": user["user_id"]}})
+    return {"ok": True}
+
+
+# ---------------- Project members ----------------
+@api_router.get("/projects/{project_id}/members")
+async def project_members(project_id: str, user: dict = Depends(get_current_user)):
+    p = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    members = await db.users.find({"user_id": {"$in": p.get("members", [])}}, {"_id": 0, "password_hash": 0}).to_list(500)
+    for m in members:
+        m["is_owner"] = m["user_id"] == p.get("owner_id")
+    return members
+
+
+@api_router.post("/projects/{project_id}/invite")
+async def project_invite(project_id: str, data: EmailInput, user: dict = Depends(get_current_user)):
+    p = await db.projects.find_one({"project_id": project_id})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    invitee = await db.users.find_one({"email": data.email.lower()})
+    if not invitee:
+        raise HTTPException(status_code=404, detail="No Stitches user found with that email")
+    if invitee["user_id"] in p.get("members", []):
+        raise HTTPException(status_code=400, detail="User is already a member")
+    await db.projects.update_one({"project_id": project_id}, {"$addToSet": {"members": invitee["user_id"]}})
+    await create_notification(invitee["user_id"], "project", "Added to a project",
+                              f"{user.get('name')} added you to '{p.get('name')}'", "/projects")
+    return {"ok": True, "member": public_user(invitee)}
+
+
+@api_router.post("/projects/{project_id}/remove")
+async def project_remove(project_id: str, data: UserIdInput, user: dict = Depends(get_current_user)):
+    p = await db.projects.find_one({"project_id": project_id})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if data.user_id == p.get("owner_id"):
+        raise HTTPException(status_code=400, detail="Cannot remove the project owner")
+    await db.projects.update_one({"project_id": project_id}, {"$pull": {"members": data.user_id}})
+    return {"ok": True}
+
+
+@api_router.post("/workspaces/{workspace_id}/remove")
+async def workspace_remove(workspace_id: str, data: UserIdInput, user: dict = Depends(get_current_user)):
+    ws = await db.workspaces.find_one({"workspace_id": workspace_id})
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    if data.user_id == ws.get("owner_id"):
+        raise HTTPException(status_code=400, detail="Cannot remove the workspace owner")
+    await db.workspaces.update_one({"workspace_id": workspace_id}, {"$pull": {"members": data.user_id}})
+    return {"ok": True}
+
+
 @api_router.get("/")
 async def root():
     return {"message": "Stitches API"}
@@ -715,7 +1014,7 @@ async def startup():
             "name": "Stitches Admin", "password_hash": hash_password(admin_password),
             "role": "admin", "username": "admin", "avatar": None, "phone": "", "address": "",
             "company": "Stitches", "company_role": "Administrator", "bio": "", "project_info": "",
-            "theme": "dark", "ui_scale": 1.0, "auth_provider": "password", "created_at": now_iso()})
+            "theme": "dark", "ui_scale": 1.0, "auth_provider": "password", "is_active": True, "friends": [], "created_at": now_iso()})
     elif not verify_password(admin_password, existing.get("password_hash", "")):
         await db.users.update_one({"email": admin_email},
                                   {"$set": {"password_hash": hash_password(admin_password), "role": "admin"}})

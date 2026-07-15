@@ -7,6 +7,7 @@ export const useAuth = () => useContext(AuthContext);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null); // null=checking, false=unauth, obj=auth
+  const [impersonating, setImpersonating] = useState(!!localStorage.getItem("stitches_admin_token"));
 
   const checkAuth = useCallback(async () => {
     try {
@@ -51,8 +52,24 @@ export function AuthProvider({ children }) {
 
   const updateUser = (u) => setUser(u);
 
+  const startImpersonation = (token, userObj) => {
+    const current = localStorage.getItem("stitches_token");
+    if (current) localStorage.setItem("stitches_admin_token", current);
+    localStorage.setItem("stitches_token", token);
+    setImpersonating(true);
+    setUser(userObj);
+  };
+
+  const stopImpersonation = async () => {
+    const adminTok = localStorage.getItem("stitches_admin_token");
+    if (adminTok) localStorage.setItem("stitches_token", adminTok);
+    localStorage.removeItem("stitches_admin_token");
+    setImpersonating(false);
+    await checkAuth();
+  };
+
   return (
-    <AuthContext.Provider value={{ user, setUser, login, register, googleSession, logout, updateUser, checkAuth }}>
+    <AuthContext.Provider value={{ user, setUser, login, register, googleSession, logout, updateUser, checkAuth, impersonating, startImpersonation, stopImpersonation }}>
       {children}
     </AuthContext.Provider>
   );

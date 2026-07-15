@@ -1,6 +1,9 @@
 import "@/App.css";
+import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { Toaster } from "sonner";
+import axios from "axios";
+import { API } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import AuthCallback from "@/components/AuthCallback";
 import Home from "@/pages/Home";
@@ -13,6 +16,7 @@ import Assets from "@/pages/Assets";
 import Integrations from "@/pages/Integrations";
 import AiAssistant from "@/pages/AiAssistant";
 import Profile from "@/pages/Profile";
+import People from "@/pages/People";
 import Settings from "@/pages/Settings";
 import Admin from "@/pages/Admin";
 
@@ -53,6 +57,7 @@ function AppRouter() {
         <Route path="/integrations" element={<Integrations />} />
         <Route path="/assistant" element={<AiAssistant />} />
         <Route path="/profile" element={<Profile />} />
+        <Route path="/people" element={<People />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/admin" element={<Admin />} />
       </Route>
@@ -62,6 +67,20 @@ function AppRouter() {
 }
 
 export default function App() {
+  useEffect(() => {
+    axios.get(`${API}/seo`).then(({ data }) => {
+      if (data.title) document.title = data.title;
+      const setMeta = (name, content) => {
+        if (!content) return;
+        let el = document.querySelector(`meta[name="${name}"]`);
+        if (!el) { el = document.createElement("meta"); el.setAttribute("name", name); document.head.appendChild(el); }
+        el.setAttribute("content", content);
+      };
+      setMeta("description", data.description);
+      setMeta("keywords", data.keywords);
+    }).catch(() => {});
+  }, []);
+
   return (
     <div className="App">
       <BrowserRouter>
