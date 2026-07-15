@@ -104,7 +104,16 @@ Build a fully functional, dynamic, beautiful, heavily neumorphic web app (Slack/
 - **Frontend**: `Messages.jsx` 678 → 439 lines; extracted `components/messages/MessageParts.jsx` (MentionText, ThreadPanel, MembersModal, CreateModal, ReactionPicker).
 - Verified (iteration_14): 18/18 regression suite + frontend smoke, **zero regressions** (incl. /friends, /dms, WebSocket realtime, mentions, reactions, threads, kanban gate, integrations encrypt/mask, AI stream). Test data purged.
 
+## Implemented (2026-07-16, part 6)
+- **Google Drive one-click OAuth**: "Connect with Google" on Integrations → Google consent (scope drive.readonly, offline + refresh token) → encrypted access+refresh tokens stored; Drive browse/download with auto-refresh. Callback fails safe (redirect `?google=error`, no 500s).
+- **Admin-editable Google credentials**: `client_id`/`client_secret` stored in DB settings (`google_oauth`), seeded from env, editable in Admin > Integrations (secret masked; masked PUT does not overwrite). Redirect URI shown for the owner to register in Google Cloud.
+- **"My Tasks" dashboard widget**: cross-project view of the user's open Kanban tasks (`GET /api/tasks/mine`, membership-scoped, project_name), click-through to the board.
+- Deps: google-api-python-client, google-auth-oauthlib, google-auth-httplib2.
+- Verified (iteration_15): 16/16 new + 18/18 regression, zero bugs.
+
+## Owner setup required for Google Drive to work end-to-end
+In Google Cloud Console for the OAuth app: (1) enable **Google Drive API**, (2) add redirect URI `https://stitches-connect.preview.emergentagent.com/api/integrations/google/callback`, (3) add your Google account as a **Test user** (or publish the consent screen).
+
 ## Backlog / Next
-- P2: Google Drive / Dropbox **one-click OAuth** — BLOCKED on platform OAuth client_id/secret from owner.
-- P3: Kanban due dates + assignees + "My tasks" dashboard widget; delete-avatar; wire Downloads buttons to CI release URLs.
-- P3 (housekeeping): update/remove stale pre-refactor test files (backend_test.py catalog, test_encryption_activity_admin, test_threads_mentions_integrations catalog-count assertions) — they assert the old 6-connector/`fields` shape; current suites (test_refactor_regression, test_connection_methods, test_notes_and_admin) are the source of truth.
+- P3: Google Drive authenticated download stream (currently uses `uc?export=download` link — works for shareable files); Dropbox one-click OAuth.
+- P3: Kanban due dates + assignees; delete-avatar; wire Downloads buttons to CI release URLs; tidy stale pre-refactor tests.
