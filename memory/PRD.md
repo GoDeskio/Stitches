@@ -47,6 +47,14 @@ Build a fully functional, dynamic, beautiful, heavily neumorphic web app (Slack/
 - Created two communication test users: alice@stitches.app / Alice@123, bob@stitches.app / Bob@123.
 - Verified (iteration_3): logos render in all 3 locations, CSV export + drill-down work, and full two-user real-time chat (invite → cross-user notification → message exchange) passes.
 
+## Implemented (2026-06-18)
+- Logo: cleanly background-removed transparent voodoo-doll cutout (`/logo.png`), blends on dark background with no box on Home/Login/Sidebar.
+- Login: password show/hide eye toggle.
+- 1:1 Direct Messages (reuse channel messaging + WebSocket) with a Channels/Direct rail toggle, connection-based DM picker, and message-a-connection shortcut from People.
+- Online presence: 30s heartbeat (`/api/presence/ping`), green online dots on People, DM list and DM picker.
+- Friends quick-add to workspaces and projects (chips from your connections) in both member modals; users & admin can create workspaces/projects and add members.
+- Verified (iteration_4): all four areas pass 100% (logo blend, eye toggle, two-user DM realtime + presence, quick-add for workspace & project, non-admin create).
+
 ## Backlog / Next
 - P1: Direct messages (1:1), workspace member invites, message edit/delete + typing indicators.
 - P1: Actually invoke connected integrations (trigger N8N workflows, pull files from connected cloud storage).

@@ -66,9 +66,7 @@ export default function Login() {
         {/* Form side */}
         <div className="neu-raised rounded-[2rem] p-8 sm:p-10 animate-fade-up" data-testid="auth-card">
           <div className="lg:hidden flex items-center gap-3 mb-8">
-            <div className="neu-raised w-12 h-12 rounded-2xl flex items-center justify-center p-1.5">
-              <img src="/logo.png" alt="Stitches" className="w-full h-full object-contain" />
-            </div>
+            <img src="/logo.png" alt="Stitches" className="w-12 h-12 object-contain" />
             <span className="font-head font-black text-2xl" style={{ color: "var(--text)" }}>Stitches</span>
           </div>
 
