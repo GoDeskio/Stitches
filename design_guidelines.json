@@ -1,0 +1,131 @@
+{
+  "theme_and_colors": {
+    "concept": "Dark Neumorphic Deep Red",
+    "emotional_tone": "Luxurious, tactile, and deeply focused. Vampire Tech meets high-end productivity.",
+    "background_strategy": "A deep charcoal-red base layered with a textured paper image background to create a physical 'shadowed wallpaper' feel. The neumorphic UI elements will sit on top of this, looking like extruded or carved clay.",
+    "colors": {
+      "light": {
+        "bg": "#EBE3E5",
+        "surface": "#EBE3E5",
+        "primary": "#A01B2B",
+        "primary_hover": "#801522",
+        "text": "#2B1A1E",
+        "text_muted": "#6D5358",
+        "border": "#D2C5C8"
+      },
+      "dark": {
+        "bg": "#1A1315",
+        "surface": "#1A1315",
+        "primary": "#DC2626",
+        "primary_hover": "#B91C1C",
+        "text": "#F3E8EA",
+        "text_muted": "#A28F93",
+        "border": "#2C1F23"
+      }
+    }
+  },
+  "neumorphism_specification": {
+    "concept": "Soft-UI tactile surfaces providing embossed (raised) and debossed (pressed) states.",
+    "shadows": {
+      "light": {
+        "raised": "8px 8px 16px #C8C1C3, -8px -8px 16px #FFFFFF",
+        "pressed": "inset 6px 6px 12px #C8C1C3, inset -6px -6px 12px #FFFFFF"
+      },
+      "dark": {
+        "raised": "8px 8px 16px #0B0809, -8px -8px 16px #291E21",
+        "pressed": "inset 6px 6px 12px #0B0809, inset -6px -6px 12px #291E21"
+      }
+    },
+    "implementation_rules": [
+      "Define standard CSS variables in index.css for the box-shadows. Use classes like `.neu-raised` and `.neu-pressed`.",
+      "The background color of a neumorphic element MUST exactly match its parent's background color. Do not use gradients or different shades for the element surface.",
+      "Apply `.neu-pressed` to: active menu items, text inputs, pressed buttons, and the main chat container.",
+      "Apply `.neu-raised` to: sidebar container, cards, default buttons, and modal dialogs.",
+      "Buttons should transition smoothly: default `.neu-raised`, on `:active` switch to `.neu-pressed`."
+    ]
+  },
+  "typography": {
+    "fonts": {
+      "headings": "'Outfit', sans-serif",
+      "body": "'DM Sans', sans-serif",
+      "monospace": "'JetBrains Mono', monospace"
+    },
+    "rules": [
+      "Never use pure white (#FFFFFF) in dark mode, use the defined off-white text variable to prevent halation.",
+      "Use bold/black weights (font-bold, font-black) for headers to contrast with the soft UI elements.",
+      "Tracking: Tight tracking (-0.02em) on large headings, loose tracking on uppercase labels."
+    ]
+  },
+  "layouts_and_grids": {
+    "ui_scaling_strategy": "Implement a `--ui-scale: 1;` CSS variable on the `:root` and `.dark` selectors. Apply it to the HTML font-size: `html { font-size: calc(16px * var(--ui-scale)); }`. Bind the UI Settings slider to update this CSS variable dynamically.",
+    "app_structure": "100vh layout. The left sidebar is a collapsible container (from 280px to 80px to 0px). Main content area takes the remaining flex space.",
+    "bento_grids": "Use tight bento grids (gap-4 or gap-6) for the Admin/User Dashboards. Make sure the widgets utilize the `.neu-raised` class."
+  },
+  "component_guidelines": {
+    "sidebar": "Extruded surface (.neu-raised) from the base. Needs a smooth width transition for the collapsible toggle.",
+    "chat_panel": "The chat messages area should look debossed (.neu-pressed) like a recessed tray, holding the chat bubbles.",
+    "chat_bubbles": "Should NOT use heavy shadows. Use flat, subtle background tints to maintain readability inside the recessed tray.",
+    "inputs_and_search": "Use inset shadows (.neu-pressed) exclusively. They should look physically hollowed out.",
+    "assets_thumbnails": "Upload/download cards in the assets folder should be raised, with a subtle hover effect that scales up 2%.",
+    "theme_toggle": "A tactile physical toggle switch that visually sinks in on one side when flipped."
+  },
+  "motion_and_interactions": {
+    "micro_animations": "All hover and active states MUST be animated. Box-shadow transitions should be ~0.2s ease.",
+    "sidebar_collapse": "Use Framer Motion or pure CSS transitions (width 0.3s cubic-bezier(0.4, 0, 0.2, 1)).",
+    "loading_states": "Use subtle skeleton pulsing or an abstract geometric spinner that fits the neumorphic theme."
+  },
+  "accessibility": {
+    "contrast": "Since neumorphism relies on low-contrast shadows, text and icons MUST have high contrast against the surface color.",
+    "testing": "All interactive elements (buttons, links, inputs, sidebar toggles, settings sliders) MUST include a `data-testid` attribute (e.g., `data-testid=\"sidebar-toggle-button\"`).",
+    "focus_states": "Do not rely purely on box-shadow for focus. Add a visible 2px outline or distinct color shift on `:focus-visible`."
+  },
+  "image_urls": {
+    "textures": [
+      {
+        "url": "https://images.unsplash.com/photo-1537204319452-fdbd29e2ccc7",
+        "description": "Dark red textured paper wall. Use this for the background wallpaper effect, blended with the base color (e.g. mix-blend-mode: overlay, opacity: 0.1)."
+      }
+    ],
+    "avatars": [
+      {
+        "url": "https://images.unsplash.com/photo-1506863530036-1efeddceb993",
+        "description": "User profile avatar 1"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1590086782792-42dd2350140d",
+        "description": "User profile avatar 2"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e",
+        "description": "User profile avatar 3"
+      }
+    ],
+    "placeholders": [
+      {
+        "url": "https://images.unsplash.com/photo-1622547748225-3fc4abd2cca0",
+        "description": "Abstract 3D shape, good for default project or workspace icons."
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Write components in standard .jsx/.js formats (NOT .tsx).",
+    "Implement light/dark mode using Tailwind's `dark:` classes and a wrapper component that toggles a `.dark` class on the `<html>` or `<body>` element.",
+    "Create a comprehensive custom CSS file (index.css) to hold the `.neu-raised` and `.neu-pressed` utility classes, utilizing CSS variables for the shadow colors to allow seamless theme switching.",
+    "Implement the UI scaling slider in the Settings Page. Ensure it updates a `--ui-scale` CSS variable on the document root, and ensure tailwind uses rems (which it does by default) so the entire layout scales proportionally.",
+    "Ensure the login screen is easy to use, featuring clear debossed inputs and raised primary buttons.",
+    "For the integrations wizard (N8N, LLMs), utilize a bento-box grid layout with raised cards."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "You tend to converge toward generic outputs. Avoid this: make creative, distinctive frontends that surprise and delight.",
+    "Don't make generic centered layouts. Use optical alignment and dynamic asymmetrical grids when applicable.",
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "You MUST NOT apply universal transitions (e.g., `transition: all`). Add transitions for specific properties only.",
+    "You MUST NOT center align the app container, i.e., do not add `.App { text-align: center; }`.",
+    "Every interaction needs micro-animations - hover states, transitions, and entrance animations.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "NEVER use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 etc for icons. Use Phosphor or Lucide icons.",
+    "Prioritize using pre-existing Shadcn components from src/components/ui and adapt them to the Neumorphic style by stripping borders and replacing them with shadow utilities.",
+    "Use `sonner` for toast notifications.",
+    "The codebase uses .js files, so avoid TypeScript syntax."
+  ]
+}
