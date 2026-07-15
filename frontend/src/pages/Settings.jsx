@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Save, Sun, Moon, Minus, Plus, User, Building2, FolderKanban, Palette } from "lucide-react";
+import { Save, Sun, Moon, Minus, Plus, User, Building2, FolderKanban, Palette, Bell } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -15,12 +15,14 @@ export default function Settings() {
     bio: user?.bio || "", project_info: user?.project_info || "", avatar: user?.avatar || "",
   });
   const [saving, setSaving] = useState(false);
+  const [notif, setNotif] = useState({ master: true, workspace: true, project: true, friend: true, ...(user?.notification_prefs || {}) });
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const toggleNotif = (k) => setNotif((n) => ({ ...n, [k]: !n[k] }));
 
   const save = async () => {
     setSaving(true);
     try {
-      const { data } = await api.put("/users/me", { ...form, theme, ui_scale: scale });
+      const { data } = await api.put("/users/me", { ...form, theme, ui_scale: scale, notification_prefs: notif });
       updateUser(data);
       toast.success("Settings saved");
     } catch (e) { toast.error("Failed to save"); } finally { setSaving(false); }
@@ -72,6 +74,13 @@ export default function Settings() {
               </div>
             </div>
           </Section>
+
+          <Section icon={Bell} title="Notifications">
+            <NotifToggle label="Enable all notifications" checked={notif.master} onToggle={() => toggleNotif("master")} testid="notif-master" />
+            <NotifToggle label="Workspace invites" checked={notif.workspace} onToggle={() => toggleNotif("workspace")} testid="notif-workspace" disabled={!notif.master} />
+            <NotifToggle label="Project invites" checked={notif.project} onToggle={() => toggleNotif("project")} testid="notif-project" disabled={!notif.master} />
+            <NotifToggle label="New connections" checked={notif.friend} onToggle={() => toggleNotif("friend")} testid="notif-friend" disabled={!notif.master} />
+          </Section>
         </div>
       </div>
     </PageShell>
@@ -106,6 +115,19 @@ function Textarea({ label, value, onChange, testid }) {
       <label className="text-sm font-semibold text-muted-stitch">{label}</label>
       <textarea data-testid={testid} value={value || ""} onChange={onChange} rows={3}
         className="neu-input w-full rounded-2xl py-3 px-5 mt-2 resize-none" />
+    </div>
+  );
+}
+
+function NotifToggle({ label, checked, onToggle, testid, disabled }) {
+  return (
+    <div className={`neu-pressed rounded-2xl p-4 flex items-center justify-between ${disabled ? "opacity-50" : ""}`}>
+      <span className="font-medium text-sm" style={{ color: "var(--text)" }}>{label}</span>
+      <button data-testid={testid} disabled={disabled} onClick={onToggle}
+        className={`w-14 h-8 rounded-full flex items-center px-1 transition-all ${checked ? "justify-end" : "justify-start"}`}
+        style={{ background: checked ? "var(--primary)" : "var(--neu-dark)" }}>
+        <span className="w-6 h-6 rounded-full bg-white shadow" />
+      </button>
     </div>
   );
 }

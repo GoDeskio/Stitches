@@ -119,6 +119,7 @@ def set_auth_cookie(response: Response, key: str, value: str, max_age: int):
 
 DEFAULT_FEATURES = {"chat": True, "projects": True, "assets": True,
                     "integrations": True, "ai_assistant": True, "friends": True}
+DEFAULT_NOTIF_PREFS = {"master": True, "workspace": True, "project": True, "friend": True}
 DEFAULT_SEO = {"title": "Stitches — Where Ideas are Stitched together",
                "description": "A tactile neumorphic workspace for business & creative teams to chat, collaborate and share.",
                "keywords": "collaboration, workspace, chat, projects, teams, creative",
@@ -131,7 +132,22 @@ async def log_activity(user_id, action, meta=None):
         "created_at": now_iso()})
 
 
+async def get_notif_global():
+    doc = await db.settings.find_one({"key": "notifications_global"})
+    prefs = dict(DEFAULT_NOTIF_PREFS)
+    if doc:
+        prefs.update(doc.get("value", {}))
+    return prefs
+
+
 async def create_notification(user_id, ntype, title, body, link=""):
+    glob = await get_notif_global()
+    if not glob.get("master", True) or not glob.get(ntype, True):
+        return
+    u = await db.users.find_one({"user_id": user_id}, {"_id": 0, "notification_prefs": 1})
+    prefs = {**DEFAULT_NOTIF_PREFS, **((u or {}).get("notification_prefs") or {})}
+    if not prefs.get("master", True) or not prefs.get(ntype, True):
+        return
     await db.notifications.insert_one({
         "notification_id": f"ntf_{uuid.uuid4().hex[:12]}", "user_id": user_id,
         "type": ntype, "title": title, "body": body, "link": link,
@@ -215,6 +231,11 @@ class ProfileUpdate(BaseModel):
     project_info: Optional[str] = None
     theme: Optional[str] = None
     ui_scale: Optional[float] = None
+    notification_prefs: Optional[Dict[str, bool]] = None
+
+
+class NotifGlobalInput(BaseModel):
+    settings: Dict[str, bool]
 
 
 class WorkspaceInput(BaseModel):
@@ -760,6 +781,162 @@ async def ai_chat(data: AiInput, user: dict = Depends(get_current_user)):
 
     return StreamingResponse(event_generator(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+AGENT_ACTIONS_USER = """- create_project {"name": str, "description"?: str}: create a new project
+- create_workspace {"name": str}: create a new workspace (auto-adds general & random channels)
+- add_friend {"email": str}: add a connection by their email
+- list_projects {}: list the user's projects
+- list_workspaces {}: list the user's workspaces
+- get_stats {}: get the user's dashboard counts (workspaces, projects, assets, integrations, messages)"""
+
+AGENT_ACTIONS_ADMIN = """- admin_stats {}: platform-wide totals (users, workspaces, projects, etc.)
+- admin_list_users {}: list all members with role and status
+- admin_toggle_feature {"feature": "chat|projects|assets|integrations|ai_assistant|friends", "enabled": bool}: turn a feature on/off for everyone
+- admin_set_user_active {"email": str, "active": bool}: enable or disable a user's account"""
+
+
+def build_agent_system(user):
+    actions = AGENT_ACTIONS_USER
+    if user.get("role") == "admin":
+        actions += "\n" + AGENT_ACTIONS_ADMIN
+    return (
+        "You are Stitch, the built-in AI assistant for Stitches (a collaboration workspace). "
+        "You can take real actions on the user's account. Available actions:\n" + actions +
+        "\n\nWhen the user asks you to DO something that matches an action, reply ONLY with strict minified JSON: "
+        '{"action":"<name>","params":{...},"message":"<short friendly confirmation>"}. '
+        'If no action is needed, reply with {"action":null,"message":"<your helpful answer>"}. '
+        "Return ONLY the JSON object, no markdown, no code fences, no extra text."
+    )
+
+
+async def execute_agent_action(action, params, user):
+    is_admin = user.get("role") == "admin"
+    p = params or {}
+    try:
+        if action == "create_project":
+            if not p.get("name"):
+                return {"ok": False, "error": "A project name is required"}
+            doc = {"project_id": f"proj_{uuid.uuid4().hex[:12]}", "name": p["name"],
+                   "description": p.get("description", ""), "status": "active", "workspace_id": None,
+                   "owner_id": user["user_id"], "members": [user["user_id"]], "created_at": now_iso()}
+            await db.projects.insert_one(doc)
+            await log_activity(user["user_id"], "project_create", {"name": p["name"], "via": "ai"})
+            return {"ok": True, "summary": f"Created project '{p['name']}'"}
+        if action == "create_workspace":
+            if not p.get("name"):
+                return {"ok": False, "error": "A workspace name is required"}
+            ws_id = f"ws_{uuid.uuid4().hex[:12]}"
+            await db.workspaces.insert_one({"workspace_id": ws_id, "name": p["name"], "description": "",
+                                            "icon": None, "owner_id": user["user_id"], "members": [user["user_id"]],
+                                            "created_at": now_iso()})
+            for cname in ["general", "random"]:
+                await db.channels.insert_one({"channel_id": f"ch_{uuid.uuid4().hex[:12]}", "workspace_id": ws_id,
+                                              "name": cname, "type": "channel", "description": "", "created_at": now_iso()})
+            return {"ok": True, "summary": f"Created workspace '{p['name']}' with #general and #random"}
+        if action == "add_friend":
+            friend = await db.users.find_one({"email": (p.get("email") or "").lower()})
+            if not friend:
+                return {"ok": False, "error": "No Stitches user found with that email"}
+            await db.users.update_one({"user_id": user["user_id"]}, {"$addToSet": {"friends": friend["user_id"]}})
+            await db.users.update_one({"user_id": friend["user_id"]}, {"$addToSet": {"friends": user["user_id"]}})
+            return {"ok": True, "summary": f"Added {friend.get('name')} as a connection"}
+        if action == "list_projects":
+            projs = await db.projects.find({"members": user["user_id"]}, {"_id": 0, "name": 1, "status": 1}).to_list(100)
+            return {"ok": True, "summary": f"{len(projs)} project(s)", "items": [f"{x['name']} ({x['status']})" for x in projs]}
+        if action == "list_workspaces":
+            ws = await db.workspaces.find({"members": user["user_id"]}, {"_id": 0, "name": 1}).to_list(100)
+            return {"ok": True, "summary": f"{len(ws)} workspace(s)", "items": [x["name"] for x in ws]}
+        if action == "get_stats":
+            return {"ok": True, "summary": "Your dashboard", "items": [
+                f"Workspaces: {await db.workspaces.count_documents({'members': user['user_id']})}",
+                f"Projects: {await db.projects.count_documents({'members': user['user_id']})}",
+                f"Assets: {await db.assets.count_documents({'owner_id': user['user_id'], 'is_deleted': False})}",
+                f"Integrations: {await db.integrations.count_documents({'owner_id': user['user_id']})}"]}
+        # admin actions
+        if action in ("admin_stats", "admin_list_users", "admin_toggle_feature", "admin_set_user_active"):
+            if not is_admin:
+                return {"ok": False, "error": "This action requires administrator access"}
+            if action == "admin_stats":
+                return {"ok": True, "summary": "Platform totals", "items": [
+                    f"Users: {await db.users.count_documents({})}",
+                    f"Workspaces: {await db.workspaces.count_documents({})}",
+                    f"Projects: {await db.projects.count_documents({})}",
+                    f"Messages: {await db.messages.count_documents({})}"]}
+            if action == "admin_list_users":
+                users = await db.users.find({}, {"_id": 0, "name": 1, "email": 1, "role": 1, "is_active": 1}).to_list(200)
+                return {"ok": True, "summary": f"{len(users)} member(s)",
+                        "items": [f"{u['name']} <{u['email']}> — {u['role']}{'' if u.get('is_active', True) else ' (disabled)'}" for u in users]}
+            if action == "admin_toggle_feature":
+                feat = p.get("feature")
+                if feat not in DEFAULT_FEATURES:
+                    return {"ok": False, "error": f"Unknown feature '{feat}'"}
+                flags = await get_feature_flags()
+                flags[feat] = bool(p.get("enabled", True))
+                await db.settings.update_one({"key": "feature_flags"}, {"$set": {"value": flags}}, upsert=True)
+                return {"ok": True, "summary": f"Feature '{feat}' is now {'ON' if flags[feat] else 'OFF'} for all users"}
+            if action == "admin_set_user_active":
+                target = await db.users.find_one({"email": (p.get("email") or "").lower()})
+                if not target:
+                    return {"ok": False, "error": "User not found"}
+                await db.users.update_one({"user_id": target["user_id"]}, {"$set": {"is_active": bool(p.get("active", True))}})
+                return {"ok": True, "summary": f"{target.get('name')} is now {'active' if p.get('active', True) else 'disabled'}"}
+        return {"ok": False, "error": f"Unknown action '{action}'"}
+    except Exception as e:
+        logger.error(f"agent action error: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+@api_router.post("/ai/agent")
+async def ai_agent(data: AiInput, user: dict = Depends(get_current_user)):
+    await ensure_feature("ai_assistant")
+    from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, StreamDone
+    await log_activity(user["user_id"], "ai_agent")
+    chat = LlmChat(api_key=EMERGENT_KEY, session_id=f"agent_{user['user_id']}",
+                   system_message=build_agent_system(user)).with_model(data.provider or "openai", data.model or "gpt-5.4")
+    full = ""
+    try:
+        async for event in chat.stream_message(UserMessage(text=data.message)):
+            if isinstance(event, TextDelta):
+                full += event.content
+            elif isinstance(event, StreamDone):
+                break
+    except Exception as e:
+        logger.error(f"agent llm error: {e}")
+        return {"reply": "Sorry, I couldn't reach the AI right now.", "action": None, "result": None}
+
+    raw = full.strip()
+    if raw.startswith("```"):
+        raw = raw.strip("`")
+        if raw.lower().startswith("json"):
+            raw = raw[4:]
+    action, params, message, result = None, {}, raw, None
+    try:
+        parsed = json.loads(raw)
+        action = parsed.get("action")
+        params = parsed.get("params") or {}
+        message = parsed.get("message") or ""
+    except Exception:
+        message = full.strip() or "Sorry, I didn't understand that."
+    if action:
+        result = await execute_agent_action(action, params, user)
+        if result and not result.get("ok"):
+            message = f"{message}\n\n⚠️ {result.get('error')}" if message else f"⚠️ {result.get('error')}"
+    return {"reply": message, "action": action, "result": result}
+
+
+# ---------------- Notifications global (admin) ----------------
+@api_router.get("/admin/notifications-global")
+async def admin_get_notif_global(user: dict = Depends(require_admin)):
+    return await get_notif_global()
+
+
+@api_router.put("/admin/notifications-global")
+async def admin_set_notif_global(data: NotifGlobalInput, user: dict = Depends(require_admin)):
+    g = await get_notif_global()
+    g.update(data.settings)
+    await db.settings.update_one({"key": "notifications_global"}, {"$set": {"value": g}}, upsert=True)
+    return g
 
 
 # ---------------- Dashboard / Admin ----------------

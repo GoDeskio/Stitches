@@ -1,0 +1,34 @@
+{
+  "summary": "Tested notification prefs (user + admin global) and AI-assistant actionable + guardrail flows via curl + Playwright. Backend: PUT /api/users/me {notification_prefs} persists; create_notification correctly suppresses project invite notif when user's project pref is false and delivers it when re-enabled (curl verified: alice pref=false -> project invite by admin produced NO new notification; pref=true -> new project notification appeared). GET/PUT /api/admin/notifications-global works and all 4 keys (master/workspace/project/friend) are returned/persisted. POST /api/ai/agent: create_project works (alice created TEST_UISprint, visible on /projects), admin_toggle_feature works end-to-end (integrations OFF then back ON, verified via GET /api/admin/features), and admin-only actions are refused for non-admins (alice asking to 'Turn off the integrations feature for everyone' or 'Disable a user account' returned action=null, refusal reply). Frontend: Settings notif toggles (notif-master/workspace/project/friend) render and Save works; master OFF correctly disables sub-toggles (workspace becomes disabled=true and clicks are no-ops). Admin > Notifications tab (admin-tab-notifications) present with all 4 notif-global-* toggles. AI Assistant UI at /assistant: ai-input, ai-send-btn, ai-action-chip all render; create-project and admin_toggle_feature actions show chips with correct labels ('create project', 'admin toggle feature'). Notification bell present on dashboard. Cleanup: all feature flags ON, all global notif types ON, alice/bob active + passwords unchanged, alice notification_prefs restored to all-true.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/ai/agent", "issue": "LLM sometimes emits the action JSON envelope twice concatenated (e.g. 'Show my dashboard stats' and 'list my projects' each returned reply=<envelope>\\n<envelope>, causing json.loads() to fail so action=null/result=null. Same happens with 'get_stats'. Envelope parsing in server.py:914-919 falls through to plain-text and the raw JSON leaks into the reply string shown to the user. create_project + admin_toggle_feature responded with a single envelope and worked fine in every attempt."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "AI Assistant get_stats", "issue": "Because backend returns action=null for get_stats (double-envelope parse failure), the UI shows no ai-action-chip and no stat items — the requested 'Show my dashboard stats' path is not observably working end-to-end. When it does parse (retry sometimes succeeds), it works. Root cause is backend parser, not UI.", "affected_selectors": ["ai-action-chip"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py"],
+  "action_items": [
+    "Harden POST /api/ai/agent envelope parsing to handle concatenated/multiple JSON objects (split on newlines and take the LAST valid JSON, or use json.JSONDecoder.raw_decode in a loop). Also strip envelope JSON out of the user-facing reply when parsing fails so raw JSON doesn't leak into chat.",
+    "Consider tightening the agent system prompt to instruct the LLM to emit exactly ONE JSON object and no prose around it (currently system prompt may allow duplication)."
+  ],
+  "critical_code_review_comments": [
+    "server.py:914-919 uses json.loads(raw) which is brittle; concatenated envelopes cause silent action loss with the raw JSON exposed to the user. Use raw_decode loop or split by newline.",
+    "server.py:1141-1154 project_invite: returning full user record (with notification_prefs) is fine but consider if that field should be exposed to inviter; low priority.",
+    "create_notification (server.py:143-154) correctly gates on global + per-user prefs; DEFAULT_NOTIF_PREFS fallback ensures new users still receive notifications. Good."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "~90% (all requested endpoints work; ai_agent action-parsing intermittent on get_stats/list_projects)", "frontend": "~90% (settings, admin notif tab, create_project chip, admin toggle chips, guardrail all working; get_stats chip missing due to backend parse issue)"},
+  "test_credentials": "admin@stitches.app/Admin@123, alice@stitches.app/Alice@123, bob@stitches.app/Bob@123 — all unchanged, all active.",
+  "seed_data_creation": "Created a few TEST_ projects (TEST_AISprint, TEST_NotifProj, TEST_NotifProj2, TEST_NotifProj3, TEST_UISprint) owned by admin/alice for testing. No schema changes.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "AI Assistant route is /assistant (NOT /ai — earlier attempt at /ai fell through to '*' Navigate-to-'/' and hit the public landing). Neumorphic toggles are <button> elements without aria-checked or data-state; check disabled attribute via evaluate() and infer on/off from CSS class. Route testids: ai-input, ai-send-btn, ai-action-chip; Settings: notif-master/workspace/project/friend, save-settings-btn; Admin: admin-tab-notifications, notif-global-{master,workspace,project,friend}. AI agent latency 10-30s — poll for new chip count > previous. Bulk cleanup script for TEST_ projects is not present; may want one.",
+  "rca of the issue": "AI agent get_stats/list_projects intermittent failure: The LLM model (gpt-5.4 via emergentintegrations) occasionally streams the JSON action envelope twice back-to-back (e.g. '{...}\\n{...}'), which is not valid JSON, so json.loads() at server.py:915 throws and the code falls through to the except branch — setting action=None and message=full (so the raw JSON leaks into the user-visible reply). Reproduction: POST /api/ai/agent {message: 'Show my dashboard stats'} while logged in as alice returned reply='{\"action\":\"get_stats\",\"params\":{},\"message\":\"Fetching your dashboard stats now.\"}\\n{\"action\":\"get_stats\",...}' with action=null. Mitigation: use json.JSONDecoder().raw_decode in a loop and take the last successfully-decoded envelope, or split on newline and try each fragment."
+}

@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from "react";
-import { Sparkles, Send, User } from "lucide-react";
-import { API } from "@/lib/api";
+import { Sparkles, Send, User, Zap } from "lucide-react";
+import api from "@/lib/api";
 import { PageShell, PageHeader } from "@/components/Stitch";
+import { useAuth } from "@/context/AuthContext";
 
 const MODELS = [
   { label: "GPT-5.4", provider: "openai", model: "gpt-5.4" },
@@ -10,70 +11,38 @@ const MODELS = [
 ];
 
 const SUGGESTIONS = [
-  "Draft a project kickoff message for my team",
-  "Summarise best practices for creative collaboration",
-  "Suggest a weekly workflow for a design studio",
+  "Create a project called Q3 Launch",
+  "Create a workspace called Design Studio",
+  "Show my dashboard stats",
 ];
 
 export default function AiAssistant() {
+  const { user } = useAuth();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
-  const [streaming, setStreaming] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [model, setModel] = useState(MODELS[0]);
-  const convId = useRef(null);
   const bottomRef = useRef(null);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, busy]);
 
   const send = async (text) => {
     const content = (text ?? input).trim();
-    if (!content || streaming) return;
+    if (!content || busy) return;
     setInput("");
-    setMessages((prev) => [...prev, { role: "user", content }, { role: "assistant", content: "" }]);
-    setStreaming(true);
-
+    setMessages((prev) => [...prev, { role: "user", content }]);
+    setBusy(true);
     try {
-      const token = localStorage.getItem("stitches_token");
-      const res = await fetch(`${API}/ai/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        credentials: "include",
-        body: JSON.stringify({ message: content, provider: model.provider, model: model.model, conversation_id: convId.current }),
-      });
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n\n");
-        buffer = lines.pop();
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const data = JSON.parse(line.slice(6));
-          if (data.conversation_id) convId.current = data.conversation_id;
-          if (data.delta) {
-            setMessages((prev) => {
-              const copy = [...prev];
-              copy[copy.length - 1] = { role: "assistant", content: copy[copy.length - 1].content + data.delta };
-              return copy;
-            });
-          }
-        }
-      }
+      const { data } = await api.post("/ai/agent", { message: content, provider: model.provider, model: model.model });
+      setMessages((prev) => [...prev, { role: "assistant", content: data.reply || "Done.", result: data.result, action: data.action }]);
     } catch (e) {
-      setMessages((prev) => {
-        const copy = [...prev];
-        copy[copy.length - 1] = { role: "assistant", content: "Sorry, something went wrong reaching the AI." };
-        return copy;
-      });
-    } finally { setStreaming(false); }
+      setMessages((prev) => [...prev, { role: "assistant", content: "Sorry, something went wrong reaching the AI." }]);
+    } finally { setBusy(false); }
   };
 
   return (
     <PageShell>
-      <PageHeader title="Stitch AI" subtitle="Your built-in AI assistant. Ask anything, brainstorm, or draft content for your team."
+      <PageHeader title="Stitch AI" subtitle="Your built-in AI assistant — ask anything, or tell it to create projects, workspaces, add connections and (as admin) manage the platform."
         action={
           <select data-testid="model-select" value={model.model} onChange={(e) => setModel(MODELS.find((m) => m.model === e.target.value))}
             className="neu-input rounded-2xl py-3 px-4 font-medium cursor-pointer" style={{ color: "var(--text)" }}>
@@ -102,10 +71,32 @@ export default function AiAssistant() {
                 </div>
                 <div className={`max-w-[75%] rounded-2xl px-4 py-3 whitespace-pre-wrap text-[0.95rem] leading-relaxed`}
                   style={{ background: m.role === "user" ? "var(--primary)" : "var(--neu-light)", color: m.role === "user" ? "#fff" : "var(--text)" }}>
-                  {m.content || (streaming && i === messages.length - 1 ? "…" : "")}
+                  {m.content}
+                  {m.action && m.result?.ok && (
+                    <span data-testid="ai-action-chip" className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full" style={{ background: "var(--surface)", color: "var(--primary)" }}>
+                      <Zap className="w-3 h-3" /> {m.action.replace(/_/g, " ")}
+                    </span>
+                  )}
+                  {m.result?.items?.length > 0 && (
+                    <ul className="mt-2 space-y-1">
+                      {m.result.items.map((it, k) => <li key={k} className="text-sm opacity-90">• {it}</li>)}
+                    </ul>
+                  )}
                 </div>
               </div>
             ))
+          )}
+          {busy && (
+            <div className="flex gap-3">
+              <div className="neu-sm w-9 h-9 rounded-full flex items-center justify-center shrink-0"><Sparkles className="w-4 h-4 text-primary-stitch" /></div>
+              <div className="rounded-2xl px-4 py-3" style={{ background: "var(--neu-light)" }}>
+                <span className="flex gap-1">
+                  <span className="w-2 h-2 rounded-full bg-current animate-bounce text-primary-stitch" style={{ animationDelay: "0ms" }} />
+                  <span className="w-2 h-2 rounded-full bg-current animate-bounce text-primary-stitch" style={{ animationDelay: "150ms" }} />
+                  <span className="w-2 h-2 rounded-full bg-current animate-bounce text-primary-stitch" style={{ animationDelay: "300ms" }} />
+                </span>
+              </div>
+            </div>
           )}
           <div ref={bottomRef} />
         </div>
@@ -113,7 +104,7 @@ export default function AiAssistant() {
         <form onSubmit={(e) => { e.preventDefault(); send(); }} className="p-4 pt-0 flex gap-3">
           <input data-testid="ai-input" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Message Stitch AI..."
             className="neu-input flex-1 rounded-2xl py-3.5 px-5" />
-          <button data-testid="ai-send-btn" type="submit" disabled={streaming} className="neu-primary rounded-2xl px-6 flex items-center justify-center disabled:opacity-70">
+          <button data-testid="ai-send-btn" type="submit" disabled={busy} className="neu-primary rounded-2xl px-6 flex items-center justify-center disabled:opacity-70">
             <Send className="w-5 h-5" />
           </button>
         </form>

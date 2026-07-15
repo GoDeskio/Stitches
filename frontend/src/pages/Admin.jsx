@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Users, Layers, FolderKanban, FolderOpen, Plug, MessagesSquare, Shield,
-  ToggleRight, Search, Activity, Grid3x3, LayoutDashboard, KeyRound, LogIn, BadgeCheck,
+  ToggleRight, Search, Activity, Grid3x3, LayoutDashboard, KeyRound, LogIn, BadgeCheck, Bell,
 } from "lucide-react";
 import { toast } from "sonner";
 import api, { API } from "@/lib/api";
@@ -22,6 +22,7 @@ const TABS = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "users", label: "Users", icon: Users },
   { id: "features", label: "Features", icon: ToggleRight },
+  { id: "notifications", label: "Notifications", icon: Bell },
   { id: "seo", label: "SEO", icon: Search },
   { id: "monitoring", label: "Monitoring", icon: Activity },
   { id: "heatmap", label: "Heat Map", icon: Grid3x3 },
@@ -43,6 +44,7 @@ export default function Admin() {
       {tab === "overview" && <Overview />}
       {tab === "users" && <UsersTab />}
       {tab === "features" && <FeaturesTab />}
+      {tab === "notifications" && <NotifGlobalTab />}
       {tab === "seo" && <SeoTab />}
       {tab === "monitoring" && <MonitoringTab />}
       {tab === "heatmap" && <HeatmapTab />}
@@ -157,6 +159,36 @@ function FeaturesTab() {
             <button data-testid={`feature-toggle-${key}`} onClick={() => toggle(key)}
               className={`w-14 h-8 rounded-full flex items-center px-1 transition-all ${flags[key] ? "justify-end" : "justify-start"}`}
               style={{ background: flags[key] ? "var(--primary)" : "var(--neu-dark)" }}>
+              <span className="w-6 h-6 rounded-full bg-white shadow" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function NotifGlobalTab() {
+  const [settings, setSettings] = useState(null);
+  useEffect(() => { api.get("/admin/notifications-global").then(({ data }) => setSettings(data)); }, []);
+  const toggle = async (key) => {
+    const next = { ...settings, [key]: !settings[key] };
+    setSettings(next);
+    await api.put("/admin/notifications-global", { settings: { [key]: next[key] } });
+    toast.success(`${LABELS[key]} ${next[key] ? "enabled" : "disabled"} platform-wide`);
+  };
+  if (!settings) return <Loader />;
+  const LABELS = { master: "All notifications", workspace: "Workspace invites", project: "Project invites", friend: "New connections" };
+  return (
+    <div className="neu-raised rounded-[1.75rem] p-7 animate-fade-up">
+      <p className="text-muted-stitch mb-6">Control which notification types are delivered across the entire platform. When a type is off here, no user receives it (their personal preference is also respected).</p>
+      <div className="grid sm:grid-cols-2 gap-4">
+        {Object.keys(LABELS).map((key) => (
+          <div key={key} className={`neu-pressed rounded-2xl p-5 flex items-center justify-between ${key !== "master" && !settings.master ? "opacity-50" : ""}`}>
+            <span className="font-semibold" style={{ color: "var(--text)" }}>{LABELS[key]}</span>
+            <button data-testid={`notif-global-${key}`} disabled={key !== "master" && !settings.master} onClick={() => toggle(key)}
+              className={`w-14 h-8 rounded-full flex items-center px-1 transition-all ${settings[key] ? "justify-end" : "justify-start"}`}
+              style={{ background: settings[key] ? "var(--primary)" : "var(--neu-dark)" }}>
               <span className="w-6 h-6 rounded-full bg-white shadow" />
             </button>
           </div>
