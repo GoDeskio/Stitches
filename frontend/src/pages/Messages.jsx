@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Plus, Hash, Send, Layers, X } from "lucide-react";
+import { Plus, Hash, Send, Layers, X, UserPlus, Mail } from "lucide-react";
 import { toast } from "sonner";
 import api, { API } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -15,6 +15,7 @@ export default function Messages() {
   const [text, setText] = useState("");
   const [showWsModal, setShowWsModal] = useState(false);
   const [showChModal, setShowChModal] = useState(false);
+  const [showMembers, setShowMembers] = useState(false);
   const wsRef = useRef(null);
   const bottomRef = useRef(null);
 
@@ -145,6 +146,10 @@ export default function Messages() {
                   <h2 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>{activeCh.name}</h2>
                   <p className="text-xs text-muted-stitch">{activeWs?.name}</p>
                 </div>
+                <button data-testid="workspace-members-btn" onClick={() => setShowMembers(true)}
+                  className="neu-btn ml-auto rounded-xl px-4 py-2 flex items-center gap-2 text-sm font-semibold text-primary-stitch">
+                  <UserPlus className="w-4 h-4" /> Members
+                </button>
               </div>
 
               <div className="neu-pressed m-4 rounded-2xl flex-1 overflow-y-auto p-5 space-y-4">
@@ -194,6 +199,73 @@ export default function Messages() {
           const { data } = await api.post("/channels", { workspace_id: activeWs.workspace_id, name });
           setChannels((prev) => [...prev, data]); setActiveCh(data); setShowChModal(false); toast.success("Channel created");
         }} />}
+      {showMembers && activeWs && (
+        <MembersModal workspace={activeWs} onClose={() => setShowMembers(false)} />
+      )}
+    </div>
+  );
+}
+
+function MembersModal({ workspace, onClose }) {
+  const [members, setMembers] = useState([]);
+  const [email, setEmail] = useState("");
+  const [inviting, setInviting] = useState(false);
+
+  const load = useCallback(() => {
+    api.get(`/workspaces/${workspace.workspace_id}/members`).then(({ data }) => setMembers(data));
+  }, [workspace.workspace_id]);
+  useEffect(() => { load(); }, [load]);
+
+  const invite = async (e) => {
+    e.preventDefault();
+    if (!email.trim()) return;
+    setInviting(true);
+    try {
+      await api.post(`/workspaces/${workspace.workspace_id}/invite`, { email: email.trim() });
+      toast.success(`Invited ${email.trim()}`);
+      setEmail(""); load();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Could not invite");
+    } finally { setInviting(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.5)" }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="neu-raised rounded-3xl p-8 w-full max-w-md animate-fade-up">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h3 className="font-head font-bold text-2xl" style={{ color: "var(--text)" }}>Members</h3>
+            <p className="text-sm text-muted-stitch">{workspace.name}</p>
+          </div>
+          <button onClick={onClose} className="text-muted-stitch"><X className="w-5 h-5" /></button>
+        </div>
+
+        <form onSubmit={invite} className="flex gap-2 mb-6">
+          <div className="relative flex-1">
+            <Mail className="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-muted-stitch" />
+            <input data-testid="invite-email-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+              placeholder="Invite by email" className="neu-input w-full rounded-2xl py-3 pl-12 pr-4" />
+          </div>
+          <button data-testid="invite-submit-btn" type="submit" disabled={inviting} className="neu-primary rounded-2xl px-5 font-semibold">
+            {inviting ? "…" : "Invite"}
+          </button>
+        </form>
+
+        <div className="space-y-2 max-h-72 overflow-y-auto">
+          {members.map((m) => (
+            <div key={m.user_id} className="neu-pressed rounded-2xl p-3 flex items-center gap-3">
+              <div className="neu-sm w-9 h-9 rounded-full flex items-center justify-center overflow-hidden shrink-0">
+                {m.avatar ? <img src={m.avatar} alt="" className="w-full h-full object-cover" /> :
+                  <span className="font-head font-bold text-sm text-primary-stitch">{(m.name || "U")[0].toUpperCase()}</span>}
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>{m.name}</p>
+                <p className="text-xs text-muted-stitch truncate">{m.email}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

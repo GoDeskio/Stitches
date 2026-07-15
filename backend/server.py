@@ -180,6 +180,10 @@ class WorkspaceInput(BaseModel):
     icon: Optional[str] = None
 
 
+class InviteInput(BaseModel):
+    email: EmailStr
+
+
 class ChannelInput(BaseModel):
     workspace_id: str
     name: str
@@ -356,6 +360,31 @@ async def join_workspace(workspace_id: str, user: dict = Depends(get_current_use
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
     return ws
+
+
+@api_router.get("/workspaces/{workspace_id}/members")
+async def workspace_members(workspace_id: str, user: dict = Depends(get_current_user)):
+    ws = await db.workspaces.find_one({"workspace_id": workspace_id}, {"_id": 0})
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    members = await db.users.find({"user_id": {"$in": ws.get("members", [])}},
+                                  {"_id": 0, "password_hash": 0}).to_list(500)
+    return members
+
+
+@api_router.post("/workspaces/{workspace_id}/invite")
+async def invite_member(workspace_id: str, data: InviteInput, user: dict = Depends(get_current_user)):
+    ws = await db.workspaces.find_one({"workspace_id": workspace_id})
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    invitee = await db.users.find_one({"email": data.email.lower()})
+    if not invitee:
+        raise HTTPException(status_code=404, detail="No Stitches user found with that email")
+    if invitee["user_id"] in ws.get("members", []):
+        raise HTTPException(status_code=400, detail="User is already a member")
+    await db.workspaces.update_one({"workspace_id": workspace_id},
+                                   {"$addToSet": {"members": invitee["user_id"]}})
+    return {"ok": True, "member": public_user(invitee)}
 
 
 # ---------------- Channels ----------------

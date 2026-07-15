@@ -53,7 +53,7 @@ export default function Login() {
             <span className="font-head font-black text-3xl tracking-tight" style={{ color: "var(--text)" }}>Stitches</span>
           </div>
           <h1 className="font-head font-black text-5xl leading-[1.05] tracking-tight" style={{ color: "var(--text)" }}>
-            Where teams <span className="text-primary-stitch">stitch</span> ideas into work.
+            Where Ideas are <span className="text-primary-stitch">Stitched</span> together.
           </h1>
           <p className="text-lg max-w-md text-muted-stitch">
             A tactile workspace for business & creative teams. Chat, collaborate on projects, share assets and plug in your favourite AI tools — all in one place.

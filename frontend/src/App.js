@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-route
 import { Toaster } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import AuthCallback from "@/components/AuthCallback";
+import Home from "@/pages/Home";
 import Login from "@/pages/Login";
 import Layout from "@/components/Layout";
 import Dashboard from "@/pages/Dashboard";
@@ -36,6 +37,7 @@ function AppRouter() {
 
   return (
     <Routes>
+      <Route path="/" element={<Home />} />
       <Route path="/login" element={<Login />} />
       <Route
         element={
@@ -54,7 +56,7 @@ function AppRouter() {
         <Route path="/settings" element={<Settings />} />
         <Route path="/admin" element={<Admin />} />
       </Route>
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }
