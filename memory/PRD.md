@@ -32,6 +32,15 @@ Build a fully functional, dynamic, beautiful, heavily neumorphic web app (Slack/
 - Admin dashboard (platform stats + recent members).
 - Verified: backend 14/14 pytest pass; all 12 frontend flows functional.
 
+## Implemented (2026-06-16)
+- Public blank neumorphic Home page (`/`) with stitched-leather texture, TMS logo placeholder + "Too Many Stitches" and top-right Login button. Login tagline updated.
+- Notifications: bell + unread badge + toast; created on workspace/project invite and friend add.
+- Admin dashboard tabs: Overview, Users (role toggle, enable/disable, reset password, impersonate/login-as with return banner), Features (global feature flags), SEO (editable meta, applied to document head), Monitoring (activity feed + 7-day chart), Heat Map (7x24 activity grid).
+- Feature flags enforced backend (403) + hide nav; `is_active=false` blocks login.
+- Friends/People page (add/remove connections); workspace & project member add/remove modals.
+- Activity logging on login/register/message/project/asset/integration/ai/admin actions.
+- Verified: all new backend endpoints via curl; all 11 new frontend flows pass (iteration_2).
+
 ## Backlog / Next
 - P1: Direct messages (1:1), workspace member invites, message edit/delete + typing indicators.
 - P1: Actually invoke connected integrations (trigger N8N workflows, pull files from connected cloud storage).

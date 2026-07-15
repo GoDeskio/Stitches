@@ -994,6 +994,38 @@ async def workspace_remove(workspace_id: str, data: UserIdInput, user: dict = De
     return {"ok": True}
 
 
+@api_router.get("/admin/users/{user_id}/activity")
+async def admin_user_activity(user_id: str, user: dict = Depends(require_admin)):
+    logs = await db.activity_log.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1).to_list(300)
+    return logs
+
+
+@api_router.get("/admin/activity/export")
+async def admin_activity_export(authorization: str = Header(None), auth: str = Query(None)):
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:]
+    elif auth:
+        token = auth
+    admin = await resolve_user_from_token(token)
+    if not admin or admin.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    import csv, io
+    logs = await db.activity_log.find({}, {"_id": 0}).sort("created_at", -1).to_list(10000)
+    uids = list({l.get("user_id") for l in logs if l.get("user_id")})
+    users = await db.users.find({"user_id": {"$in": uids}}, {"_id": 0, "user_id": 1, "email": 1, "name": 1}).to_list(2000)
+    umap = {u["user_id"]: u for u in users}
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["timestamp", "user_id", "name", "email", "action", "meta"])
+    for l in logs:
+        u = umap.get(l.get("user_id"), {})
+        w.writerow([l.get("created_at"), l.get("user_id"), u.get("name", ""), u.get("email", ""),
+                    l.get("action"), json.dumps(l.get("meta", {}))])
+    return FastResponse(content=buf.getvalue(), media_type="text/csv",
+                        headers={"Content-Disposition": "attachment; filename=stitches_activity.csv"})
+
+
 @api_router.get("/")
 async def root():
     return {"message": "Stitches API"}

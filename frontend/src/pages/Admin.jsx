@@ -5,7 +5,7 @@ import {
   ToggleRight, Search, Activity, Grid3x3, LayoutDashboard, KeyRound, LogIn, BadgeCheck,
 } from "lucide-react";
 import { toast } from "sonner";
-import api from "@/lib/api";
+import api, { API } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { PageShell, PageHeader, Loader } from "@/components/Stitch";
 
@@ -193,11 +193,43 @@ function SeoTab() {
 
 function MonitoringTab() {
   const [data, setData] = useState(null);
-  useEffect(() => { api.get("/admin/monitoring").then(({ data }) => setData(data)); }, []);
+  const [users, setUsers] = useState([]);
+  const [selUser, setSelUser] = useState("");
+  const [userLogs, setUserLogs] = useState(null);
+  useEffect(() => {
+    api.get("/admin/monitoring").then(({ data }) => setData(data));
+    api.get("/admin/users").then(({ data }) => setUsers(data));
+  }, []);
+
+  const exportCsv = async () => {
+    try {
+      const res = await api.get("/admin/activity/export", { responseType: "blob" });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url; a.download = "stitches_activity.csv"; a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Activity log exported");
+    } catch (e) { toast.error("Export failed"); }
+  };
+
+  const loadUser = async (uid) => {
+    setSelUser(uid);
+    setUserLogs(null);
+    if (!uid) return;
+    const { data } = await api.get(`/admin/users/${uid}/activity`);
+    setUserLogs(data);
+  };
+
   if (!data) return <Loader />;
   const maxDaily = Math.max(1, ...data.daily.map((d) => d.count));
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="font-head font-bold text-2xl" style={{ color: "var(--text)" }}>System Monitoring</h3>
+        <button data-testid="export-activity-btn" onClick={exportCsv} className="neu-primary rounded-2xl px-5 py-3 font-semibold flex items-center gap-2">
+          <Search className="w-4 h-4" /> Export CSV
+        </button>
+      </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
         <Metric label="Total Events" value={data.total_events} />
         <Metric label="Active Today" value={data.active_today} />
@@ -229,6 +261,31 @@ function MonitoringTab() {
             ))}
           </div>
         </div>
+      </div>
+
+      <div className="neu-raised rounded-[1.75rem] p-7 animate-fade-up">
+        <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
+          <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Per-user Activity</h3>
+          <select data-testid="drilldown-user-select" value={selUser} onChange={(e) => loadUser(e.target.value)}
+            className="neu-input rounded-2xl py-2.5 px-4 font-medium cursor-pointer" style={{ color: "var(--text)" }}>
+            <option value="">Select a user…</option>
+            {users.map((u) => <option key={u.user_id} value={u.user_id}>{u.name} ({u.email})</option>)}
+          </select>
+        </div>
+        {!selUser && <p className="text-muted-stitch text-sm">Choose a member to trace exactly what they did and when.</p>}
+        {selUser && userLogs === null && <Loader />}
+        {userLogs && userLogs.length === 0 && <p className="text-muted-stitch text-sm">No recorded activity for this user.</p>}
+        {userLogs && userLogs.length > 0 && (
+          <div className="space-y-2 max-h-80 overflow-y-auto" data-testid="drilldown-logs">
+            {userLogs.map((l, i) => (
+              <div key={i} className="neu-pressed rounded-xl p-3 flex items-center gap-3">
+                <span className="neu-sm text-xs px-2 py-1 rounded-md text-primary-stitch font-mono-stitch">{l.action}</span>
+                <span className="text-xs text-muted-stitch flex-1 truncate">{JSON.stringify(l.meta || {})}</span>
+                <span className="text-xs text-muted-stitch">{new Date(l.created_at).toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

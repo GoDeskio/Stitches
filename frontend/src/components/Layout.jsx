@@ -52,8 +52,8 @@ function LayoutInner() {
         data-testid="sidebar"
       >
         <div className="flex items-center gap-3 p-5">
-          <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center shrink-0">
-            <span className="font-head font-black text-xl text-primary-stitch">S</span>
+          <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 p-1.5">
+            <img src="/logo.png" alt="Stitches" className="w-full h-full object-contain" />
           </div>
           {!collapsed && <span className="font-head font-black text-2xl tracking-tight" style={{ color: "var(--text)" }}>Stitches</span>}
         </div>
