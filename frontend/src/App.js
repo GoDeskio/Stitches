@@ -64,7 +64,7 @@ export default function App() {
     <div className="App">
       <BrowserRouter>
         <AppRouter />
-        <Toaster position="top-right" richColors />
+        <Toaster position="bottom-right" richColors />
       </BrowserRouter>
     </div>
   );
