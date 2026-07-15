@@ -55,6 +55,11 @@ Build a fully functional, dynamic, beautiful, heavily neumorphic web app (Slack/
 - Friends quick-add to workspaces and projects (chips from your connections) in both member modals; users & admin can create workspaces/projects and add members.
 - Verified (iteration_4): all four areas pass 100% (logo blend, eye toggle, two-user DM realtime + presence, quick-add for workspace & project, non-admin create).
 
+## Implemented (2026-06-19)
+- Unread message badges: per-channel + per-DM counts in the Messages rail and a total badge on the sidebar Messages nav item; auto-clear on open (read_state via `/api/channels/{id}/read`, counts via `/api/unreads`).
+- Live typing indicators on channels and DMs via WebSocket (`{type:'typing'}` broadcast), auto-dismiss after 3s.
+- Verified (iteration_5): unread badges (rail + sidebar, clear on open) and typing indicator pass 100% across two browser sessions.
+
 ## Backlog / Next
 - P1: Direct messages (1:1), workspace member invites, message edit/delete + typing indicators.
 - P1: Actually invoke connected integrations (trigger N8N workflows, pull files from connected cloud storage).

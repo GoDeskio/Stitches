@@ -188,7 +188,7 @@ export default function Messages() {
                   </div>
                   <div className="space-y-2 overflow-y-auto">
                     {channels.map((c) => (
-                      <button key={c.channel_id} onClick={() => setActiveCh(c)}
+                      <button key={c.channel_id} data-testid="channel-item" onClick={() => setActiveCh(c)}
                         className={`w-full rounded-xl py-2 px-3 flex items-center gap-2 text-sm font-medium ${activeCh?.channel_id === c.channel_id ? "neu-pressed text-primary-stitch" : "text-muted-stitch neu-hover"}`}>
                         <Hash className="w-4 h-4 shrink-0" /> <span className="truncate flex-1 text-left">{c.name}</span>
                         {unreads.channels[c.channel_id] > 0 && activeCh?.channel_id !== c.channel_id && (
