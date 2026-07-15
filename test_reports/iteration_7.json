@@ -1,0 +1,19 @@
+{
+  "summary": "Re-tested AI Assistant envelope parser fix. Backend pytest 7/7 passed; UI verified for Alice on /assistant. No raw JSON leaked in any reply for 'Show my dashboard stats', 'List my workspaces', 'List my projects', 'Create a project called Verify Fix', a prose-only question, admin toggle off/on for assets, and non-admin guardrail. Action chips render correctly; prose answers have no chip. Assets feature flag left ON after test as required.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_ai_agent_fix.py",
+    "/app/test_reports/pytest/ai_agent_fix.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": ["/app/backend/tests/test_ai_agent_fix.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Alice alice@stitches.app/Alice@123, Admin admin@stitches.app/Admin@123",
+  "seed_data_creation": "Alice created project 'Verify Fix' via AI action (per test scenario)",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Envelope parser fix verified: parser scans every '{' and keeps last valid envelope; no leaks observed across all 7 scenarios. Backend endpoint POST /api/ai/agent returns clean reply + proper action for get_stats, list_workspaces, list_projects, create_project, admin_toggle_feature; guardrail refuses admin action for non-admin. All feature flags left ON.",
+  "rca of the issue": "N/A - previous bug (double JSON envelope / tool-call prefix causing json.loads failure and raw JSON leak) is fixed. Parser hardening (raw_decode over every '{' and keeping the LAST valid dict) plus tightened system prompt to emit exactly one JSON object works as intended."
+}

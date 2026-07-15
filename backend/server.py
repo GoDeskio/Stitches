@@ -806,7 +806,8 @@ def build_agent_system(user):
         "\n\nWhen the user asks you to DO something that matches an action, reply ONLY with strict minified JSON: "
         '{"action":"<name>","params":{...},"message":"<short friendly confirmation>"}. '
         'If no action is needed, reply with {"action":null,"message":"<your helpful answer>"}. '
-        "Return ONLY the JSON object, no markdown, no code fences, no extra text."
+        "Return ONLY the JSON object, no markdown, no code fences, no extra text. "
+        "Emit EXACTLY ONE JSON object and never repeat it."
     )
 
 
@@ -910,18 +911,31 @@ async def ai_agent(data: AiInput, user: dict = Depends(get_current_user)):
         raw = raw.strip("`")
         if raw.lower().startswith("json"):
             raw = raw[4:]
-    action, params, message, result = None, {}, raw, None
-    try:
-        parsed = json.loads(raw)
-        action = parsed.get("action")
-        params = parsed.get("params") or {}
-        message = parsed.get("message") or ""
-    except Exception:
-        message = full.strip() or "Sorry, I didn't understand that."
+    raw = raw.strip()
+    action, params, message, result = None, {}, "", None
+    # Robustly extract JSON envelope: try decoding at every '{'; keep the LAST valid envelope dict.
+    decoder = json.JSONDecoder()
+    last = None
+    for i, ch in enumerate(raw):
+        if ch == "{":
+            try:
+                obj, _ = decoder.raw_decode(raw, i)
+                if isinstance(obj, dict) and ("action" in obj or "message" in obj):
+                    last = obj
+            except Exception:
+                continue
+    if last is not None:
+        action = last.get("action")
+        params = last.get("params") or {}
+        message = last.get("message") or ""
+    else:
+        message = raw or "Sorry, I didn't understand that."
     if action:
         result = await execute_agent_action(action, params, user)
         if result and not result.get("ok"):
             message = f"{message}\n\n⚠️ {result.get('error')}" if message else f"⚠️ {result.get('error')}"
+    if not message:
+        message = "Done."
     return {"reply": message, "action": action, "result": result}
 
 
