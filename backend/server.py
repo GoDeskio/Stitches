@@ -544,6 +544,9 @@ async def websocket_endpoint(websocket: WebSocket, channel_id: str, token: str =
     try:
         while True:
             data = await websocket.receive_json()
+            if data.get("type") == "typing":
+                await ws_manager.broadcast(channel_id, {"type": "typing", "user_id": user["user_id"], "user_name": user.get("name")})
+                continue
             text = data.get("text", "").strip()
             if text:
                 msg = await _create_message(channel_id, public_user(user), text)
@@ -1082,6 +1085,36 @@ async def list_dms(user: dict = Depends(get_current_user)):
         result.append(c)
     result.sort(key=lambda x: x["last_at"], reverse=True)
     return result
+
+
+@api_router.post("/channels/{channel_id}/read")
+async def mark_read(channel_id: str, user: dict = Depends(get_current_user)):
+    await db.read_state.update_one({"user_id": user["user_id"], "channel_id": channel_id},
+                                   {"$set": {"last_read_at": now_iso()}}, upsert=True)
+    return {"ok": True}
+
+
+@api_router.get("/unreads")
+async def get_unreads(user: dict = Depends(get_current_user)):
+    ws_docs = await db.workspaces.find({"members": user["user_id"]}, {"_id": 0, "workspace_id": 1}).to_list(200)
+    ws_ids = [w["workspace_id"] for w in ws_docs]
+    channels = await db.channels.find({"workspace_id": {"$in": ws_ids}}, {"_id": 0, "channel_id": 1}).to_list(500)
+    dms = await db.dm_conversations.find({"participants": user["user_id"]}, {"_id": 0, "dm_id": 1}).to_list(200)
+    ids = [c["channel_id"] for c in channels] + [d["dm_id"] for d in dms]
+    states = {s["channel_id"]: s.get("last_read_at")
+              for s in await db.read_state.find({"user_id": user["user_id"]}, {"_id": 0}).to_list(2000)}
+    result = {}
+    total = 0
+    for cid in ids:
+        q = {"channel_id": cid, "user_id": {"$ne": user["user_id"]}}
+        last = states.get(cid)
+        if last:
+            q["created_at"] = {"$gt": last}
+        cnt = await db.messages.count_documents(q)
+        if cnt > 0:
+            result[cid] = cnt
+            total += cnt
+    return {"channels": result, "total": total}
 
 
 @api_router.get("/")

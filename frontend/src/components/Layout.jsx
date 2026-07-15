@@ -43,6 +43,14 @@ function LayoutInner() {
     return () => clearInterval(t);
   }, []);
 
+  const [unreadTotal, setUnreadTotal] = useState(0);
+  useEffect(() => {
+    const load = () => api.get("/unreads").then(({ data }) => setUnreadTotal(data.total)).catch(() => {});
+    load();
+    const t = setInterval(load, 15000);
+    return () => clearInterval(t);
+  }, []);
+
   const doLogout = async () => {
     await logout();
     navigate("/login", { replace: true });
@@ -74,7 +82,7 @@ function LayoutInner() {
 
         <nav className="flex-1 px-4 space-y-2 overflow-y-auto">
           {NAV.filter((n) => !n.flag || flags[n.flag]).map(({ to, label, icon: Icon }) => (
-            <SideLink key={to} to={to} label={label} Icon={Icon} collapsed={collapsed} />
+            <SideLink key={to} to={to} label={label} Icon={Icon} collapsed={collapsed} badge={to === "/messages" ? unreadTotal : 0} />
           ))}
           {user?.role === "admin" && (
             <SideLink to="/admin" label="Admin" Icon={Shield} collapsed={collapsed} testid="nav-admin" />
@@ -130,7 +138,7 @@ function LayoutInner() {
   );
 }
 
-function SideLink({ to, label, Icon, collapsed, testid }) {
+function SideLink({ to, label, Icon, collapsed, testid, badge = 0 }) {
   return (
     <NavLink
       to={to}
@@ -141,8 +149,14 @@ function SideLink({ to, label, Icon, collapsed, testid }) {
         }`
       }
     >
-      <Icon className="w-5 h-5 shrink-0" />
-      {!collapsed && <span className="truncate">{label}</span>}
+      <span className="relative shrink-0">
+        <Icon className="w-5 h-5" />
+        {collapsed && badge > 0 && <span className="absolute -top-1.5 -right-1.5 w-2.5 h-2.5 rounded-full" style={{ background: "var(--primary)" }} />}
+      </span>
+      {!collapsed && <span className="truncate flex-1">{label}</span>}
+      {!collapsed && badge > 0 && (
+        <span data-testid="nav-messages-badge" className="min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center text-white" style={{ background: "var(--primary)" }}>{badge}</span>
+      )}
     </NavLink>
   );
 }

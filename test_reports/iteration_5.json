@@ -1,0 +1,27 @@
+{
+  "summary": "Verified unread badges (channel/DM rail, sidebar) and live typing indicator end-to-end using two independent Playwright browser contexts (Alice & Bob) plus curl for backend. Backend: GET /api/unreads correctly returns {channels:{cid:count}, total} for both channel and DM messages the user hasn't read; POST /api/channels/{id}/read clears the count for that channel (verified via curl: initial {ch_7efc1a2ef0a0:1, dm_a865662f1f90:1, total:2} -> after mark-read {}, then Bob sent DM -> {dm_a865662f1f90:1, total:1}). WebSocket /api/ws/{channel_id} rebroadcasts {type:'typing',user_id,user_name} to other viewers. Frontend: (1) With Alice on /dashboard and Bob sending a DM, Alice's sidebar nav-messages-badge appeared showing '1' within ~4s of Layout's next poll cycle. (2) Navigating Alice to /messages > Direct, the dm-unread badge showed '1' next to the Bob Stitch row on her rail. (3) Opening the DM cleared dm-unread (POST /api/channels/{dm_id}/read fired and the badge disappeared). (4) With both users viewing the same DM, Bob filling the composer produced 'Bob Stitch is typing…' via typing-indicator on Alice's page on the first attempt; it correctly disappeared ~4.5s after Bob cleared the input (3s server timeout in Messages.jsx). Regression: DM send/receive, presence dot, DM two-user flow all continue to work.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py"],
+  "action_items": [
+    "Optional: add data-testid=\"channel-item\" to channel rows in Messages.jsx so channel-unread e2e can be UI-driven without falling back to text selectors (currently the channel-unread badge itself has a testid but the parent channel row does not). Channel-unread was verified indirectly via backend (/unreads returns channel counts) + identical rendering logic to dm-unread (lines 194-195 vs 221-222 in Messages.jsx)."
+  ],
+  "critical_code_review_comments": [
+    "Messages.jsx: loadUnreads is only called on mount+15s interval; when the user is inside Messages and receives a WS message, unreads state is not refreshed for OTHER channels (only the currently open one gets marked read). Consider calling loadUnreads() inside the WS onmessage 'message' branch when data.message.user_id !== self, so badges for other rooms bump immediately instead of waiting up to 15s.",
+    "Messages.jsx line 84-88: typing handler correctly ignores self, sets 3s timer to clear — good. Consider debouncing input->send further (currently 2s throttle) and also sending a 'stopped_typing' when input cleared for snappier UX.",
+    "Layout.jsx polls /api/unreads every 15s always; consider using an event/WS-driven push (server broadcasting a per-user unread bump) to reduce steady-state load, or pause when document.hidden.",
+    "server.py get_unreads issues count_documents in a loop per channel (N+1). For workspaces with many channels this can be slow; aggregate with a $group over messages once."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (unreads GET + mark-read POST + WS typing broadcast all verified via curl and E2E)", "frontend": "100% on tested paths (nav-messages-badge, dm-unread badge, badge clear on open, typing-indicator show + auto-dismiss). channel-unread not directly UI-clicked due to missing channel-row testid, but rendering path is identical to dm-unread which passed."},
+  "test_credentials": "alice@stitches.app/Alice@123, bob@stitches.app/Bob@123 (unchanged). Both are mutual friends with existing DM dm_a865662f1f90 and shared TEST_WS workspace.",
+  "seed_data_creation": "Added a few extra DM messages between Alice and Bob during the test (Bob DM unread <ts>, plus a few 'typing test N' drafts that were NOT sent). No schema changes.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Two-context Playwright pattern: `ctx = await page.context.browser.new_context(); pg = await ctx.new_page()`. Login redirects to /dashboard (not /); use polling loop on pg.url instead of wait_for_url('**/'). Layout's /unreads poll runs every 15s and also fires immediately on mount — navigating between pages triggers a fresh fetch. Typing throttled to 2s on the sender side, cleared after 3s of no receive on the receiver side. All the requested testids are present: mode-channels, mode-direct, dm-item, message-input, send-message-btn, channel-unread, dm-unread, typing-indicator, nav-messages-badge — except there's no `channel-item` testid on the channel rows themselves.",
+  "rca of the issue": "N/A — feature works end to end."
+}

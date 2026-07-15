@@ -20,6 +20,10 @@ export default function Messages() {
   const [dms, setDms] = useState([]);
   const [friends, setFriends] = useState([]);
   const [showDmPicker, setShowDmPicker] = useState(false);
+  const [unreads, setUnreads] = useState({ channels: {}, total: 0 });
+  const [typingName, setTypingName] = useState(null);
+  const typingSentRef = useRef(0);
+  const typingTimerRef = useRef(null);
   const wsRef = useRef(null);
   const bottomRef = useRef(null);
 
@@ -44,10 +48,28 @@ export default function Messages() {
     setMessages(data);
   }, []);
 
+  const loadUnreads = useCallback(async () => {
+    try { const { data } = await api.get("/unreads"); setUnreads(data); } catch (e) {}
+  }, []);
+
+  useEffect(() => { loadUnreads(); const t = setInterval(loadUnreads, 15000); return () => clearInterval(t); }, [loadUnreads]);
+
+  const markRead = useCallback(async (chId) => {
+    try { await api.post(`/channels/${chId}/read`); } catch (e) {}
+    setUnreads((prev) => {
+      if (!prev.channels[chId]) return prev;
+      const channels = { ...prev.channels };
+      const removed = channels[chId]; delete channels[chId];
+      return { channels, total: Math.max(0, prev.total - removed) };
+    });
+  }, []);
+
   // WebSocket + polling for active channel
   useEffect(() => {
     if (!activeCh) { setMessages([]); return; }
     loadMessages(activeCh.channel_id);
+    markRead(activeCh.channel_id);
+    setTypingName(null);
 
     const token = localStorage.getItem("stitches_token");
     const wsUrl = API.replace(/^http/, "ws") + `/ws/${activeCh.channel_id}?token=${token}`;
@@ -58,6 +80,11 @@ export default function Messages() {
         const data = JSON.parse(evt.data);
         if (data.type === "message") {
           setMessages((prev) => prev.some((m) => m.message_id === data.message.message_id) ? prev : [...prev, data.message]);
+          if (data.message.user_id !== user?.user_id) markRead(activeCh.channel_id);
+        } else if (data.type === "typing" && data.user_id !== user?.user_id) {
+          setTypingName(data.user_name);
+          clearTimeout(typingTimerRef.current);
+          typingTimerRef.current = setTimeout(() => setTypingName(null), 3000);
         }
       };
       wsRef.current = ws;
@@ -65,7 +92,7 @@ export default function Messages() {
 
     const poll = setInterval(() => loadMessages(activeCh.channel_id), 5000);
     return () => { clearInterval(poll); if (ws) ws.close(); wsRef.current = null; };
-  }, [activeCh, loadMessages]);
+  }, [activeCh, loadMessages, markRead, user]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
@@ -79,6 +106,15 @@ export default function Messages() {
     } else {
       const { data } = await api.post("/messages", { channel_id: activeCh.channel_id, text: t });
       setMessages((prev) => [...prev, data]);
+    }
+  };
+
+  const handleType = (v) => {
+    setText(v);
+    const now = Date.now();
+    if (wsRef.current?.readyState === WebSocket.OPEN && now - typingSentRef.current > 2000) {
+      typingSentRef.current = now;
+      wsRef.current.send(JSON.stringify({ type: "typing" }));
     }
   };
 
@@ -154,7 +190,10 @@ export default function Messages() {
                     {channels.map((c) => (
                       <button key={c.channel_id} onClick={() => setActiveCh(c)}
                         className={`w-full rounded-xl py-2 px-3 flex items-center gap-2 text-sm font-medium ${activeCh?.channel_id === c.channel_id ? "neu-pressed text-primary-stitch" : "text-muted-stitch neu-hover"}`}>
-                        <Hash className="w-4 h-4 shrink-0" /> <span className="truncate">{c.name}</span>
+                        <Hash className="w-4 h-4 shrink-0" /> <span className="truncate flex-1 text-left">{c.name}</span>
+                        {unreads.channels[c.channel_id] > 0 && activeCh?.channel_id !== c.channel_id && (
+                          <span data-testid="channel-unread" className="min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center text-white" style={{ background: "var(--primary)" }}>{unreads.channels[c.channel_id]}</span>
+                        )}
                       </button>
                     ))}
                   </div>
@@ -178,7 +217,10 @@ export default function Messages() {
                       <MessageSquare className="w-4 h-4" />
                       {d.other?.online && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-green-500" />}
                     </span>
-                    <span className="truncate">{d.other?.name}</span>
+                    <span className="truncate flex-1 text-left">{d.other?.name}</span>
+                    {unreads.channels[d.dm_id] > 0 && activeCh?.channel_id !== d.dm_id && (
+                      <span data-testid="dm-unread" className="min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-bold flex items-center justify-center text-white" style={{ background: "var(--primary)" }}>{unreads.channels[d.dm_id]}</span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -277,9 +319,22 @@ export default function Messages() {
                 <div ref={bottomRef} />
               </div>
 
+              <div className="px-5 h-5 -mt-1 mb-1">
+                {typingName && (
+                  <span data-testid="typing-indicator" className="text-xs text-primary-stitch flex items-center gap-1.5">
+                    <span className="flex gap-0.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: "0ms" }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: "150ms" }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: "300ms" }} />
+                    </span>
+                    {typingName} is typing…
+                  </span>
+                )}
+              </div>
+
               <form onSubmit={send} className="p-4 pt-0 flex gap-3">
-                <input data-testid="message-input" value={text} onChange={(e) => setText(e.target.value)}
-                  placeholder={`Message #${activeCh.name}`} className="neu-input flex-1 rounded-2xl py-3.5 px-5" />
+                <input data-testid="message-input" value={text} onChange={(e) => handleType(e.target.value)}
+                  placeholder={activeCh.type === "dm" ? `Message ${activeCh.name}` : `Message #${activeCh.name}`} className="neu-input flex-1 rounded-2xl py-3.5 px-5" />
                 <button data-testid="send-message-btn" type="submit" className="neu-primary rounded-2xl px-6 flex items-center justify-center">
                   <Send className="w-5 h-5" />
                 </button>
