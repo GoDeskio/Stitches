@@ -99,7 +99,12 @@ Build a fully functional, dynamic, beautiful, heavily neumorphic web app (Slack/
 - **Beginner-friendly integration connections**: each connector now offers one or more **connection methods** with plain-language help + placeholders. Added **Email (IMAP)** (connect with email + password) and **Custom App** (username+password OR API key) connectors. N8N adds a "link + username/password" (Basic Auth) method; N8N run supports Basic Auth. Test actions do real checks (IMAP login, HTTP basic-auth), fail gracefully. Wizard has method tabs, help callouts, Escape-to-close. All creds Fernet-encrypted at rest, masked in responses.
 - Verified (iteration_13, 12/12 backend pytest + 100% frontend). Hardening: IMAP socket timeout, Custom App test requires credentials.
 
+## Implemented (2026-07-16, part 5 — Refactor)
+- **Backend modularized**: `server.py` 1856 → **75 lines** (thin bootstrap: app, `/api/ws/{channel_id}`, startup/shutdown). Extracted `core.py` (shared db/security/helpers/storage/ws_manager/`_create_message`/`is_online`), `models.py` (all Pydantic), and `routers/{auth,users,messaging,projects,assets,integrations,ai,admin}.py` included under `/api`. All 83 API routes preserved.
+- **Frontend**: `Messages.jsx` 678 → 439 lines; extracted `components/messages/MessageParts.jsx` (MentionText, ThreadPanel, MembersModal, CreateModal, ReactionPicker).
+- Verified (iteration_14): 18/18 regression suite + frontend smoke, **zero regressions** (incl. /friends, /dms, WebSocket realtime, mentions, reactions, threads, kanban gate, integrations encrypt/mask, AI stream). Test data purged.
+
 ## Backlog / Next
-- P2 (NEXT, isolated): Refactor server.py (~1855 lines) into routers (auth/users/projects+tasks/integrations/admin/activity/messages); split Messages.jsx. Rename SECRET_FIELDS → MASKED_FIELDS.
-- P2: Google Drive / Dropbox one-click OAuth (needs platform OAuth client_id/secret from owner).
-- P3: Kanban due dates + assignees + "My tasks" dashboard widget; delete-avatar option; wire Downloads buttons to CI release URLs.
+- P2: Google Drive / Dropbox **one-click OAuth** — BLOCKED on platform OAuth client_id/secret from owner.
+- P3: Kanban due dates + assignees + "My tasks" dashboard widget; delete-avatar; wire Downloads buttons to CI release URLs.
+- P3 (housekeeping): update/remove stale pre-refactor test files (backend_test.py catalog, test_encryption_activity_admin, test_threads_mentions_integrations catalog-count assertions) — they assert the old 6-connector/`fields` shape; current suites (test_refactor_regression, test_connection_methods, test_notes_and_admin) are the source of truth.
