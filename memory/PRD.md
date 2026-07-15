@@ -75,9 +75,14 @@ Build a fully functional, dynamic, beautiful, heavily neumorphic web app (Slack/
 - Admin user moderation: clear labeled **Disable Account** / **Reinstate Account** button next to each user in Admin > Users (toggles `is_active`); disabled users are blocked at login (403). Admin account is never a disable target.
 - Verified (iteration_9, 100%): Notes CRUD + per-user isolation and admin disable→login-blocked→reinstate all pass; reusable pytest at `/app/backend/tests/test_notes_and_admin.py`.
 
+## Implemented (2026-07-16)
+- Channel **reply threads**: hover a message → reply icon opens a Thread panel; replies stay out of the main timeline and surface via a "N replies" button. Real-time via WebSocket + REST.
+- **@mentions**: typing `@` shows a member autocomplete; selecting inserts `@Name`, mentioned text is highlighted, and the mentioned user gets a `mention` notification (bell + unread). All sends now go through REST `POST /api/messages`.
+- **Real integration connectors** (user-entered credentials via setup wizard): N8N (`/run` triggers webhook), AWS S3 / Dropbox / Google Drive (`/files` list + `/download` link), LLM & MCP (`/test`). Connected cards expose Run / Browse files / Test. Admin Dashboard has an **Integrations** tab listing all platform integrations by owner (no credentials exposed). Deps added: boto3, dropbox.
+- Verified (iteration_10, 22/22 backend + 100% frontend).
+
 ## Backlog / Next
-- P1: Reply threads + @mentions with mention notifications in channels.
-- P1: Actually invoke connected integrations (trigger N8N workflows, pull files from connected cloud storage) — currently placeholder catalogs.
+- P2: At-rest encryption for stored integration credentials (currently plaintext in Mongo `config`, masked in API responses).
 - P2: Dynamic UI text-size / accessibility scaling control (theme toggle already exists).
-- P2: Split server.py (~1460 lines) into routers; split Messages.jsx; use async HTTP client for storage.
-- P2: Avatar image upload (currently URL field); project task boards (kanban).
+- P2: Refactor server.py (~1500 lines) into routers; split Messages.jsx; factor per-provider integration handlers into a registry.
+- P2: Google Drive OAuth refresh-token flow (currently manual token); avatar image upload; kanban task boards.
