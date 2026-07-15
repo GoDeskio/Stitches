@@ -1,0 +1,32 @@
+{
+  "summary": "Iteration 12 tested avatar upload (multipart + public /avatar-image), Kanban tasks CRUD + cascade delete + persistence, UI scaling slider (0.8-1.3), and login regression. Backend pytest 9/9 passed. Frontend end-to-end verified with Playwright.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_avatar_kanban.py",
+    "/app/test_reports/pytest/iteration_12.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now ~1763 lines; overdue for modular split (auth, users, projects/tasks, integrations, admin, activity).",
+    "POST /api/tasks/{id}/... update_task does not check ownership/project membership - any authenticated user can update or delete any task by task_id. Recommend adding an owner_id or project membership check.",
+    "DELETE /api/tasks/{id} similarly lacks ownership check.",
+    "POST /api/users/me/avatar has no file-size limit and no MIME type validation; a malicious user could upload arbitrary content masquerading as image. Consider size cap (e.g., 5MB) and image sniffing (e.g., PIL open) before persisting.",
+    "GET /api/users/{user_id}/avatar-image is public with no rate limiting - acceptable for now but flag if scale increases.",
+    "delete_project deletes tasks only when the caller is the project owner (delete_one with owner_id filter). If a non-owner calls it, tasks are still nuked via delete_many (no owner scope) - move the delete_many inside the success branch of delete_one to avoid orphan-task deletion by non-owners."
+  ],
+  "updated_files": ["/app/backend/tests/test_avatar_kanban.py"],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% verified flows"},
+  "test_credentials": "admin@stitches.app/Admin@123, demo@stitches.app/Demo@123, alice@stitches.app/Alice@123, bob@stitches.app/Bob@123",
+  "seed_data_creation": "Created and cleaned up TEST_Kanban, TEST_Cascade, TEST_UIKanban projects and associated TEST_ tasks. Uploaded a 1x1 PNG avatar for demo user (persists - not cleaned as no delete-avatar endpoint exists).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend tests in /app/backend/tests/test_avatar_kanban.py cover: seed logins (4), avatar upload+public fetch+404, kanban CRUD, project delete cascade, and settings PUT regression. Frontend Playwright covered: scale slider (0.8-1.3 via scale-up/down buttons updates --ui-scale and root font-size to 20.8px @1.3, persists via localStorage stitches_scale), avatar upload via hidden file input (use state='attached' since input has class='hidden'), full Kanban flow (create project -> board -> add task in todo -> task-move-btn moves to doing -> reload persists -> delete). Testids all match spec.",
+  "verification_details": {
+    "avatar": "POST /api/users/me/avatar returned {avatar:<url>} with /api/users/{uid}/avatar-image path. Public GET returned 200 image/png with body. /auth/me reflects new avatar. avatar-preview src shown in Settings and 2 img tags on page (sidebar + settings) use the same URL. Persists after reload.",
+    "kanban": "3 columns render (todo/doing/done). Task created via add-task-todo + task-input + task-add-submit appears in To Do. task-move-btn moves task to next column (verified todo->doing). Reload persists all task state. task-delete-btn removes card. Backend confirms tasks list sorted by created_at asc, and DELETE /api/projects cascades tasks to zero.",
+    "ui_scaling": "Initial --ui-scale=1, rootFontSize=16px. scale-up x6 -> 1.3, rootFontSize=20.8px (matches calc(16*1.3)). scale-down x12 -> 0.8. Slider input event also updates value. localStorage stitches_scale is written.",
+    "regression": "All 4 seed accounts login successfully. Projects create/list works. PUT /api/users/me returns 200."
+  },
+  "rca of the issue": "N/A - no defects observed in this iteration."
+}

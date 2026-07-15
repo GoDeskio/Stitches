@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Plus, FolderKanban, Trash2, X, Users, UserMinus, UserPlus, Mail } from "lucide-react";
+import { Plus, FolderKanban, Trash2, X, Users, UserMinus, UserPlus, Mail, LayoutGrid } from "lucide-react";
 import { toast } from "sonner";
+import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { PageShell, PageHeader, Loader, EmptyState } from "@/components/Stitch";
 
@@ -11,6 +12,7 @@ export default function Projects() {
   const [showModal, setShowModal] = useState(false);
   const [memberProject, setMemberProject] = useState(null);
   const [form, setForm] = useState({ name: "", description: "", status: "active" });
+  const navigate = useNavigate();
 
   const load = () => api.get("/projects").then(({ data }) => setProjects(data));
   useEffect(() => { load(); }, []);
@@ -53,7 +55,10 @@ export default function Projects() {
               <p className="text-sm text-muted-stitch flex-1 line-clamp-3">{p.description || "No description"}</p>
               <div className="flex items-center gap-2 mt-4">
                 <button onClick={() => cycleStatus(p)} className="neu-sm text-xs px-4 py-1.5 rounded-full capitalize text-primary-stitch font-semibold">{p.status}</button>
-                <button data-testid="project-members-btn" onClick={() => setMemberProject(p)} className="neu-btn text-xs px-4 py-1.5 rounded-full text-muted-stitch font-semibold flex items-center gap-1 ml-auto">
+                <button data-testid="project-board-btn" onClick={() => navigate(`/projects/${p.project_id}/board`)} className="neu-btn text-xs px-4 py-1.5 rounded-full text-muted-stitch font-semibold flex items-center gap-1 ml-auto">
+                  <LayoutGrid className="w-3.5 h-3.5" /> Board
+                </button>
+                <button data-testid="project-members-btn" onClick={() => setMemberProject(p)} className="neu-btn text-xs px-4 py-1.5 rounded-full text-muted-stitch font-semibold flex items-center gap-1">
                   <Users className="w-3.5 h-3.5" /> Members
                 </button>
               </div>

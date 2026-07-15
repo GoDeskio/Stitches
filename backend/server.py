@@ -313,6 +313,18 @@ class ProjectUpdate(BaseModel):
     status: Optional[str] = None
 
 
+class TaskInput(BaseModel):
+    title: str
+    description: Optional[str] = ""
+    status: Optional[str] = "todo"
+
+
+class TaskUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+
+
 class IntegrationInput(BaseModel):
     type: str
     name: str
@@ -467,6 +479,30 @@ async def update_profile(data: ProfileUpdate, user: dict = Depends(get_current_u
         await db.users.update_one({"user_id": user["user_id"]}, {"$set": updates})
     fresh = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
     return public_user(fresh)
+
+
+@api_router.post("/users/me/avatar")
+async def upload_avatar(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    ext = file.filename.split(".")[-1].lower() if "." in file.filename else "png"
+    path = f"{APP_NAME}/avatars/{user['user_id']}/{uuid.uuid4()}.{ext}"
+    data = await file.read()
+    result = put_object(path, data, file.content_type or "image/png")
+    base = os.environ.get("FRONTEND_URL", "").rstrip("/")
+    avatar_url = f"{base}/api/users/{user['user_id']}/avatar-image?v={uuid.uuid4().hex[:8]}"
+    await db.users.update_one({"user_id": user["user_id"]},
+                              {"$set": {"avatar": avatar_url, "avatar_path": result["path"]}})
+    await log_activity(user["user_id"], "avatar_update", {})
+    return {"avatar": avatar_url}
+
+
+@api_router.get("/users/{user_id}/avatar-image")
+async def get_avatar_image(user_id: str):
+    u = await db.users.find_one({"user_id": user_id}, {"_id": 0, "avatar_path": 1})
+    if not u or not u.get("avatar_path"):
+        raise HTTPException(status_code=404, detail="No avatar")
+    data, content_type = get_object(u["avatar_path"])
+    return FastResponse(content=data, media_type=content_type or "image/png",
+                        headers={"Cache-Control": "public, max-age=3600"})
 
 
 @api_router.get("/users")
@@ -688,6 +724,40 @@ async def update_project(project_id: str, data: ProjectUpdate, user: dict = Depe
 @api_router.delete("/projects/{project_id}")
 async def delete_project(project_id: str, user: dict = Depends(get_current_user)):
     await db.projects.delete_one({"project_id": project_id, "owner_id": user["user_id"]})
+    await db.tasks.delete_many({"project_id": project_id})
+    return {"ok": True}
+
+
+@api_router.get("/projects/{project_id}/tasks")
+async def list_tasks(project_id: str, user: dict = Depends(get_current_user)):
+    tasks = await db.tasks.find({"project_id": project_id}, {"_id": 0}).sort("created_at", 1).to_list(500)
+    return tasks
+
+
+@api_router.post("/projects/{project_id}/tasks")
+async def create_task(project_id: str, data: TaskInput, user: dict = Depends(get_current_user)):
+    await ensure_feature("projects")
+    doc = {"task_id": f"task_{uuid.uuid4().hex[:12]}", "project_id": project_id,
+           "title": data.title, "description": data.description or "",
+           "status": data.status or "todo", "owner_id": user["user_id"], "created_at": now_iso()}
+    await db.tasks.insert_one(doc)
+    await log_activity(user["user_id"], "task_create", {"project_id": project_id})
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.put("/tasks/{task_id}")
+async def update_task(task_id: str, data: TaskUpdate, user: dict = Depends(get_current_user)):
+    updates = {k: v for k, v in data.model_dump().items() if v is not None}
+    if updates:
+        await db.tasks.update_one({"task_id": task_id}, {"$set": updates})
+    t = await db.tasks.find_one({"task_id": task_id}, {"_id": 0})
+    return t
+
+
+@api_router.delete("/tasks/{task_id}")
+async def delete_task(task_id: str, user: dict = Depends(get_current_user)):
+    await db.tasks.delete_one({"task_id": task_id})
     return {"ok": True}
 
 

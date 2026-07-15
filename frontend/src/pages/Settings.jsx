@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Save, Sun, Moon, Minus, Plus, User, Building2, FolderKanban, Palette, Bell } from "lucide-react";
+import { Save, Sun, Moon, Minus, Plus, User, Building2, FolderKanban, Palette, Bell, Upload } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -15,9 +15,24 @@ export default function Settings() {
     bio: user?.bio || "", project_info: user?.project_info || "", avatar: user?.avatar || "",
   });
   const [saving, setSaving] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [notif, setNotif] = useState({ master: true, workspace: true, project: true, friend: true, ...(user?.notification_prefs || {}) });
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const toggleNotif = (k) => setNotif((n) => ({ ...n, [k]: !n[k] }));
+
+  const uploadAvatar = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingAvatar(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const { data } = await api.post("/users/me/avatar", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      setForm((f) => ({ ...f, avatar: data.avatar }));
+      updateUser({ ...user, avatar: data.avatar });
+      toast.success("Profile photo updated");
+    } catch (err) { toast.error("Upload failed"); } finally { setUploadingAvatar(false); }
+  };
 
   const save = async () => {
     setSaving(true);
@@ -35,6 +50,19 @@ export default function Settings() {
 
       <div className="grid lg:grid-cols-2 gap-6">
         <Section icon={User} title="Personal Information">
+          <div className="flex items-center gap-4 mb-2">
+            <div className="neu-raised w-16 h-16 rounded-2xl flex items-center justify-center overflow-hidden shrink-0">
+              {form.avatar ? <img src={form.avatar} alt="" className="w-full h-full object-cover" data-testid="avatar-preview" /> :
+                <span className="font-head font-bold text-xl text-primary-stitch">{(form.name || "U")[0].toUpperCase()}</span>}
+            </div>
+            <div>
+              <label data-testid="avatar-upload-label" className="neu-btn rounded-xl px-4 py-2.5 text-sm font-semibold text-primary-stitch cursor-pointer inline-flex items-center gap-2">
+                <Upload className="w-4 h-4" /> {uploadingAvatar ? "Uploading…" : "Upload photo"}
+                <input data-testid="avatar-file-input" type="file" accept="image/*" className="hidden" onChange={uploadAvatar} disabled={uploadingAvatar} />
+              </label>
+              <p className="text-xs text-muted-stitch mt-1.5">PNG, JPG or WebP. Stored securely.</p>
+            </div>
+          </div>
           <Input label="Full name" value={form.name} onChange={set("name")} testid="set-name" />
           <Input label="Username" value={form.username} onChange={set("username")} testid="set-username" />
           <Input label="Email" value={user?.email} disabled />

@@ -20,6 +20,7 @@ import People from "@/pages/People";
 import Notes from "@/pages/Notes";
 import Activity from "@/pages/Activity";
 import Downloads from "@/pages/Downloads";
+import ProjectBoard from "@/pages/ProjectBoard";
 import Settings from "@/pages/Settings";
 import Admin from "@/pages/Admin";
 
@@ -56,6 +57,7 @@ function AppRouter() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/messages" element={<Messages />} />
         <Route path="/projects" element={<Projects />} />
+        <Route path="/projects/:projectId/board" element={<ProjectBoard />} />
         <Route path="/assets" element={<Assets />} />
         <Route path="/integrations" element={<Integrations />} />
         <Route path="/assistant" element={<AiAssistant />} />
