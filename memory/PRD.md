@@ -65,6 +65,11 @@ Build a fully functional, dynamic, beautiful, heavily neumorphic web app (Slack/
 - Actionable AI assistant (`/api/ai/agent`): Stitch AI can create projects/workspaces, add connections, list/show stats for users, and (admin-only, guardrailed) toggle features and manage user accounts; shows an action chip + result items. Robust envelope parser (fixed double-envelope/tool-prefix bug in iteration_6→7).
 - Verified (iteration_6 & 7, 100%): notification prefs gate delivery, admin global controls work, AI actions execute with non-admin guardrails, and no raw JSON leaks.
 
+## Implemented (2026-06-21)
+- Message reactions (emoji): hover-to-react picker + reaction chips with counts on channel and DM messages, toggled per user, broadcast in real time over WebSocket (`/api/messages/{id}/react`).
+- AI assistant acts on your behalf: new agent actions send_message (post to a channel), invite_to_workspace and invite_to_project (add people by email) with name resolution + notifications.
+- Verified (iteration_8, 100%): reactions single + cross-user (count 2) on channels and DMs, AI send/invite actions execute and reflect in the UI, no raw JSON leaks.
+
 ## Backlog / Next
 - P1: Direct messages (1:1), workspace member invites, message edit/delete + typing indicators.
 - P1: Actually invoke connected integrations (trigger N8N workflows, pull files from connected cloud storage).
