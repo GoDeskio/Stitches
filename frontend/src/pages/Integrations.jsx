@@ -1,19 +1,20 @@
 import { useEffect, useState } from "react";
 import {
   Plug, Cloud, Workflow, Sparkles, Server, X, Check, Trash2, ChevronRight, ArrowLeft,
-  Play, HardDrive, Download, FolderOpen, Zap,
+  Play, HardDrive, Download, FolderOpen, Zap, Mail, AppWindow, HelpCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { PageShell, PageHeader, Loader } from "@/components/Stitch";
 
-const ICONS = { n8n: Workflow, aws_s3: HardDrive, dropbox: Cloud, google_drive: Cloud, llm: Sparkles, mcp: Server };
+const ICONS = { n8n: Workflow, aws_s3: HardDrive, dropbox: Cloud, google_drive: Cloud, llm: Sparkles, mcp: Server, email: Mail, custom: AppWindow };
 
 export default function Integrations() {
   const [catalog, setCatalog] = useState([]);
   const [connected, setConnected] = useState(null);
   const [wizard, setWizard] = useState(null);
   const [step, setStep] = useState(0);
+  const [method, setMethod] = useState(null);
   const [form, setForm] = useState({});
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -26,13 +27,14 @@ export default function Integrations() {
     load();
   }, []);
 
-  const openWizard = (item) => { setWizard(item); setStep(0); setForm({}); setName(item.name); };
+  const methodsOf = (item) => item.methods || [{ id: "default", label: "Connect", fields: item.fields || [] }];
+  const openWizard = (item) => { setWizard(item); setStep(0); setForm({}); setName(item.name); setMethod(methodsOf(item)[0]); };
   const closeWizard = () => setWizard(null);
 
   const connect = async () => {
     setSaving(true);
     try {
-      await api.post("/integrations", { type: wizard.type, name: name || wizard.name, config: form });
+      await api.post("/integrations", { type: wizard.type, name: name || wizard.name, config: form, auth_method: method?.id });
       toast.success(`${wizard.name} connected`);
       closeWizard(); load();
     } catch (e) { toast.error("Failed to connect"); } finally { setSaving(false); }
@@ -131,13 +133,33 @@ export default function Integrations() {
               </div>
             ) : (
               <div className="animate-fade-up space-y-4">
-                <p className="text-muted-stitch">Enter your own credentials. They're stored securely and masked afterwards.</p>
-                {wizard.fields.map((f) => (
+                {(wizard.methods && wizard.methods.length > 1) && (
+                  <div>
+                    <p className="text-sm font-semibold text-muted-stitch mb-2">How would you like to connect?</p>
+                    <div className="flex flex-wrap gap-2">
+                      {wizard.methods.map((m) => (
+                        <button key={m.id} data-testid={`wizard-method-${m.id}`} onClick={() => { setMethod(m); setForm({}); }}
+                          className={`text-sm font-semibold rounded-xl px-4 py-2 ${method?.id === m.id ? "neu-primary" : "neu-sm text-muted-stitch"}`}>
+                          {m.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {method?.help && (
+                  <div className="neu-pressed rounded-2xl p-4 flex gap-3">
+                    <HelpCircle className="w-5 h-5 text-primary-stitch shrink-0 mt-0.5" />
+                    <p className="text-sm text-muted-stitch">{method.help}</p>
+                  </div>
+                )}
+                {(method?.fields || []).map((f) => (
                   <div key={f.key}>
                     <label className="text-sm font-semibold text-muted-stitch">{f.label}</label>
                     <input data-testid={`wizard-field-${f.key}`} type={f.type === "password" ? "password" : "text"}
+                      placeholder={f.placeholder || ""}
                       value={form[f.key] || ""} onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
                       className="neu-input w-full rounded-2xl py-3.5 px-5 mt-2" />
+                    {f.help && <p className="text-xs text-muted-stitch mt-1.5">{f.help}</p>}
                   </div>
                 ))}
                 <button data-testid="wizard-connect" onClick={connect} disabled={saving} className="neu-primary w-full rounded-2xl py-3.5 font-semibold mt-2">

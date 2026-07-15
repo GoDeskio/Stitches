@@ -1,0 +1,46 @@
+{
+  "summary": "Iteration 13 tested new multi-method connection wizard: catalog now has 8 connectors (added email, custom), method-tabs UX (n8n url/basic; custom basic/api_key; email password), Fernet encryption at rest, masked config responses, N8N basic-auth run, Custom App basic-auth test via httpbin, Email IMAP graceful failure, and existing-connector regression. Backend: 12/12 pytest passed. Frontend: Playwright verified full Custom App wizard flow end-to-end (method tabs render, field swap on method change, help callout renders, POST connect saves with auth_method, Test action showed 'App responded with 200') and Email wizard fields+help.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Integrations wizard modal", "issue": "Escape key does not close the wizard modal. Backdrop click and X button work, but keyboard Escape has no handler.", "selector": ".fixed.inset-0.z-50", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_connection_methods.py",
+    "/app/test_reports/pytest/iteration_13.xml"
+  ],
+  "action_items": [
+    "(optional/low) Add a keyboard Escape listener to close the Integrations wizard modal for parity with other modals."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 1854 lines - still overdue for modular split (auth, users, projects/tasks, integrations, admin, activity, messages).",
+    "encrypt_config() Fernet-encrypts EVERY non-empty string in config, not only SECRET_FIELDS. This is safe but means base_url/username/imap_host etc. are also encrypted at rest. The problem statement calls these 'cleartext' - they ARE cleartext in the masked API response (correctly), but the DB stores them encrypted. Not a bug, but the naming SECRET_FIELDS is misleading; consider renaming to MASKED_FIELDS since it now only governs response masking, not storage.",
+    "test_integration() for type=='custom' uses cfg.get('api_key') to set a Bearer header AND cfg.get('username'/'password') for basic auth. If a user connected via basic method but the connector had a stale api_key key in cfg (shouldn't happen with wizard resetting form on method switch, but defensive), both would be sent. Consider gating on auth_method stored on the integration.",
+    "The Integrations.jsx wizard resets form={} when switching methods (good), but does NOT reset when reopening the wizard for the same connector - openWizard already resets form so this is fine.",
+    "Custom App with base_url pointing to a public unauthenticated URL will return ok:true from /test even without credentials (r.status_code<400), giving false confidence. Consider requiring at least username or api_key in test_integration for type=='custom'.",
+    "Email test uses imaplib.IMAP4_SSL which is blocking; wrapped in run_in_threadpool ✓ - good. But no timeout on the socket - a slow/bad host could hang the worker. Consider imaplib IMAP4_SSL(host, timeout=10) (Python 3.9+).",
+    "No cleanup endpoint or admin visibility for integrations created and abandoned - accumulation risk over time (was flagged in earlier iterations too)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_connection_methods.py"
+  ],
+  "success_rate": {"backend": "100% (12/12)", "frontend": "100% verified flows (minor Escape-to-close UX gap only)"},
+  "test_credentials": "admin@stitches.app/Admin@123, demo@stitches.app/Demo@123, alice@stitches.app/Alice@123, bob@stitches.app/Bob@123",
+  "seed_data_creation": "Created TEST_* integrations during pytest run - all deleted in module teardown via DELETE /api/integrations/{id}. UI test created 1 'Custom App' integration for Alice and cleaned it via API after run. Verified 0 residual TEST_* integrations remain.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend regression suite: /app/backend/tests/test_connection_methods.py (12 tests) covers catalog shape, custom basic+api_key, email graceful failure, n8n basic-auth run via httpbin.org, encryption-at-rest (raw mongo doc has 'gAAAAA' prefix), and regression of aws_s3/dropbox/llm/mcp. Note that encrypt_config encrypts ALL string values (not just SECRET_FIELDS); the masking (••••••) only applies in the /integrations list response for SECRET_FIELDS keys. Wizard testids: integration-{type} card, wizard-name, wizard-next, wizard-method-{id}, wizard-field-{key}, wizard-connect. Connected card: integration-run-btn, integration-files-btn, integration-test-btn, disconnect-integration. Toast shows 'App responded with 200.' on successful httpbin basic-auth test.",
+  "verification_details": {
+    "catalog": "8 connectors returned: n8n(methods=url,basic), email(password), custom(basic,api_key), aws_s3(keys), dropbox(token), google_drive(token), llm(api_key), mcp(token). Each field has label; several have placeholder+help.",
+    "custom_basic": "POST /api/integrations {type:custom, auth_method:basic, config:{base_url:https://httpbin.org/basic-auth/user/pass, username:user, password:pass}} → 200. GET /api/integrations returns config_masked with password='••••••', base_url and username cleartext, no raw 'config' key, auth_method='basic'. POST /test → {ok:true, message:'App responded with 200.'}",
+    "email": "POST create with dummy imap.gmail.com/nobody@example.com/wrongpw → 200. POST /test → {ok:false, message:'...'} (no 500). config_masked masks password only.",
+    "n8n_basic": "POST /run with basic_user/basic_pass posted to httpbin.org/post → status_code:200, ok:true, response echoes Basic Auth header. URL-only method also runs successfully. basic_pass masked in list.",
+    "encryption_at_rest": "Direct mongo query on integrations doc confirms password field stored as 'gAAAAA...' Fernet ciphertext.",
+    "regression": "All 4 seed logins pass. aws_s3/dropbox test returns ok:false gracefully with dummy creds. llm test returns ok:true when api_key present. mcp test returns 200 with ok field.",
+    "frontend_ui": "Alice login → /integrations → click integration-custom → wizard-name prefilled 'Custom App' → wizard-next → wizard-method-basic active with base_url/username/password fields. Click wizard-method-api_key → password field disappears, api_key field appears. Switch back → fill httpbin creds → wizard-connect → integration appears in Connected list. Click integration-test-btn → toast 'App responded with 200.' Email wizard shows imap_host/email/password fields with 'app password' help text visible."
+  },
+  "rca of the issue": "N/A - no defects observed. Escape-to-close is a minor UX polish."
+}

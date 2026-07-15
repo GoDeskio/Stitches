@@ -134,7 +134,7 @@ async def log_activity(user_id, action, meta=None):
 
 from cryptography.fernet import Fernet
 _fernet = Fernet(os.environ["ENCRYPTION_KEY"].encode())
-SECRET_FIELDS = {"api_key", "token", "access_key", "secret_key", "access_token", "password"}
+SECRET_FIELDS = {"api_key", "token", "access_key", "secret_key", "access_token", "password", "basic_pass"}
 
 
 def encrypt_config(cfg: dict) -> dict:
@@ -329,6 +329,7 @@ class IntegrationInput(BaseModel):
     type: str
     name: str
     config: Dict[str, Any] = {}
+    auth_method: Optional[str] = None
 
 
 class IntegrationRunInput(BaseModel):
@@ -852,29 +853,71 @@ async def delete_asset(asset_id: str, user: dict = Depends(get_current_user)):
 INTEGRATION_CATALOG = [
     {"type": "n8n", "name": "N8N", "category": "Automation", "actions": ["run", "test"],
      "description": "Trigger your N8N automation workflows directly from Stitches.",
-     "fields": [{"key": "webhook_url", "label": "Webhook / Trigger URL", "type": "url"},
-                {"key": "api_key", "label": "API Key (optional)", "type": "password"}]},
+     "methods": [
+        {"id": "url", "label": "Paste a link (easiest)",
+         "help": "Open your workflow in N8N, click the Webhook step and copy its URL. No coding needed.",
+         "fields": [{"key": "webhook_url", "label": "Workflow webhook link", "type": "url", "placeholder": "https://your-n8n.app/webhook/abc", "help": "In N8N: open the Webhook node → copy the 'Production URL'."}]},
+        {"id": "basic", "label": "Link + username & password",
+         "help": "Use this if your webhook is protected with a login.",
+         "fields": [{"key": "webhook_url", "label": "Workflow webhook link", "type": "url"},
+                    {"key": "basic_user", "label": "Username", "type": "text"},
+                    {"key": "basic_pass", "label": "Password", "type": "password"}]}]},
+    {"type": "email", "name": "Email (IMAP)", "category": "Communication", "actions": ["test"],
+     "description": "Connect an email inbox with just your email address and password.",
+     "methods": [
+        {"id": "password", "label": "Email & password (easiest)",
+         "help": "Just your normal email login. For Gmail or Outlook, create a free 'app password' in your account security settings.",
+         "fields": [{"key": "imap_host", "label": "Mail server", "type": "text", "placeholder": "imap.gmail.com", "help": "Gmail: imap.gmail.com · Outlook: outlook.office365.com · Yahoo: imap.mail.yahoo.com"},
+                    {"key": "email", "label": "Email address", "type": "text", "placeholder": "you@example.com"},
+                    {"key": "password", "label": "Password", "type": "password", "help": "For Gmail/Outlook use an app password, not your main password."}]}]},
+    {"type": "custom", "name": "Custom App", "category": "Other", "actions": ["test"],
+     "description": "Connect almost any app with a username & password, or an API key if you have one.",
+     "methods": [
+        {"id": "basic", "label": "Username & password (easiest)",
+         "help": "Works with any app that has a normal login.",
+         "fields": [{"key": "base_url", "label": "App web address", "type": "url", "placeholder": "https://app.example.com"},
+                    {"key": "username", "label": "Username or email", "type": "text"},
+                    {"key": "password", "label": "Password", "type": "password"}]},
+        {"id": "api_key", "label": "API key / token (advanced)",
+         "help": "If the app gave you an API key, paste it here.",
+         "fields": [{"key": "base_url", "label": "App web address", "type": "url"},
+                    {"key": "api_key", "label": "API key", "type": "password"}]}]},
     {"type": "aws_s3", "name": "AWS S3", "category": "Storage", "actions": ["files", "test"],
      "description": "Browse and download files from an S3 (or S3-compatible) bucket.",
-     "fields": [{"key": "access_key", "label": "Access Key ID", "type": "password"},
-                {"key": "secret_key", "label": "Secret Access Key", "type": "password"},
-                {"key": "region", "label": "Region (e.g. us-east-1)", "type": "text"},
-                {"key": "bucket", "label": "Bucket name", "type": "text"}]},
+     "methods": [
+        {"id": "keys", "label": "Access keys",
+         "help": "In the AWS console go to IAM → Users → Security credentials → Create access key. Copy both values here.",
+         "fields": [{"key": "access_key", "label": "Access Key ID", "type": "password", "help": "Starts with 'AKIA…'"},
+                    {"key": "secret_key", "label": "Secret Access Key", "type": "password"},
+                    {"key": "region", "label": "Region", "type": "text", "placeholder": "us-east-1"},
+                    {"key": "bucket", "label": "Bucket name", "type": "text"}]}]},
     {"type": "dropbox", "name": "Dropbox", "category": "Storage", "actions": ["files", "test"],
      "description": "Browse and download files from your Dropbox.",
-     "fields": [{"key": "access_token", "label": "Access Token", "type": "password"}]},
+     "methods": [
+        {"id": "token", "label": "Access token",
+         "help": "Go to dropbox.com/developers/apps → your app → Settings → 'Generate access token' and paste it here.",
+         "fields": [{"key": "access_token", "label": "Access token", "type": "password"}]}]},
     {"type": "google_drive", "name": "Google Drive", "category": "Storage", "actions": ["files", "test"],
      "description": "Browse and download files from Google Drive.",
-     "fields": [{"key": "access_token", "label": "OAuth Access Token", "type": "password"}]},
+     "methods": [
+        {"id": "token", "label": "Access token",
+         "help": "Paste an OAuth access token from Google's OAuth Playground (developers.google.com/oauthplayground) with Drive scope.",
+         "fields": [{"key": "access_token", "label": "OAuth access token", "type": "password"}]}]},
     {"type": "llm", "name": "AI LLM", "category": "AI", "actions": ["test"],
      "description": "Connect an external LLM provider API key for AI features.",
-     "fields": [{"key": "provider", "label": "Provider (OpenAI/Anthropic/Gemini)", "type": "text"},
-                {"key": "api_key", "label": "API Key", "type": "password"},
-                {"key": "model", "label": "Default Model", "type": "text"}]},
+     "methods": [
+        {"id": "api_key", "label": "API key",
+         "help": "Get an API key from your provider's dashboard (e.g. platform.openai.com → API keys).",
+         "fields": [{"key": "provider", "label": "Provider", "type": "text", "placeholder": "OpenAI / Anthropic / Gemini"},
+                    {"key": "api_key", "label": "API key", "type": "password"},
+                    {"key": "model", "label": "Default model", "type": "text", "placeholder": "gpt-4o"}]}]},
     {"type": "mcp", "name": "MCP Server", "category": "AI", "actions": ["test"],
      "description": "Connect a Model Context Protocol server to extend AI tools.",
-     "fields": [{"key": "server_url", "label": "MCP Server URL", "type": "url"},
-                {"key": "token", "label": "Auth Token", "type": "password"}]},
+     "methods": [
+        {"id": "token", "label": "Server URL + token",
+         "help": "Enter your MCP server address and its auth token if it has one.",
+         "fields": [{"key": "server_url", "label": "MCP server URL", "type": "url"},
+                    {"key": "token", "label": "Auth token (optional)", "type": "password"}]}]},
 ]
 
 
@@ -900,7 +943,7 @@ async def create_integration(data: IntegrationInput, user: dict = Depends(get_cu
     await ensure_feature("integrations")
     doc = {"integration_id": f"int_{uuid.uuid4().hex[:12]}", "type": data.type,
            "name": data.name, "config": encrypt_config(data.config), "owner_id": user["user_id"],
-           "status": "connected", "created_at": now_iso()}
+           "auth_method": data.auth_method, "status": "connected", "created_at": now_iso()}
     await db.integrations.insert_one(doc)
     await log_activity(user["user_id"], "integration_connect", {"type": data.type})
     doc.pop("_id", None)
@@ -947,10 +990,13 @@ async def run_integration(integration_id: str, data: IntegrationRunInput, user: 
     headers = {}
     if cfg.get("api_key"):
         headers["Authorization"] = f"Bearer {cfg['api_key']}"
+    auth = None
+    if cfg.get("basic_user") or cfg.get("basic_pass"):
+        auth = (cfg.get("basic_user", ""), cfg.get("basic_pass", ""))
     import httpx
     try:
         async with httpx.AsyncClient() as client:
-            r = await client.post(url, json=data.payload or {}, headers=headers, timeout=30.0)
+            r = await client.post(url, json=data.payload or {}, headers=headers, auth=auth, timeout=30.0)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to reach N8N: {e}")
     await log_activity(user["user_id"], "integration_run", {"type": "n8n", "id": integration_id})
@@ -1042,6 +1088,24 @@ async def test_integration(integration_id: str, user: dict = Depends(get_current
             return {"ok": ok, "message": "Webhook URL saved — use Run to trigger the workflow." if ok else "No webhook URL configured."}
         if t == "llm":
             return {"ok": bool(cfg.get("api_key")), "message": "API key stored securely." if cfg.get("api_key") else "No API key."}
+        if t == "email":
+            def _t():
+                import imaplib
+                m = imaplib.IMAP4_SSL(cfg.get("imap_host"))
+                m.login(cfg.get("email"), cfg.get("password"))
+                m.logout()
+                return True
+            await run_in_threadpool(_t)
+            return {"ok": True, "message": f"Connected to {cfg.get('email')}."}
+        if t == "custom":
+            base = cfg.get("base_url")
+            if not base:
+                return {"ok": False, "message": "No app URL configured."}
+            auth = (cfg.get("username", ""), cfg.get("password", "")) if cfg.get("username") or cfg.get("password") else None
+            headers = {"Authorization": f"Bearer {cfg['api_key']}"} if cfg.get("api_key") else {}
+            async with httpx.AsyncClient() as client:
+                r = await client.get(base, auth=auth, headers=headers, timeout=10.0)
+            return {"ok": r.status_code < 400, "message": f"App responded with {r.status_code}."}
         if t == "mcp":
             async with httpx.AsyncClient() as client:
                 r = await client.get(cfg.get("server_url"), timeout=10.0,
