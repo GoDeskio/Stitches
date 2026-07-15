@@ -41,6 +41,12 @@ Build a fully functional, dynamic, beautiful, heavily neumorphic web app (Slack/
 - Activity logging on login/register/message/project/asset/integration/ai/admin actions.
 - Verified: all new backend endpoints via curl; all 11 new frontend flows pass (iteration_2).
 
+## Implemented (2026-06-17)
+- Branding: replaced all logos with the uploaded voodoo/stitched-doll logo (`/logo.png`) on Home, Login, Sidebar + favicon + page title.
+- Admin Monitoring: audit-log CSV export (`/api/admin/activity/export`) + per-user activity drill-down (`/api/admin/users/{id}/activity`).
+- Created two communication test users: alice@stitches.app / Alice@123, bob@stitches.app / Bob@123.
+- Verified (iteration_3): logos render in all 3 locations, CSV export + drill-down work, and full two-user real-time chat (invite → cross-user notification → message exchange) passes.
+
 ## Backlog / Next
 - P1: Direct messages (1:1), workspace member invites, message edit/delete + typing indicators.
 - P1: Actually invoke connected integrations (trigger N8N workflows, pull files from connected cloud storage).
