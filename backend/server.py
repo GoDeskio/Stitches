@@ -268,6 +268,8 @@ class ChannelInput(BaseModel):
 class MessageInput(BaseModel):
     channel_id: str
     text: str
+    parent_id: Optional[str] = None
+    mentions: List[str] = []
 
 
 class ProjectInput(BaseModel):
@@ -287,6 +289,14 @@ class IntegrationInput(BaseModel):
     type: str
     name: str
     config: Dict[str, Any] = {}
+
+
+class IntegrationRunInput(BaseModel):
+    payload: Dict[str, Any] = {}
+
+
+class FileKeyInput(BaseModel):
+    key: str
 
 
 class AiInput(BaseModel):
@@ -523,20 +533,30 @@ async def get_messages(channel_id: str, user: dict = Depends(get_current_user)):
     return msgs
 
 
-async def _create_message(channel_id: str, user: dict, text: str) -> dict:
+async def _create_message(channel_id: str, user: dict, text: str, parent_id: str = None, mentions: list = None) -> dict:
     doc = {"message_id": f"msg_{uuid.uuid4().hex[:12]}", "channel_id": channel_id,
            "user_id": user["user_id"], "author_name": user.get("name"),
-           "author_avatar": user.get("avatar"), "text": text, "created_at": now_iso()}
+           "author_avatar": user.get("avatar"), "text": text,
+           "parent_id": parent_id, "mentions": mentions or [], "created_at": now_iso()}
     await db.messages.insert_one(doc)
     doc.pop("_id", None)
     return doc
 
 
+async def _notify_mentions(msg: dict, author: dict):
+    for uid in (msg.get("mentions") or []):
+        if uid == author["user_id"]:
+            continue
+        snippet = (msg.get("text") or "")[:120]
+        await create_notification(uid, "mention", f"{author.get('name')} mentioned you", snippet, "/messages")
+
+
 @api_router.post("/messages")
 async def post_message(data: MessageInput, user: dict = Depends(get_current_user)):
     await ensure_feature("chat")
-    doc = await _create_message(data.channel_id, user, data.text)
+    doc = await _create_message(data.channel_id, user, data.text, data.parent_id, data.mentions)
     await ws_manager.broadcast(data.channel_id, {"type": "message", "message": doc})
+    await _notify_mentions(doc, user)
     await log_activity(user["user_id"], "message", {"channel_id": data.channel_id})
     return doc
 
@@ -705,18 +725,29 @@ async def delete_asset(asset_id: str, user: dict = Depends(get_current_user)):
 
 # ---------------- Integrations ----------------
 INTEGRATION_CATALOG = [
-    {"type": "n8n", "name": "N8N", "category": "Automation",
-     "fields": [{"key": "base_url", "label": "N8N Instance URL", "type": "url"},
-                {"key": "api_key", "label": "API Key", "type": "password"}]},
-    {"type": "cloud_storage", "name": "Cloud Storage", "category": "Storage",
-     "fields": [{"key": "provider", "label": "Provider (S3/GDrive/Dropbox)", "type": "text"},
-                {"key": "bucket", "label": "Bucket / Folder", "type": "text"},
-                {"key": "access_key", "label": "Access Key", "type": "password"}]},
-    {"type": "llm", "name": "AI LLM", "category": "AI",
+    {"type": "n8n", "name": "N8N", "category": "Automation", "actions": ["run", "test"],
+     "description": "Trigger your N8N automation workflows directly from Stitches.",
+     "fields": [{"key": "webhook_url", "label": "Webhook / Trigger URL", "type": "url"},
+                {"key": "api_key", "label": "API Key (optional)", "type": "password"}]},
+    {"type": "aws_s3", "name": "AWS S3", "category": "Storage", "actions": ["files", "test"],
+     "description": "Browse and download files from an S3 (or S3-compatible) bucket.",
+     "fields": [{"key": "access_key", "label": "Access Key ID", "type": "password"},
+                {"key": "secret_key", "label": "Secret Access Key", "type": "password"},
+                {"key": "region", "label": "Region (e.g. us-east-1)", "type": "text"},
+                {"key": "bucket", "label": "Bucket name", "type": "text"}]},
+    {"type": "dropbox", "name": "Dropbox", "category": "Storage", "actions": ["files", "test"],
+     "description": "Browse and download files from your Dropbox.",
+     "fields": [{"key": "access_token", "label": "Access Token", "type": "password"}]},
+    {"type": "google_drive", "name": "Google Drive", "category": "Storage", "actions": ["files", "test"],
+     "description": "Browse and download files from Google Drive.",
+     "fields": [{"key": "access_token", "label": "OAuth Access Token", "type": "password"}]},
+    {"type": "llm", "name": "AI LLM", "category": "AI", "actions": ["test"],
+     "description": "Connect an external LLM provider API key for AI features.",
      "fields": [{"key": "provider", "label": "Provider (OpenAI/Anthropic/Gemini)", "type": "text"},
                 {"key": "api_key", "label": "API Key", "type": "password"},
                 {"key": "model", "label": "Default Model", "type": "text"}]},
-    {"type": "mcp", "name": "MCP Server", "category": "AI",
+    {"type": "mcp", "name": "MCP Server", "category": "AI", "actions": ["test"],
+     "description": "Connect a Model Context Protocol server to extend AI tools.",
      "fields": [{"key": "server_url", "label": "MCP Server URL", "type": "url"},
                 {"key": "token", "label": "Auth Token", "type": "password"}]},
 ]
@@ -730,9 +761,11 @@ async def integrations_catalog(user: dict = Depends(get_current_user)):
 @api_router.get("/integrations")
 async def list_integrations(user: dict = Depends(get_current_user)):
     items = await db.integrations.find({"owner_id": user["user_id"]}, {"_id": 0}).to_list(200)
+    actions_by_type = {c["type"]: c.get("actions", []) for c in INTEGRATION_CATALOG}
     for it in items:
         cfg = it.get("config", {})
-        it["config_masked"] = {k: ("••••••" if k in ("api_key", "token", "access_key") and v else v) for k, v in cfg.items()}
+        it["config_masked"] = {k: ("••••••" if k in ("api_key", "token", "access_key", "secret_key", "access_token") and v else v) for k, v in cfg.items()}
+        it["actions"] = actions_by_type.get(it.get("type"), [])
         it.pop("config", None)
     return items
 
@@ -754,6 +787,170 @@ async def create_integration(data: IntegrationInput, user: dict = Depends(get_cu
 async def delete_integration(integration_id: str, user: dict = Depends(get_current_user)):
     await db.integrations.delete_one({"integration_id": integration_id, "owner_id": user["user_id"]})
     return {"ok": True}
+
+
+async def _get_owned_integration(integration_id: str, user: dict) -> dict:
+    q = {"integration_id": integration_id}
+    if user.get("role") != "admin":
+        q["owner_id"] = user["user_id"]
+    it = await db.integrations.find_one(q)
+    if not it:
+        raise HTTPException(status_code=404, detail="Integration not found")
+    return it
+
+
+def _s3_client(cfg: dict):
+    import boto3
+    from botocore.config import Config
+    return boto3.client("s3", aws_access_key_id=cfg.get("access_key"),
+                        aws_secret_access_key=cfg.get("secret_key"),
+                        region_name=cfg.get("region") or "us-east-1",
+                        config=Config(signature_version="s3v4"))
+
+
+@api_router.post("/integrations/{integration_id}/run")
+async def run_integration(integration_id: str, data: IntegrationRunInput, user: dict = Depends(get_current_user)):
+    await ensure_feature("integrations")
+    it = await _get_owned_integration(integration_id, user)
+    if it.get("type") != "n8n":
+        raise HTTPException(status_code=400, detail="Run is only supported for N8N integrations")
+    cfg = it.get("config", {})
+    url = cfg.get("webhook_url")
+    if not url:
+        raise HTTPException(status_code=400, detail="No webhook URL configured for this integration")
+    headers = {}
+    if cfg.get("api_key"):
+        headers["Authorization"] = f"Bearer {cfg['api_key']}"
+    import httpx
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.post(url, json=data.payload or {}, headers=headers, timeout=30.0)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to reach N8N: {e}")
+    await log_activity(user["user_id"], "integration_run", {"type": "n8n", "id": integration_id})
+    return {"ok": r.status_code < 400, "status_code": r.status_code, "response": r.text[:2000]}
+
+
+@api_router.get("/integrations/{integration_id}/files")
+async def integration_files(integration_id: str, path: str = "", user: dict = Depends(get_current_user)):
+    await ensure_feature("integrations")
+    it = await _get_owned_integration(integration_id, user)
+    cfg = it.get("config", {})
+    t = it.get("type")
+    from fastapi.concurrency import run_in_threadpool
+    if t == "aws_s3":
+        def _list():
+            s3 = _s3_client(cfg)
+            resp = s3.list_objects_v2(Bucket=cfg.get("bucket"), Prefix=path or "")
+            return [{"name": o["Key"], "size": o.get("Size", 0), "key": o["Key"]} for o in resp.get("Contents", [])][:200]
+        try:
+            files = await run_in_threadpool(_list)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"S3 error: {e}")
+    elif t == "dropbox":
+        def _list():
+            import dropbox
+            dbx = dropbox.Dropbox(cfg.get("access_token"))
+            res = dbx.files_list_folder(path or "")
+            return [{"name": e.name, "size": getattr(e, "size", 0), "key": e.path_lower} for e in res.entries][:200]
+        try:
+            files = await run_in_threadpool(_list)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Dropbox error: {e}")
+    elif t == "google_drive":
+        import httpx
+        try:
+            async with httpx.AsyncClient() as client:
+                r = await client.get("https://www.googleapis.com/drive/v3/files",
+                                     params={"pageSize": 100, "fields": "files(id,name,size)"},
+                                     headers={"Authorization": f"Bearer {cfg.get('access_token')}"}, timeout=20.0)
+            r.raise_for_status()
+            files = [{"name": f["name"], "size": int(f.get("size", 0) or 0), "key": f["id"]} for f in r.json().get("files", [])]
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Google Drive error: {e}")
+    else:
+        raise HTTPException(status_code=400, detail="This integration does not support file browsing")
+    return {"files": files}
+
+
+@api_router.post("/integrations/{integration_id}/download")
+async def integration_download(integration_id: str, data: FileKeyInput, user: dict = Depends(get_current_user)):
+    await ensure_feature("integrations")
+    it = await _get_owned_integration(integration_id, user)
+    cfg = it.get("config", {})
+    t = it.get("type")
+    from fastapi.concurrency import run_in_threadpool
+    if t == "aws_s3":
+        def _link():
+            s3 = _s3_client(cfg)
+            return s3.generate_presigned_url("get_object", Params={"Bucket": cfg.get("bucket"), "Key": data.key}, ExpiresIn=3600)
+        try:
+            url = await run_in_threadpool(_link)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"S3 error: {e}")
+    elif t == "dropbox":
+        def _link():
+            import dropbox
+            return dropbox.Dropbox(cfg.get("access_token")).files_get_temporary_link(data.key).link
+        try:
+            url = await run_in_threadpool(_link)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Dropbox error: {e}")
+    elif t == "google_drive":
+        url = f"https://drive.google.com/uc?id={data.key}&export=download"
+    else:
+        raise HTTPException(status_code=400, detail="Download not supported for this integration")
+    return {"url": url}
+
+
+@api_router.post("/integrations/{integration_id}/test")
+async def test_integration(integration_id: str, user: dict = Depends(get_current_user)):
+    it = await _get_owned_integration(integration_id, user)
+    cfg = it.get("config", {})
+    t = it.get("type")
+    import httpx
+    from fastapi.concurrency import run_in_threadpool
+    try:
+        if t == "n8n":
+            ok = bool(cfg.get("webhook_url"))
+            return {"ok": ok, "message": "Webhook URL saved — use Run to trigger the workflow." if ok else "No webhook URL configured."}
+        if t == "llm":
+            return {"ok": bool(cfg.get("api_key")), "message": "API key stored securely." if cfg.get("api_key") else "No API key."}
+        if t == "mcp":
+            async with httpx.AsyncClient() as client:
+                r = await client.get(cfg.get("server_url"), timeout=10.0,
+                                     headers={"Authorization": f"Bearer {cfg.get('token')}"} if cfg.get("token") else {})
+            return {"ok": r.status_code < 500, "message": f"Server responded with {r.status_code}."}
+        if t == "aws_s3":
+            def _t():
+                _s3_client(cfg).head_bucket(Bucket=cfg.get("bucket"))
+                return True
+            await run_in_threadpool(_t)
+            return {"ok": True, "message": "Bucket reachable."}
+        if t == "dropbox":
+            def _t():
+                import dropbox
+                dropbox.Dropbox(cfg.get("access_token")).users_get_current_account()
+                return True
+            await run_in_threadpool(_t)
+            return {"ok": True, "message": "Dropbox account connected."}
+        if t == "google_drive":
+            async with httpx.AsyncClient() as client:
+                r = await client.get("https://www.googleapis.com/drive/v3/about", params={"fields": "user"},
+                                     headers={"Authorization": f"Bearer {cfg.get('access_token')}"}, timeout=10.0)
+            return {"ok": r.status_code == 200, "message": "Google Drive connected." if r.status_code == 200 else "Token invalid or expired."}
+    except Exception as e:
+        return {"ok": False, "message": str(e)[:300]}
+    return {"ok": False, "message": "Unknown integration type"}
+
+
+@api_router.get("/admin/integrations")
+async def admin_list_integrations(user: dict = Depends(require_admin)):
+    items = await db.integrations.find({}, {"_id": 0, "config": 0}).to_list(500)
+    owners = {u["user_id"]: u.get("name") for u in await db.users.find({}, {"_id": 0, "user_id": 1, "name": 1}).to_list(1000)}
+    for it in items:
+        it["owner_name"] = owners.get(it.get("owner_id"), "Unknown")
+    return items
 
 
 # ---------------- AI Assistant ----------------

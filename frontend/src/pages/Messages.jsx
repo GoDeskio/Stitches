@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Plus, Hash, Send, Layers, X, UserPlus, Mail, UserMinus, MessageSquare, Smile } from "lucide-react";
+import { Plus, Hash, Send, Layers, X, UserPlus, Mail, UserMinus, MessageSquare, Smile, AtSign, CornerDownRight } from "lucide-react";
 import { toast } from "sonner";
 import api, { API } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -22,6 +22,10 @@ export default function Messages() {
   const [showDmPicker, setShowDmPicker] = useState(false);
   const [unreads, setUnreads] = useState({ channels: {}, total: 0 });
   const [typingName, setTypingName] = useState(null);
+  const [members, setMembers] = useState([]);
+  const [showMentions, setShowMentions] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [threadParent, setThreadParent] = useState(null);
   const typingSentRef = useRef(0);
   const typingTimerRef = useRef(null);
   const wsRef = useRef(null);
@@ -36,11 +40,12 @@ export default function Messages() {
   useEffect(() => { loadWorkspaces(); }, []); // eslint-disable-line
 
   useEffect(() => {
-    if (!activeWs) { setChannels([]); return; }
+    if (!activeWs) { setChannels([]); setMembers([]); return; }
     api.get(`/workspaces/${activeWs.workspace_id}/channels`).then(({ data }) => {
       setChannels(data);
       setActiveCh(data[0] || null);
     });
+    api.get(`/workspaces/${activeWs.workspace_id}/members`).then(({ data }) => setMembers(data)).catch(() => setMembers([]));
   }, [activeWs]);
 
   const loadMessages = useCallback(async (chId) => {
@@ -98,21 +103,35 @@ export default function Messages() {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
+  const extractMentions = (t) => members.filter((m) => m.name && t.includes("@" + m.name)).map((m) => m.user_id);
+
   const send = async (e) => {
     e.preventDefault();
     const t = text.trim();
     if (!t || !activeCh) return;
-    setText("");
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ text: t }));
-    } else {
-      const { data } = await api.post("/messages", { channel_id: activeCh.channel_id, text: t });
-      setMessages((prev) => [...prev, data]);
-    }
+    setText(""); setShowMentions(false);
+    const mentions = extractMentions(t);
+    const { data } = await api.post("/messages", { channel_id: activeCh.channel_id, text: t, mentions });
+    setMessages((prev) => prev.some((m) => m.message_id === data.message_id) ? prev : [...prev, data]);
+  };
+
+  const sendReply = async (t) => {
+    if (!t.trim() || !activeCh || !threadParent) return;
+    const mentions = extractMentions(t);
+    const { data } = await api.post("/messages", { channel_id: activeCh.channel_id, text: t.trim(), parent_id: threadParent.message_id, mentions });
+    setMessages((prev) => prev.some((m) => m.message_id === data.message_id) ? prev : [...prev, data]);
+  };
+
+  const pickMention = (m) => {
+    setText((prev) => prev.replace(/@(\S*)$/, "@" + m.name + " "));
+    setShowMentions(false);
   };
 
   const handleType = (v) => {
     setText(v);
+    const match = v.match(/@(\S*)$/);
+    setShowMentions(!!match && members.length > 0);
+    setMentionQuery(match ? match[1].toLowerCase() : "");
     const now = Date.now();
     if (wsRef.current?.readyState === WebSocket.OPEN && now - typingSentRef.current > 2000) {
       typingSentRef.current = now;
@@ -304,9 +323,10 @@ export default function Messages() {
               </div>
 
               <div className="neu-pressed m-4 rounded-2xl flex-1 overflow-y-auto p-5 space-y-4">
-                {messages.length === 0 && <p className="text-center text-muted-stitch py-10">No messages yet. Say hello!</p>}
-                {messages.map((m) => {
+                {messages.filter((m) => !m.parent_id).length === 0 && <p className="text-center text-muted-stitch py-10">No messages yet. Say hello!</p>}
+                {messages.filter((m) => !m.parent_id).map((m) => {
                   const mine = m.user_id === user?.user_id;
+                  const replyCount = messages.filter((r) => r.parent_id === m.message_id).length;
                   return (
                     <div key={m.message_id} className={`flex gap-3 ${mine ? "flex-row-reverse" : ""}`}>
                       <div className="neu-sm w-9 h-9 rounded-full flex items-center justify-center shrink-0 overflow-hidden">
@@ -320,9 +340,15 @@ export default function Messages() {
                         </div>
                         <div className={`flex items-center gap-2 ${mine ? "flex-row-reverse" : ""}`}>
                           <div className="rounded-2xl px-4 py-2.5 inline-block text-left" style={{ background: mine ? "var(--primary)" : "var(--neu-light)", color: mine ? "#fff" : "var(--text)" }}>
-                            {m.text}
+                            <MentionText text={m.text} light={mine} />
                           </div>
-                          <ReactionPicker onPick={(e) => react(m.message_id, e)} />
+                          <div className={`flex items-center gap-1 ${mine ? "flex-row-reverse" : ""}`}>
+                            <ReactionPicker onPick={(e) => react(m.message_id, e)} />
+                            <button data-testid="reply-btn" onClick={() => setThreadParent(m)} title="Reply in thread"
+                              className="neu-btn w-7 h-7 rounded-full flex items-center justify-center text-muted-stitch opacity-0 group-hover:opacity-100 transition-opacity">
+                              <CornerDownRight className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
                         {m.reactions && Object.keys(m.reactions).length > 0 && (
                           <div className={`flex flex-wrap gap-1.5 mt-1.5 ${mine ? "justify-end" : ""}`}>
@@ -333,6 +359,12 @@ export default function Messages() {
                               </button>
                             ))}
                           </div>
+                        )}
+                        {replyCount > 0 && (
+                          <button data-testid="thread-count-btn" onClick={() => setThreadParent(m)}
+                            className={`mt-1.5 text-xs font-semibold text-primary-stitch flex items-center gap-1.5 ${mine ? "ml-auto flex-row-reverse" : ""}`}>
+                            <MessageSquare className="w-3.5 h-3.5" /> {replyCount} {replyCount === 1 ? "reply" : "replies"}
+                          </button>
                         )}
                       </div>
                     </div>
@@ -354,7 +386,25 @@ export default function Messages() {
                 )}
               </div>
 
-              <form onSubmit={send} className="p-4 pt-0 flex gap-3">
+              <form onSubmit={send} className="p-4 pt-0 flex gap-3 relative">
+                {showMentions && (
+                  <div data-testid="mention-dropdown" className="neu-raised absolute bottom-[4.5rem] left-4 right-24 z-40 rounded-2xl p-2 max-h-56 overflow-y-auto animate-fade-up">
+                    {members.filter((mem) => (mem.name || "").toLowerCase().includes(mentionQuery)).slice(0, 6).map((mem) => (
+                      <button type="button" key={mem.user_id} data-testid="mention-option" onClick={() => pickMention(mem)}
+                        className="w-full neu-hover rounded-xl p-2.5 flex items-center gap-3 text-left">
+                        <span className="neu-sm w-8 h-8 rounded-full flex items-center justify-center overflow-hidden shrink-0">
+                          {mem.avatar ? <img src={mem.avatar} alt="" className="w-full h-full object-cover" /> :
+                            <span className="font-head font-bold text-xs text-primary-stitch">{(mem.name || "U")[0].toUpperCase()}</span>}
+                        </span>
+                        <span className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>{mem.name}</span>
+                        <AtSign className="w-3.5 h-3.5 text-muted-stitch ml-auto" />
+                      </button>
+                    ))}
+                    {members.filter((mem) => (mem.name || "").toLowerCase().includes(mentionQuery)).length === 0 && (
+                      <p className="text-xs text-muted-stitch p-2">No members match.</p>
+                    )}
+                  </div>
+                )}
                 <input data-testid="message-input" value={text} onChange={(e) => handleType(e.target.value)}
                   placeholder={activeCh.type === "dm" ? `Message ${activeCh.name}` : `Message #${activeCh.name}`} className="neu-input flex-1 rounded-2xl py-3.5 px-5" />
                 <button data-testid="send-message-btn" type="submit" className="neu-primary rounded-2xl px-6 flex items-center justify-center">
@@ -379,6 +429,96 @@ export default function Messages() {
       {showMembers && activeWs && (
         <MembersModal workspace={activeWs} onClose={() => setShowMembers(false)} />
       )}
+      {threadParent && (
+        <ThreadPanel parent={threadParent} messages={messages} members={members} user={user}
+          onReply={sendReply} onReact={react} onClose={() => setThreadParent(null)} />
+      )}
+    </div>
+  );
+}
+
+function MentionText({ text, light }) {
+  if (!text) return null;
+  const parts = text.split(/(@\S+)/g);
+  return (
+    <span>
+      {parts.map((p, i) =>
+        p.startsWith("@")
+          ? <span key={i} className="font-semibold" style={{ color: light ? "#fff" : "var(--primary)" }}>{p}</span>
+          : <span key={i}>{p}</span>
+      )}
+    </span>
+  );
+}
+
+function ThreadPanel({ parent, messages, members, user, onReply, onReact, onClose }) {
+  const [text, setText] = useState("");
+  const [showMentions, setShowMentions] = useState(false);
+  const [query, setQuery] = useState("");
+  const replies = messages.filter((m) => m.parent_id === parent.message_id);
+
+  const handleType = (v) => {
+    setText(v);
+    const match = v.match(/@(\S*)$/);
+    setShowMentions(!!match && members.length > 0);
+    setQuery(match ? match[1].toLowerCase() : "");
+  };
+  const pick = (m) => { setText((prev) => prev.replace(/@(\S*)$/, "@" + m.name + " ")); setShowMentions(false); };
+  const submit = async (e) => { e.preventDefault(); if (!text.trim()) return; await onReply(text); setText(""); setShowMentions(false); };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.5)" }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="neu-raised rounded-3xl w-full max-w-lg animate-fade-up flex flex-col max-h-[85vh]" data-testid="thread-panel">
+        <div className="flex items-center justify-between p-6 pb-4 border-b" style={{ borderColor: "var(--border)" }}>
+          <h3 className="font-head font-bold text-2xl" style={{ color: "var(--text)" }}>Thread</h3>
+          <button onClick={onClose} className="text-muted-stitch"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-6 overflow-y-auto flex-1 space-y-4">
+          <div className="neu-pressed rounded-2xl p-4">
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="text-sm font-semibold" style={{ color: "var(--text)" }}>{parent.author_name}</span>
+              <span className="text-xs text-muted-stitch">{new Date(parent.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+            </div>
+            <p className="text-sm" style={{ color: "var(--text)" }}><MentionText text={parent.text} /></p>
+          </div>
+          <p className="text-xs uppercase tracking-widest text-muted-stitch">{replies.length} {replies.length === 1 ? "reply" : "replies"}</p>
+          {replies.map((r) => (
+            <div key={r.message_id} className="flex gap-3" data-testid="thread-reply">
+              <div className="neu-sm w-8 h-8 rounded-full flex items-center justify-center shrink-0 overflow-hidden">
+                {r.author_avatar ? <img src={r.author_avatar} alt="" className="w-full h-full object-cover" /> :
+                  <span className="font-head font-bold text-xs text-primary-stitch">{(r.author_name || "U")[0]}</span>}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-semibold" style={{ color: "var(--text)" }}>{r.author_name}</span>
+                  <span className="text-xs text-muted-stitch">{new Date(r.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                </div>
+                <div className="rounded-2xl px-4 py-2.5 inline-block text-sm" style={{ background: "var(--neu-light)", color: "var(--text)" }}>
+                  <MentionText text={r.text} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <form onSubmit={submit} className="p-4 pt-0 flex gap-3 relative">
+          {showMentions && (
+            <div className="neu-raised absolute bottom-[4.5rem] left-4 right-24 z-40 rounded-2xl p-2 max-h-48 overflow-y-auto animate-fade-up">
+              {members.filter((mem) => (mem.name || "").toLowerCase().includes(query)).slice(0, 6).map((mem) => (
+                <button type="button" key={mem.user_id} data-testid="thread-mention-option" onClick={() => pick(mem)}
+                  className="w-full neu-hover rounded-xl p-2.5 flex items-center gap-3 text-left">
+                  <span className="neu-sm w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-primary-stitch">{(mem.name || "U")[0].toUpperCase()}</span>
+                  <span className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>{mem.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <input data-testid="thread-input" value={text} onChange={(e) => handleType(e.target.value)}
+            placeholder="Reply in thread… use @ to mention" className="neu-input flex-1 rounded-2xl py-3 px-5" />
+          <button data-testid="thread-send-btn" type="submit" className="neu-primary rounded-2xl px-5 flex items-center justify-center">
+            <Send className="w-5 h-5" />
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

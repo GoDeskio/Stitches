@@ -27,6 +27,7 @@ const TABS = [
   { id: "seo", label: "SEO", icon: Search },
   { id: "monitoring", label: "Monitoring", icon: Activity },
   { id: "heatmap", label: "Heat Map", icon: Grid3x3 },
+  { id: "integrations", label: "Integrations", icon: Plug },
 ];
 
 export default function Admin() {
@@ -49,6 +50,7 @@ export default function Admin() {
       {tab === "seo" && <SeoTab />}
       {tab === "monitoring" && <MonitoringTab />}
       {tab === "heatmap" && <HeatmapTab />}
+      {tab === "integrations" && <IntegrationsTab />}
     </PageShell>
   );
 }
@@ -405,6 +407,33 @@ function SeoField({ label, value, onChange, testid }) {
     <div>
       <label className="text-sm font-semibold text-muted-stitch">{label}</label>
       <input data-testid={testid} value={value || ""} onChange={onChange} className="neu-input w-full rounded-2xl py-3 px-5 mt-2" />
+    </div>
+  );
+}
+
+function IntegrationsTab() {
+  const [items, setItems] = useState(null);
+  useEffect(() => { api.get("/admin/integrations").then(({ data }) => setItems(data)).catch(() => setItems([])); }, []);
+  if (!items) return <Loader />;
+  return (
+    <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up">
+      <p className="text-muted-stitch mb-6">All integrations connected by members across the platform. Credentials are never exposed here.</p>
+      {items.length === 0 ? (
+        <p className="text-sm text-muted-stitch">No integrations connected yet.</p>
+      ) : (
+        <div className="space-y-3">
+          {items.map((it) => (
+            <div key={it.integration_id} className="neu-pressed rounded-2xl p-4 flex items-center gap-4" data-testid="admin-integration-row">
+              <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center shrink-0"><Plug className="w-5 h-5 text-primary-stitch" /></div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold truncate" style={{ color: "var(--text)" }}>{it.name}</p>
+                <p className="text-sm text-muted-stitch truncate">{it.type} · owned by {it.owner_name}</p>
+              </div>
+              <span className="text-xs px-3 py-1 rounded-full neu-sm text-green-500 font-semibold">{it.status || "connected"}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
