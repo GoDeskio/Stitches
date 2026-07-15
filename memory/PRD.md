@@ -78,11 +78,18 @@ Build a fully functional, dynamic, beautiful, heavily neumorphic web app (Slack/
 ## Implemented (2026-07-16)
 - Channel **reply threads**: hover a message → reply icon opens a Thread panel; replies stay out of the main timeline and surface via a "N replies" button. Real-time via WebSocket + REST.
 - **@mentions**: typing `@` shows a member autocomplete; selecting inserts `@Name`, mentioned text is highlighted, and the mentioned user gets a `mention` notification (bell + unread). All sends now go through REST `POST /api/messages`.
-- **Real integration connectors** (user-entered credentials via setup wizard): N8N (`/run` triggers webhook), AWS S3 / Dropbox / Google Drive (`/files` list + `/download` link), LLM & MCP (`/test`). Connected cards expose Run / Browse files / Test. Admin Dashboard has an **Integrations** tab listing all platform integrations by owner (no credentials exposed). Deps added: boto3, dropbox.
+- **Real integration connectors** (user-entered credentials via setup wizard): N8N (`/run`), AWS S3 / Dropbox / Google Drive (`/files` + `/download`), LLM & MCP (`/test`). Connected cards expose Run / Browse files / Test. Admin Dashboard has an **Integrations** tab. Deps: boto3, dropbox.
 - Verified (iteration_10, 22/22 backend + 100% frontend).
 
+## Implemented (2026-07-16, part 2)
+- **At-rest encryption (Fernet)** for all integration credentials: encrypted on write (`ENCRYPTION_KEY` in backend .env), decrypted only server-side when calling a service. Raw `config` is never returned by any API; secrets show as bullets in the user Integrations dashboard and are absent from the admin Integrations tab. Legacy plaintext values decrypt-fallback gracefully.
+- **User Activity Log** (`/activity`, left-nav): private per-user history of every account action via `GET /api/activity/me` (owner-scoped, isolated per user).
+- **Admin activity search-by-user** in Admin > Monitoring: search box → member results → full per-user activity drilldown with "Back to search".
+- **Downloads page** (`/downloads`, left-nav) + **Electron desktop client** scaffold in `/app/desktop` (main.js loads the live dashboard with a persistent session so users stay signed in; README + build scripts). NOTE: installers must be built from `/app/desktop` outside this sandbox — no binaries are compiled here.
+- Verified (iteration_11, 14/14 backend + 100% frontend): encryption no-leak (Mongo stores `gAAAAA…` ciphertext), activity isolation, admin search-by-user, downloads render, all-account login regression.
+
 ## Backlog / Next
-- P2: At-rest encryption for stored integration credentials (currently plaintext in Mongo `config`, masked in API responses).
 - P2: Dynamic UI text-size / accessibility scaling control (theme toggle already exists).
-- P2: Refactor server.py (~1500 lines) into routers; split Messages.jsx; factor per-provider integration handlers into a registry.
-- P2: Google Drive OAuth refresh-token flow (currently manual token); avatar image upload; kanban task boards.
+- P2: Refactor server.py (~1700 lines) into routers (auth/messages/integrations/admin/activity); split Messages.jsx.
+- P2: Google Drive OAuth refresh-token flow (currently manual token); avatar image upload; kanban task boards on Projects.
+- P3: Build & host actual desktop installers (GitHub Actions) and wire the Downloads buttons to releases.
