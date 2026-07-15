@@ -242,6 +242,12 @@ class ReactInput(BaseModel):
     emoji: str
 
 
+class NoteInput(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+    color: Optional[str] = None
+
+
 class WorkspaceInput(BaseModel):
     name: str
     description: Optional[str] = ""
@@ -1371,6 +1377,41 @@ async def get_unreads(user: dict = Depends(get_current_user)):
             result[cid] = cnt
             total += cnt
     return {"channels": result, "total": total}
+
+
+# ---------------- Notes ----------------
+@api_router.get("/notes")
+async def list_notes(user: dict = Depends(get_current_user)):
+    notes = await db.notes.find({"owner_id": user["user_id"]}, {"_id": 0}).sort("updated_at", -1).to_list(500)
+    return notes
+
+
+@api_router.post("/notes")
+async def create_note(data: NoteInput, user: dict = Depends(get_current_user)):
+    doc = {"note_id": f"note_{uuid.uuid4().hex[:12]}", "owner_id": user["user_id"],
+           "title": data.title or "Untitled", "content": data.content or "", "color": data.color or "default",
+           "created_at": now_iso(), "updated_at": now_iso()}
+    await db.notes.insert_one(doc)
+    await log_activity(user["user_id"], "note_create")
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.put("/notes/{note_id}")
+async def update_note(note_id: str, data: NoteInput, user: dict = Depends(get_current_user)):
+    updates = {k: v for k, v in data.model_dump().items() if v is not None}
+    updates["updated_at"] = now_iso()
+    await db.notes.update_one({"note_id": note_id, "owner_id": user["user_id"]}, {"$set": updates})
+    note = await db.notes.find_one({"note_id": note_id}, {"_id": 0})
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    return note
+
+
+@api_router.delete("/notes/{note_id}")
+async def delete_note(note_id: str, user: dict = Depends(get_current_user)):
+    await db.notes.delete_one({"note_id": note_id, "owner_id": user["user_id"]})
+    return {"ok": True}
 
 
 @api_router.get("/")

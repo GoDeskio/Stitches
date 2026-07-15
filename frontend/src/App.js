@@ -17,6 +17,7 @@ import Integrations from "@/pages/Integrations";
 import AiAssistant from "@/pages/AiAssistant";
 import Profile from "@/pages/Profile";
 import People from "@/pages/People";
+import Notes from "@/pages/Notes";
 import Settings from "@/pages/Settings";
 import Admin from "@/pages/Admin";
 
@@ -58,6 +59,7 @@ function AppRouter() {
         <Route path="/assistant" element={<AiAssistant />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/people" element={<People />} />
+        <Route path="/notes" element={<Notes />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/admin" element={<Admin />} />
       </Route>
