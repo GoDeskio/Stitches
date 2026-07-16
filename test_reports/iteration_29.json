@@ -1,0 +1,19 @@
+{
+  "summary": "Verified site-config (announcement + support_email) endpoints (public GET, admin PUT, non-admin 403), AI agent contact_support flow (creates admin support notification), and regression for create_project and informational Q&A after the JSON envelope parser fix. Also validated frontend admin Site Note tab (all data-testids present, save persists, reload persists) and the Home welcome-note behavior (shows when enabled, dismissal versioned by updated_at persists across reload, hidden when disabled).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_sitenote_ai.py", "/app/test_reports/pytest/pytest_sitenote.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routers/ai.py is large (~300 lines) — consider extracting execute_agent_action per-action handlers to a separate module for maintainability.",
+    "Announcement toggle button lacks aria-pressed/data-state, making programmatic state detection tricky in E2E; consider adding aria-pressed for a11y & test reliability."
+  ],
+  "updated_files": ["/app/backend/tests/test_sitenote_ai.py", "/app/test_reports/iteration_29.json"],
+  "success_rate": {"backend": "100% (7/7)", "frontend": "100%"},
+  "test_credentials": "Admin admin@stitches.app/Admin@123, Demo demo@stitches.app/Demo@123 (from /app/memory/test_credentials.md).",
+  "seed_data_creation": "Created transient TEST_Apollo project via AI agent + support_request + support notifications during tests — ALL cleaned up (site-config reset to defaults, support_requests + support notifications deleted, TEST_Apollo* projects deleted).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All flows in this iteration pass end-to-end. Backend pytest lives at /app/backend/tests/test_sitenote_ai.py. Note: fresh browser context is required to see welcome note (dismissal keyed on localStorage stitches_welcome_dismissed = updated_at); editing the announcement bumps updated_at and re-shows it.",
+  "rca of the issue": "No issues found."
+}

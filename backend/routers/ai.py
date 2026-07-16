@@ -1,6 +1,8 @@
 from fastapi import APIRouter
 from core import *
 from core import _create_message, _notify_mentions, ws_manager, _fernet
+from services.site import get_site_config
+from services.email import send_meeting_email
 from models import *
 
 router = APIRouter()
@@ -71,7 +73,8 @@ AGENT_ACTIONS_USER = """- create_project {"name": str, "description"?: str}: cre
 - invite_to_project {"project": str, "email": str}: add a person (by email) to one of your projects
 - list_projects {}: list the user's projects
 - list_workspaces {}: list the user's workspaces
-- get_stats {}: get the user's dashboard counts (workspaces, projects, assets, integrations, messages)"""
+- get_stats {}: get the user's dashboard counts (workspaces, projects, assets, integrations, messages)
+- contact_support {"subject"?: str, "message": str}: when you genuinely cannot help, the request is outside your abilities, or the user asks for a human/support, forward their message to the site's support team"""
 
 AGENT_ACTIONS_ADMIN = """- admin_stats {}: platform-wide totals (users, workspaces, projects, etc.)
 - admin_list_users {}: list all members with role and status
@@ -85,12 +88,22 @@ def build_agent_system(user):
         actions += "\n" + AGENT_ACTIONS_ADMIN
     return (
         "You are Stitch, the built-in AI assistant for Stitches (a collaboration workspace). "
-        "You can take real actions on the user's account. Available actions:\n" + actions +
-        "\n\nWhen the user asks you to DO something that matches an action, reply ONLY with strict minified JSON: "
-        '{"action":"<name>","params":{...},"message":"<short friendly confirmation>"}. '
-        'If no action is needed, reply with {"action":null,"message":"<your helpful answer>"}. '
-        "Return ONLY the JSON object, no markdown, no code fences, no extra text. "
-        "Emit EXACTLY ONE JSON object and never repeat it."
+        "You take real actions on the user's account by returning a JSON command. Available actions:\n" + actions +
+        "\n\nRESPONSE FORMAT — always reply with EXACTLY ONE strict minified JSON object and nothing else "
+        "(no markdown, no code fences, no prose before/after):\n"
+        '{"action":"<name-or-null>","params":{...},"message":"<short friendly first-person confirmation>"}\n\n'
+        "RULES:\n"
+        "1. If the request matches an action, use it. Prefer taking an action over answering in prose.\n"
+        "2. contact_support is your escalation tool. You MUST use it whenever the user: reports a bug or something "
+        "broken/crashing/not working, asks for help you cannot perform with the actions above, mentions a billing/account/"
+        "payment issue, or asks to talk to a human / support / the team. Never just summarize or acknowledge such requests — "
+        "always escalate with contact_support.\n"
+        "3. Only use action null for pure informational questions you can fully answer yourself.\n\n"
+        "EXAMPLES:\n"
+        'User: "the video call crashes when I join" -> {"action":"contact_support","params":{"subject":"Video call crash","message":"The video call feature crashes when the user joins."},"message":"I couldn\'t fix that myself, so I\'ve sent it to our support team for you."}\n'
+        'User: "I need to talk to a human about billing" -> {"action":"contact_support","params":{"subject":"Billing question","message":"User wants to speak with a human about a billing question."},"message":"I\'ve forwarded your request to our support team."}\n'
+        'User: "create a project called Apollo" -> {"action":"create_project","params":{"name":"Apollo"},"message":"Creating your project \'Apollo\'."}\n'
+        'User: "what is a workspace?" -> {"action":null,"message":"A workspace is a shared space where your team chats and collaborates on channels and projects."}\n'
     )
 
 
@@ -175,6 +188,33 @@ async def execute_agent_action(action, params, user):
                 f"Projects: {await db.projects.count_documents({'members': user['user_id']})}",
                 f"Assets: {await db.assets.count_documents({'owner_id': user['user_id'], 'is_deleted': False})}",
                 f"Integrations: {await db.integrations.count_documents({'owner_id': user['user_id']})}"]}
+        if action == "contact_support":
+            msg = (p.get("message") or "").strip()
+            if not msg:
+                return {"ok": False, "error": "Please tell me what the support team should know"}
+            subject = (p.get("subject") or "Support request from Stitches").strip()[:140]
+            _, support_email = await get_site_config()
+            await db.support_requests.insert_one({
+                "request_id": f"sup_{uuid.uuid4().hex[:12]}", "user_id": user["user_id"],
+                "user_email": user.get("email"), "user_name": user.get("name"),
+                "subject": subject, "message": msg[:2000], "status": "open", "created_at": now_iso()})
+            admins = await db.users.find({"role": "admin"}, {"_id": 0, "user_id": 1}).to_list(100)
+            for a in admins:
+                await create_notification(a["user_id"], "support", f"Support request: {subject}",
+                                          f"From {user.get('name')}: {msg[:120]}", "/admin")
+            sent = False
+            if support_email:
+                html = (f"<div style='font-family:sans-serif;max-width:520px'>"
+                        f"<h2 style='color:#c0202e'>{subject}</h2><p>{msg}</p>"
+                        f"<p style='color:#888;font-size:13px'>From {user.get('name')} &lt;{user.get('email')}&gt;</p></div>")
+                sent = await send_meeting_email(support_email, f"[Stitches Support] {subject}", html, sender_user_id=user["user_id"])
+            if support_email:
+                note = f"I've forwarded your message to our support team at {support_email}."
+                if not sent:
+                    note += " They'll also see it in the admin dashboard."
+            else:
+                note = "I've logged your request for our team and they'll follow up soon."
+            return {"ok": True, "summary": note, "items": [f"Subject: {subject}", f"Message: {msg[:200]}"]}
         # admin actions
         if action in ("admin_stats", "admin_list_users", "admin_toggle_feature", "admin_set_user_active"):
             if not is_admin:
@@ -241,7 +281,7 @@ async def ai_agent(data: AiInput, user: dict = Depends(get_current_user)):
         if ch == "{":
             try:
                 obj, _ = decoder.raw_decode(raw, i)
-                if isinstance(obj, dict) and ("action" in obj or "message" in obj):
+                if isinstance(obj, dict) and "action" in obj:
                     last = obj
             except Exception:
                 continue

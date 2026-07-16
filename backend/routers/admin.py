@@ -1,9 +1,39 @@
 from fastapi import APIRouter
 from core import *
 from core import _create_message, _notify_mentions, ws_manager, _fernet
+from services.site import get_site_config
 from models import *
 
 router = APIRouter()
+
+
+@router.get("/site-config")
+async def public_site_config():
+    ann, support_email = await get_site_config()
+    return {"announcement": ann, "support_email": support_email}
+
+
+@router.get("/admin/site-config")
+async def admin_get_site_config(user: dict = Depends(require_admin)):
+    ann, support_email = await get_site_config()
+    return {"announcement": ann, "support_email": support_email}
+
+
+@router.put("/admin/site-config")
+async def admin_set_site_config(request: Request, user: dict = Depends(require_admin)):
+    body = await request.json()
+    ann = body.get("announcement")
+    if isinstance(ann, dict):
+        val = {"enabled": bool(ann.get("enabled")),
+               "title": (ann.get("title") or "").strip()[:120],
+               "message": (ann.get("message") or "").strip()[:1000],
+               "signature": (ann.get("signature") or "").strip()[:120],
+               "updated_at": now_iso()}
+        await db.settings.update_one({"key": "announcement"}, {"$set": {"key": "announcement", "value": val}}, upsert=True)
+    if "support_email" in body:
+        await db.settings.update_one({"key": "support_email"},
+                                     {"$set": {"key": "support_email", "value": {"email": (body.get("support_email") or "").strip()}}}, upsert=True)
+    return {"ok": True}
 
 
 # ---------------- Notifications global (admin) ----------------

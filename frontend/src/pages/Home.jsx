@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { LogIn, X } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import api from "@/lib/api";
 
 const STITCH_TEXTURE =
   "https://static.prod-images.emergentagent.com/jobs/a571e742-1f81-4c1f-b84c-9eec40db8ea8/images/c06bf8a339ae1402b4b3bd8a678af577a089c80af507fdb229466b01a46fee2d.png";
@@ -9,11 +10,21 @@ const STITCH_TEXTURE =
 export default function Home() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [showNote, setShowNote] = useState(() => localStorage.getItem("stitches_welcome_dismissed") !== "1");
+  const [note, setNote] = useState(null);
+
+  useEffect(() => {
+    api.get("/site-config").then(({ data }) => {
+      const ann = data.announcement || {};
+      const ver = ann.updated_at || "default";
+      if (ann.enabled && localStorage.getItem("stitches_welcome_dismissed") !== ver) {
+        setNote({ ...ann, ver });
+      }
+    }).catch(() => {});
+  }, []);
 
   const dismissNote = () => {
-    localStorage.setItem("stitches_welcome_dismissed", "1");
-    setShowNote(false);
+    if (note) localStorage.setItem("stitches_welcome_dismissed", note.ver);
+    setNote(null);
   };
 
   const goLogin = () => {
@@ -68,7 +79,7 @@ export default function Home() {
         </button>
 
         {/* Center: dismissible glass welcome note */}
-        {showNote && (
+        {note && (
           <div className="absolute inset-0 z-20 flex items-center justify-center p-6 pointer-events-none">
             <div
               data-testid="welcome-note-card"
@@ -91,12 +102,11 @@ export default function Home() {
                 <X className="w-4 h-4" />
               </button>
               <img src="/logo.png" alt="Stitches" className="w-12 h-12 object-contain mb-4" />
-              <h2 className="font-head font-bold text-xl mb-3" style={{ color: "#F9EEF0" }}>Hello, and welcome</h2>
-              <p className="text-sm leading-relaxed" style={{ color: "rgba(243,232,234,0.88)" }}>
-                Thank you for visiting our website. It's new and has a lot of bugs, but if you use it and help
-                us improve it, it's free forever. Thank you for your patience and support.
+              {note.title && <h2 className="font-head font-bold text-xl mb-3" style={{ color: "#F9EEF0" }}>{note.title}</h2>}
+              <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: "rgba(243,232,234,0.88)" }}>
+                {note.message}
               </p>
-              <p className="text-sm font-semibold mt-4 text-right" style={{ color: "#F3E8EA" }}>— The Development team</p>
+              {note.signature && <p className="text-sm font-semibold mt-4 text-right" style={{ color: "#F3E8EA" }}>{note.signature}</p>}
             </div>
           </div>
         )}
