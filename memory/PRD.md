@@ -183,6 +183,10 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - Verified (iteration_26): backend 12/12 pytest + frontend 100%. Fixed a React `useEffect` Promise-return bug in Run/MCP modals (found by testing agent).
 - NOTE: real MCP tool execution requires a real MCP server (untestable in-sandbox — validated graceful fallback only).
 
+## Implemented (2026-06-25, part 7) — ai.py refactor + integration-runs pagination
+- **AI handler refactor**: extracted the agent prompt + all per-action handlers from `routers/ai.py` (303→117 lines) into `services/agent_actions.py` (dict-dispatched `USER_HANDLERS`/`ADMIN_HANDLERS`, `build_agent_system`, `execute_agent_action`). Behaviour-neutral — verified create_project, contact_support, and informational Q all still work.
+- **Pagination** on `GET /api/admin/integration-runs`: `limit` (≤200) + `skip` params; response adds `filtered_total`, `skip`, `limit`, `has_more`. Admin Automation activity list now uses a "Load more" button (`automation-load-more`, page size 20). Verified page1 has_more=true / page2 has_more=false.
+
 ## Implemented (2026-06-25, part 6) — admin-editable announcement, support email, AI support escalation
 - **Admin-editable Home note**: the landing-page glass card is now a managed site announcement. Admin → **Site Note** tab (`admin-tab-sitenote`) edits title/message/signature and toggles it on/off. Public `GET /api/site-config`; admin `GET/PUT /api/admin/site-config`. Home shows it only when enabled; dismissal versioned by `updated_at` so editing re-shows it.
 - **Configurable support email** (`support-email-input`) used for AI escalations.

@@ -258,7 +258,10 @@ async def admin_automation_health(user: dict = Depends(require_admin)):
 
 @router.get("/admin/integration-runs")
 async def admin_integration_runs(kind: str = None, ok: str = None, owner_id: str = None,
+                                 limit: int = 50, skip: int = 0,
                                  user: dict = Depends(require_admin)):
+    limit = max(1, min(int(limit or 50), 200))
+    skip = max(0, int(skip or 0))
     q = {}
     if kind:
         q["kind"] = kind
@@ -266,7 +269,7 @@ async def admin_integration_runs(kind: str = None, ok: str = None, owner_id: str
         q["owner_id"] = owner_id
     if ok in ("true", "false"):
         q["ok"] = (ok == "true")
-    runs = await db.integration_runs.find(q, {"_id": 0}).sort("created_at", -1).to_list(150)
+    runs = await db.integration_runs.find(q, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     uids = list({r.get("owner_id") for r in runs if r.get("owner_id")})
     iids = list({r.get("integration_id") for r in runs if r.get("integration_id")})
     users = await db.users.find({"user_id": {"$in": uids}}, {"_id": 0, "user_id": 1, "name": 1, "email": 1}).to_list(500)
@@ -281,7 +284,10 @@ async def admin_integration_runs(kind: str = None, ok: str = None, owner_id: str
         r["integration_type"] = i["type"] if i else ""
     total = await db.integration_runs.count_documents({})
     ok_count = await db.integration_runs.count_documents({"ok": True})
-    return {"runs": runs, "total": total, "ok_count": ok_count, "fail_count": total - ok_count}
+    filtered_total = await db.integration_runs.count_documents(q)
+    return {"runs": runs, "total": total, "ok_count": ok_count, "fail_count": total - ok_count,
+            "filtered_total": filtered_total, "skip": skip, "limit": limit,
+            "has_more": skip + len(runs) < filtered_total}
 
 
 @router.get("/admin/heatmap")

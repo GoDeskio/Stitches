@@ -639,16 +639,26 @@ function SiteNoteTab() {
 
 function AutomationTab() {
   const [data, setData] = useState(null);
+  const [runs, setRuns] = useState([]);
+  const [hasMore, setHasMore] = useState(false);
   const [filter, setFilter] = useState("all"); // all | ok | fail | run | mcp_call
   const [alerts, setAlerts] = useState(null);
   const [savingAlerts, setSavingAlerts] = useState(false);
-  const load = () => {
-    const params = {};
+  const PAGE = 20;
+
+  const fetchPage = (skip, append) => {
+    const params = { limit: PAGE, skip };
     if (filter === "ok") params.ok = "true";
     else if (filter === "fail") params.ok = "false";
     else if (filter === "run" || filter === "mcp_call") params.kind = filter;
-    api.get("/admin/integration-runs", { params }).then(({ data }) => setData(data)).catch(() => setData({ runs: [], total: 0, ok_count: 0, fail_count: 0 }));
+    return api.get("/admin/integration-runs", { params }).then(({ data }) => {
+      setData(data);
+      setHasMore(data.has_more);
+      setRuns((prev) => (append ? [...prev, ...data.runs] : data.runs));
+    }).catch(() => { setData({ total: 0, ok_count: 0, fail_count: 0 }); setRuns([]); setHasMore(false); });
   };
+  const load = () => fetchPage(0, false);
+  const loadMore = () => fetchPage(runs.length, true);
   useEffect(() => { load(); }, [filter]); // eslint-disable-line
   useEffect(() => { api.get("/admin/automation-alerts").then(({ data }) => setAlerts(data)).catch(() => setAlerts({ enabled: false, threshold: 3, email: "", webhook_url: "" })); }, []);
 
@@ -677,7 +687,7 @@ function AutomationTab() {
               <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Failure alerts</h3>
               <p className="text-sm text-muted-stitch">Get notified when an integration fails repeatedly in a row (in-app, plus optional email & webhook).</p>
             </div>
-            <button data-testid="alerts-enabled-toggle" onClick={() => setAlerts({ ...alerts, enabled: !alerts.enabled })}
+            <button data-testid="alerts-enabled-toggle" aria-pressed={alerts.enabled} onClick={() => setAlerts({ ...alerts, enabled: !alerts.enabled })}
               className={`w-14 h-8 rounded-full flex items-center px-1 transition-all shrink-0 ${alerts.enabled ? "justify-end" : "justify-start"}`}
               style={{ background: alerts.enabled ? "var(--primary)" : "var(--neu-dark)" }}>
               <span className="w-6 h-6 rounded-full bg-white shadow" />
@@ -719,24 +729,29 @@ function AutomationTab() {
               className={`rounded-full py-2 px-4 text-sm font-semibold whitespace-nowrap ${filter === id ? "neu-primary" : "text-muted-stitch"}`}>{lbl}</button>
           ))}
         </div>
-        {data.runs.length === 0 ? (
+        {runs.length === 0 ? (
           <p className="text-sm text-muted-stitch" data-testid="automation-empty">No automation runs recorded yet.</p>
         ) : (
-          <div className="space-y-3">
-            {data.runs.map((r) => (
-              <div key={r.run_id} data-testid="automation-run-row" className="neu-pressed rounded-2xl p-4 flex items-center gap-4">
-                <span className={`w-2.5 h-2.5 rounded-full shrink-0`} style={{ background: r.ok ? "#16a34a" : "#dc2626" }} />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>
-                    {r.integration_name} <span className="text-muted-stitch font-normal">· {r.kind === "mcp_call" ? "MCP tool" : "N8N run"}</span>
-                    {r.status_code ? <span className="text-muted-stitch font-normal"> · {r.status_code}</span> : null}
-                  </p>
-                  <p className="text-xs text-muted-stitch truncate">{r.owner_name} · {new Date(r.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
+          <>
+            <div className="space-y-3">
+              {runs.map((r) => (
+                <div key={r.run_id} data-testid="automation-run-row" className="neu-pressed rounded-2xl p-4 flex items-center gap-4">
+                  <span className={`w-2.5 h-2.5 rounded-full shrink-0`} style={{ background: r.ok ? "#16a34a" : "#dc2626" }} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>
+                      {r.integration_name} <span className="text-muted-stitch font-normal">· {r.kind === "mcp_call" ? "MCP tool" : "N8N run"}</span>
+                      {r.status_code ? <span className="text-muted-stitch font-normal"> · {r.status_code}</span> : null}
+                    </p>
+                    <p className="text-xs text-muted-stitch truncate">{r.owner_name} · {new Date(r.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
+                  </div>
+                  <span className={`text-xs px-3 py-1 rounded-full neu-sm font-semibold ${r.ok ? "text-green-500" : "text-red-500"}`}>{r.ok ? "OK" : "Failed"}</span>
                 </div>
-                <span className={`text-xs px-3 py-1 rounded-full neu-sm font-semibold ${r.ok ? "text-green-500" : "text-red-500"}`}>{r.ok ? "OK" : "Failed"}</span>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+            {hasMore && (
+              <button data-testid="automation-load-more" onClick={loadMore} className="neu-btn rounded-2xl px-6 py-3 font-semibold text-primary-stitch mt-5 w-full">Load more</button>
+            )}
+          </>
         )}
       </div>
     </div>
