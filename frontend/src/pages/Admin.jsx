@@ -930,11 +930,14 @@ function DigestCard() {
   const [cfg, setCfg] = useState(null);
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
+  const [reporting, setReporting] = useState(false);
   const [result, setResult] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
 
   useEffect(() => {
     api.get("/admin/digest-config").then(({ data }) => setCfg(data))
-      .catch(() => setCfg({ enabled: false, frequency: "weekly", day_of_week: 0, day_of_month: 1, hour: 9, recipient: "admin@godesk.io" }));
+      .catch(() => setCfg({ enabled: false, frequency: "weekly", day_of_week: 0, day_of_month: 1, hour: 9, recipient: "admin@godesk.io", last_sent: "" }));
   }, []);
 
   const save = async () => {
@@ -955,8 +958,27 @@ function DigestCard() {
     } catch (e) { toast.error("Request failed"); } finally { setSending(false); }
   };
 
+  const sendReport = async () => {
+    setReporting(true); setResult(null);
+    try {
+      const { data } = await api.post("/admin/digest/send-report", { recipient: cfg.recipient });
+      setResult(data);
+      toast[data.ok ? "success" : "error"](data.ok ? "Full report sent" : "Send failed");
+    } catch (e) { toast.error("Request failed"); } finally { setReporting(false); }
+  };
+
+  const togglePreview = async () => {
+    if (preview) { setPreview(null); return; }
+    setLoadingPreview(true);
+    try {
+      const { data } = await api.get("/admin/digest/preview", { params: { frequency: cfg.frequency, full: false } });
+      setPreview(data.html);
+    } catch (e) { toast.error("Preview failed"); } finally { setLoadingPreview(false); }
+  };
+
   if (!cfg) return null;
   const sel = "neu-input rounded-2xl py-3 px-4 text-sm";
+  const lastSent = cfg.last_sent ? new Date(cfg.last_sent).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "Never";
   return (
     <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="digest-card">
       <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
@@ -1012,10 +1034,19 @@ function DigestCard() {
         <input data-testid="digest-recipient" value={cfg.recipient} onChange={(e) => setCfg({ ...cfg, recipient: e.target.value })} placeholder="admin@godesk.io" className={`${sel} w-full mt-1`} />
       </div>
 
+      <p data-testid="digest-last-sent" className="text-xs text-muted-stitch mt-3">Last sent: <span className="font-semibold" style={{ color: "var(--text)" }}>{lastSent}</span></p>
+
       <div className="mt-4 flex items-center gap-3 flex-wrap">
         <button data-testid="save-digest-btn" onClick={save} disabled={saving} className="neu-primary rounded-2xl px-6 py-3 font-semibold">{saving ? "Saving…" : "Save schedule"}</button>
         <button data-testid="send-digest-now-btn" onClick={sendNow} disabled={sending} className="neu-btn rounded-2xl px-6 py-3 font-semibold text-primary-stitch">{sending ? "Sending…" : "Send now"}</button>
+        <button data-testid="send-report-btn" onClick={sendReport} disabled={reporting} className="neu-btn rounded-2xl px-6 py-3 font-semibold text-primary-stitch">{reporting ? "Sending…" : "Send Report"}</button>
+        <button data-testid="preview-digest-btn" onClick={togglePreview} disabled={loadingPreview} className="neu-btn rounded-2xl px-6 py-3 font-semibold text-muted-stitch">{loadingPreview ? "Loading…" : preview ? "Hide preview" : "Preview"}</button>
       </div>
+
+      {preview && (
+        <iframe data-testid="digest-preview" title="Digest preview" srcDoc={preview}
+          className="w-full mt-4 rounded-2xl neu-pressed" style={{ height: 480, border: "none", background: "#f6f6f6" }} />
+      )}
       {result && (
         <div data-testid="digest-result" className={`neu-pressed rounded-2xl p-4 mt-4 text-sm ${result.ok ? "text-green-500" : "text-red-400"}`}>
           {result.ok ? "✓ " : "✕ "}{result.detail}

@@ -33,27 +33,32 @@ async def save_digest_config(patch: dict):
     return cfg
 
 
-async def _collect(frequency: str):
-    days = _WINDOW_DAYS.get(frequency, 7)
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    cutoff_iso = cutoff.isoformat()
+async def _collect(frequency: str, full: bool = False):
+    if full:
+        days = None
+        iso_match, dt_match = {}, {}
+    else:
+        days = _WINDOW_DAYS.get(frequency, 7)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        iso_match = {"created_at": {"$gte": cutoff.isoformat()}}
+        dt_match = {"created_at": {"$gte": cutoff}}
 
-    signups = await db.users.find({"created_at": {"$gte": cutoff_iso}},
+    signups = await db.users.find(iso_match,
                                   {"_id": 0, "name": 1, "email": 1, "created_at": 1}).sort("created_at", -1).to_list(50)
     open_count = await db.support_requests.count_documents({"status": "open"})
     open_reqs = await db.support_requests.find({"status": "open"}, {"_id": 0, "subject": 1, "user_email": 1, "created_at": 1}).sort("created_at", -1).to_list(10)
 
     top_paths = await db.heat_events.aggregate([
-        {"$match": {"type": "click", "created_at": {"$gte": cutoff}}},
+        {"$match": {"type": "click", **dt_match}},
         {"$group": {"_id": "$path", "clicks": {"$sum": 1}}},
         {"$sort": {"clicks": -1}}, {"$limit": 8},
     ]).to_list(8)
 
-    total_runs = await db.integration_runs.count_documents({"created_at": {"$gte": cutoff_iso}})
-    ok_runs = await db.integration_runs.count_documents({"created_at": {"$gte": cutoff_iso}, "ok": True})
+    total_runs = await db.integration_runs.count_documents(iso_match)
+    ok_runs = await db.integration_runs.count_documents({**iso_match, "ok": True})
     rate = round(ok_runs * 100 / total_runs) if total_runs else 100
 
-    return {"days": days, "signups": signups, "open_count": open_count, "open_reqs": open_reqs,
+    return {"days": days, "full": full, "signups": signups, "open_count": open_count, "open_reqs": open_reqs,
             "top_paths": top_paths, "total_runs": total_runs, "ok_runs": ok_runs,
             "fail_runs": total_runs - ok_runs, "success_rate": rate}
 
@@ -66,8 +71,10 @@ def _fmt_date(iso):
 
 
 def build_digest_html(frequency: str, data: dict):
-    label = _FREQ_LABEL.get(frequency, "Weekly")
+    full = data.get("full")
+    label = "Full Report" if full else _FREQ_LABEL.get(frequency, "Weekly")
     d = data["days"]
+    period = "all time" if full else f"the last {d} day(s)"
     rows = []
 
     def card(title, inner):
@@ -103,8 +110,8 @@ def build_digest_html(frequency: str, data: dict):
 
     body = "".join(rows)
     return (f"<div style='font-family:-apple-system,Segoe UI,sans-serif;max-width:600px;margin:0 auto;background:#f6f6f6;padding:24px'>"
-            f"<h1 style='font-size:22px;color:#c0202e;margin:0 0 4px'>Stitches {label} Digest</h1>"
-            f"<p style='color:#777;font-size:13px;margin:0 0 20px'>Summary of the last {d} day(s) · generated {datetime.now(timezone.utc).strftime('%b %d, %Y %H:%M UTC')}</p>"
+            f"<h1 style='font-size:22px;color:#c0202e;margin:0 0 4px'>Stitches {label}</h1>"
+            f"<p style='color:#777;font-size:13px;margin:0 0 20px'>Summary of {period} · generated {datetime.now(timezone.utc).strftime('%b %d, %Y %H:%M UTC')}</p>"
             f"{body}"
             f"<p style='color:#aaa;font-size:11px;text-align:center;margin-top:20px'>You receive this because digest emails are enabled in the Stitches admin dashboard.</p>"
             f"</div>")
@@ -120,6 +127,22 @@ async def send_digest_now(frequency: str = None, recipient: str = None):
     html = build_digest_html(freq, data)
     subject = f"Stitches {_FREQ_LABEL.get(freq, 'Weekly')} Digest — {datetime.now(timezone.utc).strftime('%b %d')}"
     return await send_email_detailed(to, subject, html)
+
+
+async def send_report_now(recipient: str = None):
+    cfg = await get_digest_config()
+    to = (recipient or cfg.get("recipient") or "").strip()
+    if not to:
+        return False, "No recipient configured"
+    data = await _collect("full", full=True)
+    html = build_digest_html("full", data)
+    subject = f"Stitches Full Report — {datetime.now(timezone.utc).strftime('%b %d, %Y')}"
+    return await send_email_detailed(to, subject, html)
+
+
+async def render_digest(frequency: str = "weekly", full: bool = False):
+    data = await _collect(frequency, full=full)
+    return build_digest_html(frequency, data)
 
 
 def _is_due(cfg: dict, now: datetime) -> bool:

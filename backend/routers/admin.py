@@ -3,7 +3,7 @@ from core import *
 from core import _create_message, _notify_mentions, ws_manager, _fernet
 from services.site import get_site_config
 from services.email import send_email_detailed
-from services.digest import get_digest_config, save_digest_config, send_digest_now
+from services.digest import get_digest_config, save_digest_config, send_digest_now, send_report_now, render_digest
 from models import *
 
 router = APIRouter()
@@ -419,6 +419,21 @@ async def admin_send_digest_now(request: Request, user: dict = Depends(require_a
     body = await request.json() if request.headers.get("content-length") else {}
     ok, detail = await send_digest_now(body.get("frequency"), body.get("recipient"))
     return {"ok": ok, "detail": detail}
+
+
+@router.post("/admin/digest/send-report")
+async def admin_send_report(request: Request, user: dict = Depends(require_admin)):
+    body = await request.json() if request.headers.get("content-length") else {}
+    ok, detail = await send_report_now(body.get("recipient"))
+    return {"ok": ok, "detail": detail}
+
+
+@router.get("/admin/digest/preview")
+async def admin_digest_preview(frequency: str = "weekly", full: bool = False,
+                               user: dict = Depends(require_admin)):
+    freq = frequency if frequency in ("daily", "weekly", "monthly") else "weekly"
+    html = await render_digest(freq, full=bool(full))
+    return {"html": html}
 
 
 @router.get("/admin/heatmap/trend")
