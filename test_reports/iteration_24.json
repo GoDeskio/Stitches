@@ -1,0 +1,28 @@
+{
+  "summary": "Iteration 24: Meeting scheduler with invitees + email invites + ICS + admin SMTP config. Backend pytest 4/4 PASS (create scheduled meeting w/ invitees creates in-app 'meeting' notification for invitee with link=/call/<room>; GET /api/meetings/upcoming returns the meeting for both host and invitee; GET /api/meetings/{room_id}/ics returns a valid VCALENDAR (BEGIN:VCALENDAR..END:VCALENDAR, VEVENT, UID:<room>@stitches, method=REQUEST, text/calendar); admin/smtp-config: non-admin 403, admin GET returns masked (has_password bool, never raw password), PUT round-trip persists host/port/username/from + password, empty-password cleanup preserves prior enc secret while enabled=false + host='' effectively disables sending). Frontend UI: /meetings shows all 3 cards (start-meeting-card, schedule-meeting-card, join-meeting-card) + upcoming-list. schedule-modal opens with all inputs (name/time/invitee-search) and invitee-list; searching 'alice' returns invitee-option; selecting + setting future datetime + Schedule → modal closes, success toast, upcoming-row appears with add-calendar-btn + Join. add-calendar-btn → window.open('/api/meetings/<room>/ics'). start-meeting-btn → window.open('/call/<room>'). Alice (2nd session) sees 4 upcoming rows including invited meetings + bell badge showing unread meeting notifications. Admin /admin → Meetings tab shows smtp-config-card with all 6 testids (enabled-toggle, host/port/username/password/from inputs, save-smtp-btn); save enabled+values → 'Email enabled — meeting invites will be sent' toast; verified via admin API GET (enabled=true, host=smtp.example.com, has_password=true). SFU + TURN cards remain visible. Cleanup via API: enabled=false + host='' (has_password preserved by design — empty pw keeps prior enc). Regression: Instant meeting, admin tabs, layout — all intact.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_meetings_invites.py",
+    "/app/test_reports/pytest/iteration_24_meetings.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Meetings.jsx addToCalendar uses window.open without a navigate fallback if popups are blocked (unlike openRoom). Minor — desktop browsers allow user-initiated popups, but a link-based fallback would be more robust and accessibility-friendly. Optionally render <a href={api}/meetings/<room>/ics target=_blank download> for progressive enhancement.",
+    "meetings.py create_meeting still uses FRONTEND_URL env; when unset the join_url in the email body/HTML button becomes '/call/<room>' (relative). Email clients will show a broken/relative link. Set FRONTEND_URL to REACT_APP_BACKEND_URL to fix outbound emails when SMTP is configured.",
+    "admin_set_smtp preserves the previously encrypted password when empty password is submitted with enabled=false — safe design (allows editing other fields), but the 'cleanup' toggle-off leaves has_password=true in the config doc. Consider zeroing password_enc when enabled flips to false, or providing an explicit 'Clear credentials' button. Not a security issue (nothing is sent when enabled=false), just noting for polish.",
+    "GET /api/notifications returns {notifications:[...]} but many other endpoints return bare arrays — inconsistent envelope shape (not new to this iteration, but observed while writing tests)."
+  ],
+  "updated_files": ["/app/backend/tests/test_meetings_invites.py"],
+  "success_rate": { "backend": "100% (4/4 pytest)", "frontend": "100% (all requested flows)" },
+  "test_credentials": "admin@stitches.app/Admin@123, demo@stitches.app/Demo@123, alice@stitches.app/Alice@123",
+  "seed_data_creation": "Created ~5 scheduled meetings via POST /api/meetings for demo↔alice and via UI (TEST_scheduled_meet, TEST_UI_meet_xxxxxx). SMTP config toggled ON+values then cleaned to disabled+blank (has_password remains true as designed).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Meetings scheduler is fully functional end-to-end. add-calendar-btn opens ICS via window.open — verify by overriding window.open to capture URL, since Chromium blocks popups in headless. Notification API returns {notifications:[...]} envelope. SMTP left disabled + host blank (email sends are gracefully skipped). FRONTEND_URL env var is still unset → emailed join links would be relative if SMTP were enabled.",
+  "rca of the issue": "No blocking issues. Acceptance criteria met."
+}

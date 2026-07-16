@@ -120,6 +120,7 @@ async def _reminder_loop():
     while True:
         try:
             await scan_due_reminders()
+            await scan_meeting_reminders()
         except Exception as e:
             logger.warning(f"reminder scan failed: {e}")
         await asyncio.sleep(1800)

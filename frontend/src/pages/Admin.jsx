@@ -542,11 +542,14 @@ function MeetingsTab() {
   const [savingTurn, setSavingTurn] = useState(false);
   const [sfu, setSfu] = useState(null);
   const [savingSfu, setSavingSfu] = useState(false);
+  const [smtp, setSmtp] = useState(null);
+  const [savingSmtp, setSavingSmtp] = useState(false);
   const load = () => api.get("/admin/meetings").then(({ data }) => setItems(data)).catch(() => setItems([]));
   useEffect(() => {
     load(); const t = setInterval(load, 10000);
     api.get("/admin/rtc-config").then(({ data }) => setTurn(data)).catch(() => setTurn({ urls: "", username: "", has_credential: false }));
     api.get("/admin/sfu-config").then(({ data }) => setSfu(data)).catch(() => setSfu({ enabled: false, url: "", api_key: "", has_secret: false }));
+    api.get("/admin/smtp-config").then(({ data }) => setSmtp(data)).catch(() => setSmtp({ enabled: false, host: "", port: 587, username: "", from_address: "", has_password: false }));
     return () => clearInterval(t);
   }, []);
 
@@ -579,8 +582,16 @@ function MeetingsTab() {
       const { data } = await api.get("/admin/sfu-config"); setSfu(data);
     } catch (e) { toast.error("Save failed"); } finally { setSavingSfu(false); }
   };
+  const saveSmtp = async () => {
+    setSavingSmtp(true);
+    try {
+      await api.put("/admin/smtp-config", { enabled: smtp.enabled, host: smtp.host, port: smtp.port, username: smtp.username, from_address: smtp.from_address, password: smtp.password || "" });
+      toast.success(smtp.enabled ? "Email enabled — meeting invites will be sent" : "Email settings saved");
+      const { data } = await api.get("/admin/smtp-config"); setSmtp(data);
+    } catch (e) { toast.error("Save failed"); } finally { setSavingSmtp(false); }
+  };
 
-  if (!items || !turn || !sfu) return <Loader />;
+  if (!items || !turn || !sfu || !smtp) return <Loader />;
   return (
     <div className="space-y-6">
       <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up flex items-center justify-between gap-4 flex-wrap" data-testid="admin-meetings-card">
@@ -620,6 +631,26 @@ function MeetingsTab() {
           <input data-testid="sfu-secret-input" type="password" value={sfu.api_secret || ""} onChange={(e) => setSfu({ ...sfu, api_secret: e.target.value })} placeholder={sfu.has_secret ? "•••••• (saved)" : "API secret"} className="neu-input rounded-2xl py-3 px-4 text-sm" />
         </div>
         <button data-testid="save-sfu-btn" onClick={saveSfu} disabled={savingSfu} className="neu-primary rounded-2xl px-6 py-3 font-semibold mt-4">{savingSfu ? "Saving…" : "Save SFU settings"}</button>
+      </div>
+
+      <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="smtp-config-card">
+        <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
+          <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Email (SMTP) — meeting invites</h3>
+          <button data-testid="smtp-enabled-toggle" onClick={() => setSmtp({ ...smtp, enabled: !smtp.enabled })}
+            className={`w-14 h-8 rounded-full flex items-center px-1 transition-all shrink-0 ${smtp.enabled ? "justify-end" : "justify-start"}`}
+            style={{ background: smtp.enabled ? "var(--primary)" : "var(--neu-dark)" }}>
+            <span className="w-6 h-6 rounded-full bg-white shadow" />
+          </button>
+        </div>
+        <p className="text-sm text-muted-stitch mb-4">Connect any SMTP account (Gmail app password, Outlook, or your own mail server) to email meeting invites with calendar links. No third-party service required.</p>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <input data-testid="smtp-host-input" value={smtp.host} onChange={(e) => setSmtp({ ...smtp, host: e.target.value })} placeholder="smtp.gmail.com" className="neu-input rounded-2xl py-3 px-4 text-sm" />
+          <input data-testid="smtp-port-input" type="number" value={smtp.port} onChange={(e) => setSmtp({ ...smtp, port: e.target.value })} placeholder="587" className="neu-input rounded-2xl py-3 px-4 text-sm" />
+          <input data-testid="smtp-username-input" value={smtp.username} onChange={(e) => setSmtp({ ...smtp, username: e.target.value })} placeholder="you@gmail.com" className="neu-input rounded-2xl py-3 px-4 text-sm" />
+          <input data-testid="smtp-password-input" type="password" value={smtp.password || ""} onChange={(e) => setSmtp({ ...smtp, password: e.target.value })} placeholder={smtp.has_password ? "•••••• (saved)" : "app password"} className="neu-input rounded-2xl py-3 px-4 text-sm" />
+          <input data-testid="smtp-from-input" value={smtp.from_address} onChange={(e) => setSmtp({ ...smtp, from_address: e.target.value })} placeholder="from address (e.g. you@gmail.com)" className="neu-input rounded-2xl py-3 px-4 text-sm sm:col-span-2" />
+        </div>
+        <button data-testid="save-smtp-btn" onClick={saveSmtp} disabled={savingSmtp} className="neu-primary rounded-2xl px-6 py-3 font-semibold mt-4">{savingSmtp ? "Saving…" : "Save email settings"}</button>
       </div>
 
       <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up">

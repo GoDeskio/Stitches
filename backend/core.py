@@ -313,6 +313,20 @@ async def scan_due_reminders():
     return count
 
 
+async def scan_meeting_reminders():
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    horizon = (now + timedelta(minutes=30)).isoformat()
+    cur = db.meetings.find({"scheduled_at": {"$ne": None, "$gte": now.isoformat(), "$lte": horizon},
+                            "meeting_reminded": {"$ne": True}})
+    async for m in cur:
+        for uid in set([m.get("host_id")] + (m.get("invitees") or [])):
+            if uid:
+                await create_notification(uid, "meeting", "Meeting starting soon",
+                                          f"'{m.get('name')}' starts soon. Tap to join.", f"/call/{m['room_id']}")
+        await db.meetings.update_one({"room_id": m["room_id"]}, {"$set": {"meeting_reminded": True}})
+
+
 # ---------------- Storage ----------------
 storage_key = None
 
