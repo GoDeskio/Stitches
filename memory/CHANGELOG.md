@@ -109,3 +109,10 @@
 - **Checkout → CRM**: successful purchases charge via NMI Direct Post (sandbox) and upsert `crm_contacts` as **stage=won, value=plan price, source=pricing** (`_crm_mark_won`), and log a `payment_transactions` row with plan_id/name. So paying customers appear in the CRM pipeline/forecast automatically.
 - Added `dup_seconds:"0"` to NMI sale payloads (charge + checkout) to avoid 2-min duplicate-transaction rejections on retries.
 - Verified: backend curl (CRUD + checkout + CRM won) and frontend testing_agent iteration_35 (all flows pass, no regressions). Current plans: Free $0 / Pro $10/mo / Team $25/mo (admin-editable).
+
+## Implemented (2026-06-16) — Yearly billing + plan-based feature gating
+- **Yearly billing**: plans now have `yearly_price`; public /pricing has a Monthly/Yearly toggle (shows /yr price + "Save X%" badge). `POST /api/checkout/plan` accepts `billing` ('month'|'year') and charges the right amount server-side.
+- **Feature gating**: each plan has `feature_keys` (admin picks which app features it unlocks: chat/projects/assets/integrations/ai_assistant/friends). Global admin toggle `plan_gating` (default OFF) in Admin → Plans. `core.ensure_feature(name, user)` now returns 402 when gating ON and the user's plan lacks the feature; admins always bypass; users with no plan fall back to the cheapest active plan. Call sites updated in assets/integrations/ai/messaging/projects routers.
+- **Entitlements**: `GET /api/me/entitlements`; frontend `FeaturesContext` exposes `entitled(flag)`; Layout locks nav items (Lock icon → /pricing) + shows an "Upgrade" button. A logged-in buyer's `plan_id` is auto-assigned on checkout; admin can set a user's plan via `POST /api/admin/users/{id}/plan`.
+- IMPORTANT: This NMI sandbox processor REJECTS `dup_seconds` ("Disabling Duplicate Check is not allowed"), so it was removed. Duplicate identical charges within ~2 min are rejected by the gateway by design — use unique amounts when testing.
+- Verified: backend curl (entitlements, 402 gating, yearly checkout + auto-assign, admin toggles) + testing_agent iteration_36 (7/7 phases pass). Gating left OFF by default.
