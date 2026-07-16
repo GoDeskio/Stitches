@@ -161,9 +161,17 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - **Self-hosted SFU (LiveKit), OFF by default**: `GET /api/rtc/config` now returns `sfu:{enabled,url}`; `POST /api/rtc/sfu-token` mints a LiveKit JWT (livekit-api, `VideoGrants`/`with_grants`); admin-editable `livekit` settings (url/api_key/api_secret — secret Fernet-encrypted & masked) at Admin → Meetings (`sfu-config-card`), env fallback `LIVEKIT_*`. `Call.jsx` fetches config on mount: loader → renders `SfuCall` (LiveKit `<VideoConference/>`) when SFU enabled, else the existing **P2P** room (default, fully tested). Deps: `livekit-api`, `livekit-client`, `@livekit/components-react`.
 - Verified (iteration_23): backend 5/5 pytest + frontend 100%; P2P regression confirmed intact. NOTE: the LiveKit media path itself is only functional after deploying a LiveKit server with open UDP ports — untestable in this sandbox, so it's shipped gated OFF.
 
+## Implemented (2026-06-24, part 10) — meeting scheduler, invites, email + calendar
+- **Invite users & friends**: meeting creation accepts `invitee_ids` + optional `scheduled_at` + `description`. The "Invite people" modal on /meetings lets you search/select people, set a time, and either "Start now & invite" or "Schedule". Invitees get an in-app `meeting` notification (toast + bell with Join link).
+- **Email invites + calendar**: if an admin has configured SMTP, each invitee with an email gets an HTML invite with a Join button + a `.ics` calendar attachment. `GET /api/meetings/{room_id}/ics` also powers the "Add to calendar" button. `.ics` built server-side (VEVENT).
+- **Upcoming meetings** list on /meetings (`GET /api/meetings/upcoming`) for host & invitees; **meeting reminders** added to the 30-min background loop (`scan_meeting_reminders`) → in-app alert as the start time nears.
+- **Email (SMTP) integration**: admin-editable SMTP (host/port/user/pass[Fernet-encrypted]/from) in Admin → Meetings (`smtp-config-card`), env fallback `SMTP_*`; uses stdlib `smtplib` in a threadpool (STARTTLS/SSL). Email also present in the integrations catalog (IMAP) on both user & admin pages. No third-party service required.
+- Verified (iteration_24): backend 4/4 pytest + frontend 100%. **NOTE: actual email DELIVERY needs real SMTP creds — not exercised in tests; the send path skips gracefully when SMTP is unset.**
+
 ## Backlog / Next
-- Post-deploy: stand up LiveKit (or coturn TURN) on real infra, then flip it on in Admin → Meetings.
-- P3 (deferred): **Email reminders via Resend** — waiting on user's Resend API key + verified sender.
+- Post-deploy: enable LiveKit SFU / coturn TURN; configure SMTP (e.g. Gmail app password) to activate meeting-invite emails.
+- Polish: per-user SMTP sending; "Clear credentials" buttons for SMTP/SFU/TURN.
+- P3 (deferred): Resend as an alternative email provider (waiting on user's API key).
 - P3: Dropbox one-click OAuth (manual-token connector available now); authenticated Drive download stream.
 
 ## Implemented (2026-06-24, part 3) — perf/polish
