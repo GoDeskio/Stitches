@@ -1,5 +1,12 @@
 # Stitches Changelog
 
+## 2026-06 — Gmail service-account send + in-wizard test button
+- Added **Gmail service-account** send path (`services/gmail.py`): domain-wide delegation, impersonates the configured sender, `gmail.send` scope, HTML + .ics. Key stored **encrypted** (`settings.gmail_service_account` via Fernet), never in git/.env.
+- Provider abstraction now supports `gmail_sa | gmail | smtp` with priority order + Resend fallback (off). Endpoints: `PUT /api/admin/gmail/service-account`, `POST /api/admin/gmail/service-account/disconnect`; `email-provider` GET/PUT accept `gmail_sa`.
+- Seeded the provided service account (encrypted) and set provider=gmail_sa, sender=admin@godesk.io.
+- Wizard (`Admin.jsx`): 3rd provider option "Gmail (service account)" with JSON paste/replace/remove + delegation instructions; added **"Send test email"** button (uses selected provider).
+- STATUS: real send returns `unauthorized_client` → **domain-wide delegation not yet configured in Google Workspace** (authorize client ID 109384956045425917926 for scope gmail.send, and godesk.io must be a Workspace domain). Code path verified correct.
+
 ## 2026-06 — Email overhaul: Gmail API + SMTP wizard, Resend demoted, digest meetings
 - **Upcoming meetings**: digest/report now includes an "Upcoming meetings (next 7 days)" card (`services/digest.py`).
 - **Provider abstraction** (`services/email.py`): new `get_email_provider_cfg` (settings key `email_provider`); `send_email_detailed` now sends via the selected provider (gmail↔smtp order) and only uses **Resend if `resend_fallback` is explicitly enabled** (OFF by default). Default provider `gmail`, sender `admin@godesk.io`.

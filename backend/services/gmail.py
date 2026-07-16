@@ -116,6 +116,77 @@ async def gmail_connected():
     return bool((doc or {}).get("value", {}).get("refresh_token"))
 
 
+# ---------------- Service account (domain-wide delegation) ----------------
+async def save_service_account(sa_json: str):
+    import json
+    from core import _fernet
+    info = json.loads(sa_json)
+    if info.get("type") != "service_account" or not info.get("client_email"):
+        raise ValueError("Not a valid service account JSON")
+    enc = _fernet.encrypt(sa_json.encode()).decode()
+    await db.settings.update_one({"key": "gmail_service_account"},
+                                 {"$set": {"key": "gmail_service_account", "value": {
+                                     "json_enc": enc, "client_email": info.get("client_email"),
+                                     "project_id": info.get("project_id", ""), "client_id": info.get("client_id", ""),
+                                     "updated_at": now_iso()}}}, upsert=True)
+    return info.get("client_email")
+
+
+async def get_service_account_status():
+    doc = await db.settings.find_one({"key": "gmail_service_account"})
+    val = (doc or {}).get("value", {})
+    return {"connected": bool(val.get("json_enc")), "client_email": val.get("client_email", ""),
+            "client_id": val.get("client_id", ""), "project_id": val.get("project_id", "")}
+
+
+async def _get_sa_info():
+    import json
+    from core import _fernet
+    doc = await db.settings.find_one({"key": "gmail_service_account"})
+    val = (doc or {}).get("value", {})
+    if not val.get("json_enc"):
+        return None
+    return json.loads(_fernet.decrypt(val["json_enc"].encode()).decode())
+
+
+async def service_account_connected():
+    doc = await db.settings.find_one({"key": "gmail_service_account"})
+    return bool((doc or {}).get("value", {}).get("json_enc"))
+
+
+async def disconnect_service_account():
+    await db.settings.delete_one({"key": "gmail_service_account"})
+
+
+async def send_via_service_account(to_email, subject, html, ics=None, sender=None):
+    from google.oauth2 import service_account
+    from googleapiclient.discovery import build
+    info = await _get_sa_info()
+    if not info:
+        raise RuntimeError("Service account not configured")
+    if not sender:
+        raise RuntimeError("A sender (impersonated Workspace user) is required for service-account sending")
+
+    def _send():
+        creds = service_account.Credentials.from_service_account_info(
+            info, scopes=["https://www.googleapis.com/auth/gmail.send"])
+        delegated = creds.with_subject(sender)  # domain-wide delegation impersonation
+        service = build("gmail", "v1", credentials=delegated, cache_discovery=False)
+        msg = EmailMessage()
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        msg["From"] = sender
+        msg.set_content("Open this email in an HTML-capable client.")
+        msg.add_alternative(html, subtype="html")
+        if ics:
+            msg.add_attachment(ics.encode("utf-8"), maintype="text", subtype="calendar",
+                               params={"method": "REQUEST", "name": "invite.ics"}, filename="invite.ics")
+        raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+        service.users().messages().send(userId=sender, body={"raw": raw}).execute()
+
+    await run_in_threadpool(_send)
+
+
 async def send_via_gmail(to_email, subject, html, ics=None, sender=None):
     from googleapiclient.discovery import build
     creds = await _get_creds()

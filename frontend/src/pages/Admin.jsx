@@ -934,6 +934,10 @@ function EmailSetupWizard() {
   const [connecting, setConnecting] = useState(false);
   const [smtp, setSmtp] = useState(null);
   const [savingSmtp, setSavingSmtp] = useState(false);
+  const [saJson, setSaJson] = useState("");
+  const [savingSa, setSavingSa] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
 
   const load = () => {
     api.get("/admin/email-provider").then(({ data }) => setCfg(data)).catch(() => {});
@@ -975,8 +979,33 @@ function EmailSetupWizard() {
     } catch (e) { toast.error("Save failed"); } finally { setSavingSmtp(false); }
   };
 
+  const saveSa = async () => {
+    if (!saJson.trim()) { toast.error("Paste the service account JSON first"); return; }
+    setSavingSa(true);
+    try {
+      const { data } = await api.put("/admin/gmail/service-account", { service_account_json: saJson });
+      toast.success(`Service account saved (${data.client_email})`);
+      setSaJson("");
+      load();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Invalid service account JSON"); } finally { setSavingSa(false); }
+  };
+  const disconnectSa = async () => {
+    try { await api.post("/admin/gmail/service-account/disconnect"); toast.success("Service account removed"); load(); }
+    catch (e) { toast.error("Failed to remove"); }
+  };
+
+  const sendTest = async () => {
+    setTesting(true); setTestResult(null);
+    try {
+      const { data } = await api.post("/admin/test-email", { to: cfg.sender || undefined });
+      setTestResult(data);
+      toast[data.ok ? "success" : "error"](data.ok ? `Sent to ${data.to}` : "Send failed");
+    } catch (e) { toast.error("Request failed"); } finally { setTesting(false); }
+  };
+
   if (!cfg || !smtp) return null;
   const g = cfg.gmail || {};
+  const sa = cfg.gmail_sa || {};
   const providerBtn = (id, label, sub) => (
     <button data-testid={`email-provider-${id}`} onClick={() => setCfg({ ...cfg, provider: id })}
       className={`flex-1 text-left rounded-2xl p-4 transition-all ${cfg.provider === id ? "neu-primary" : "neu-pressed"}`}>
@@ -997,12 +1026,29 @@ function EmailSetupWizard() {
 
       <p className="text-xs font-semibold text-muted-stitch mt-4 mb-2">Step 1 — Choose a provider</p>
       <div className="flex gap-3 flex-wrap">
-        {providerBtn("gmail", "Gmail API", "Connect a Google account (OAuth). Recommended.")}
+        {providerBtn("gmail_sa", "Gmail (service account)", "Send via a Google service account + domain-wide delegation.")}
+        {providerBtn("gmail", "Gmail (OAuth)", "Connect a Google account with one click.")}
         {providerBtn("smtp", "SMTP", "Any mailbox: Gmail app-password, Outlook, or your own server.")}
       </div>
 
       <p className="text-xs font-semibold text-muted-stitch mt-6 mb-2">Step 2 — Configure</p>
-      {cfg.provider === "gmail" ? (
+      {cfg.provider === "gmail_sa" ? (
+        <div className="neu-pressed rounded-2xl p-4" data-testid="gmail-sa-config">
+          {sa.connected ? (
+            <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+              <p className="text-sm" style={{ color: "var(--text)" }}>✓ Service account: <span className="font-semibold font-mono-stitch text-xs" data-testid="gmail-sa-email">{sa.client_email}</span></p>
+              <button data-testid="gmail-sa-disconnect-btn" onClick={disconnectSa} className="neu-btn rounded-xl px-4 py-2 text-sm font-semibold text-red-500">Remove</button>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-stitch mb-3">Paste a Google service account JSON key below.</p>
+          )}
+          <textarea data-testid="gmail-sa-json" value={saJson} onChange={(e) => setSaJson(e.target.value)} rows={4}
+            placeholder='{ "type": "service_account", "project_id": "...", "private_key": "...", "client_email": "...@...iam.gserviceaccount.com", ... }'
+            className="neu-input w-full rounded-2xl py-3 px-4 text-xs font-mono-stitch resize-none" />
+          <button data-testid="save-gmail-sa-btn" onClick={saveSa} disabled={savingSa} className="neu-primary rounded-2xl px-6 py-3 font-semibold mt-3">{savingSa ? "Saving…" : sa.connected ? "Replace key" : "Save service account"}</button>
+          <p className="text-xs text-muted-stitch mt-3">Requires <b>domain-wide delegation</b> in Google Workspace: authorize client ID <span className="font-mono-stitch">{sa.client_id || "(the service account's client id)"}</span> for scope <span className="font-mono-stitch">https://www.googleapis.com/auth/gmail.send</span>, and the sender below must be a Workspace user.</p>
+        </div>
+      ) : cfg.provider === "gmail" ? (
         <div className="neu-pressed rounded-2xl p-4" data-testid="gmail-config">
           {!g.configured ? (
             <p className="text-sm text-red-400">Google OAuth credentials are not configured on the server. Add <span className="font-mono-stitch">GOOGLE_CLIENT_ID</span> / <span className="font-mono-stitch">GOOGLE_CLIENT_SECRET</span> and enable the Gmail API.</p>
@@ -1049,7 +1095,15 @@ function EmailSetupWizard() {
         </button>
       </div>
 
-      <button data-testid="save-email-provider-btn" onClick={saveProvider} disabled={saving} className="neu-primary rounded-2xl px-6 py-3 font-semibold mt-4">{saving ? "Saving…" : "Save email settings"}</button>
+      <div className="mt-4 flex items-center gap-3 flex-wrap">
+        <button data-testid="save-email-provider-btn" onClick={saveProvider} disabled={saving} className="neu-primary rounded-2xl px-6 py-3 font-semibold">{saving ? "Saving…" : "Save email settings"}</button>
+        <button data-testid="wizard-send-test-btn" onClick={sendTest} disabled={testing} className="neu-btn rounded-2xl px-6 py-3 font-semibold text-primary-stitch">{testing ? "Sending…" : "Send test email"}</button>
+      </div>
+      {testResult && (
+        <div data-testid="wizard-test-result" className={`neu-pressed rounded-2xl p-4 mt-4 text-sm ${testResult.ok ? "text-green-500" : "text-red-400"}`}>
+          {testResult.ok ? "✓ " : "✕ "}{testResult.detail}
+        </div>
+      )}
     </div>
   );
 }

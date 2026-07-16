@@ -108,7 +108,8 @@ async def get_email_provider_cfg():
 
 async def send_email_detailed(to_email, subject, html, ics=None, sender_user_id=None):
     # returns (ok: bool, detail: str)
-    from services.gmail import gmail_connected, send_via_gmail
+    from services.gmail import (gmail_connected, send_via_gmail,
+                                service_account_connected, send_via_service_account)
 
     # 1) a user sending their own invite via personal SMTP takes priority
     if sender_user_id:
@@ -122,18 +123,26 @@ async def send_email_detailed(to_email, subject, html, ics=None, sender_user_id=
 
     cfg = await get_email_provider_cfg()
     sender = cfg["sender"]
-    order = ["gmail", "smtp"] if cfg["provider"] == "gmail" else ["smtp", "gmail"]
-    last = "No email provider configured (connect Gmail or SMTP in the admin Email setup)"
+    primary = cfg["provider"]
+    order = [primary] + [p for p in ("gmail_sa", "gmail", "smtp") if p != primary]
+    last = "No email provider configured (set one up in the admin Email setup)"
 
     for p in order:
-        if p == "gmail":
+        if p == "gmail_sa":
+            if await service_account_connected():
+                try:
+                    await send_via_service_account(to_email, subject, html, ics, sender=sender)
+                    return True, f"Sent via Gmail service account ({sender})"
+                except Exception as e:
+                    last = f"Gmail service account failed: {e}"
+        elif p == "gmail":
             if await gmail_connected():
                 try:
                     await send_via_gmail(to_email, subject, html, ics, sender=sender)
                     return True, "Sent via Gmail"
                 except Exception as e:
                     last = f"Gmail failed: {e}"
-        else:
+        elif p == "smtp":
             admincfg = await get_smtp_cfg()
             if _smtp_complete(admincfg):
                 try:
