@@ -110,9 +110,9 @@ export default function Settings() {
                 <span className="text-sm font-mono-stitch text-primary-stitch">{Math.round(scale * 100)}%</span>
               </div>
               <div className="flex items-center gap-3">
-                <button data-testid="scale-down" onClick={() => setScale(Math.max(0.8, +(scale - 0.1).toFixed(2)))} className="neu-btn w-11 h-11 rounded-xl flex items-center justify-center text-primary-stitch"><Minus className="w-5 h-5" /></button>
-                <input data-testid="scale-slider" type="range" min="0.8" max="1.3" step="0.05" value={scale} onChange={(e) => setScale(parseFloat(e.target.value))} className="flex-1 accent-current text-primary-stitch" style={{ accentColor: "var(--primary)" }} />
-                <button data-testid="scale-up" onClick={() => setScale(Math.min(1.3, +(scale + 0.1).toFixed(2)))} className="neu-btn w-11 h-11 rounded-xl flex items-center justify-center text-primary-stitch"><Plus className="w-5 h-5" /></button>
+                <button data-testid="scale-down" onClick={() => setScale(Math.max(0.55, +(scale - 0.05).toFixed(2)))} className="neu-btn w-11 h-11 rounded-xl flex items-center justify-center text-primary-stitch"><Minus className="w-5 h-5" /></button>
+                <input data-testid="scale-slider" type="range" min="0.55" max="0.85" step="0.05" value={scale} onChange={(e) => setScale(parseFloat(e.target.value))} className="flex-1 accent-current text-primary-stitch" style={{ accentColor: "var(--primary)" }} />
+                <button data-testid="scale-up" onClick={() => setScale(Math.min(0.85, +(scale + 0.05).toFixed(2)))} className="neu-btn w-11 h-11 rounded-xl flex items-center justify-center text-primary-stitch"><Plus className="w-5 h-5" /></button>
               </div>
             </div>
           </Section>

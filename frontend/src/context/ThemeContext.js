@@ -5,7 +5,12 @@ export const useTheme = () => useContext(ThemeContext);
 
 export function ThemeProvider({ children }) {
   const [theme, setThemeState] = useState(() => localStorage.getItem("stitches_theme") || "dark");
-  const [scale, setScaleState] = useState(() => parseFloat(localStorage.getItem("stitches_scale") || "1"));
+  const [scale, setScaleState] = useState(() => {
+    // v2: default interface size is 70% (site-wide 30% reduction), migrating older visitors once
+    if (localStorage.getItem("stitches_scale_v") !== "2") return 0.7;
+    const v = localStorage.getItem("stitches_scale");
+    return v ? parseFloat(v) : 0.7;
+  });
 
   useEffect(() => {
     const root = document.documentElement;
@@ -17,6 +22,7 @@ export function ThemeProvider({ children }) {
   useEffect(() => {
     document.documentElement.style.setProperty("--ui-scale", scale);
     localStorage.setItem("stitches_scale", String(scale));
+    localStorage.setItem("stitches_scale_v", "2");
   }, [scale]);
 
   const setTheme = (t) => setThemeState(t);
