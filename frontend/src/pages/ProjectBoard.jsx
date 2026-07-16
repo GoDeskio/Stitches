@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Plus, Trash2, GripVertical } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, GripVertical, CalendarDays } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { PageShell, Loader } from "@/components/Stitch";
@@ -19,12 +19,22 @@ export default function ProjectBoard() {
   const [dragId, setDragId] = useState(null);
   const [adding, setAdding] = useState(null); // column key with open composer
   const [draft, setDraft] = useState("");
+  const [members, setMembers] = useState([]);
 
   const loadTasks = () => api.get(`/projects/${projectId}/tasks`).then(({ data }) => setTasks(data));
   useEffect(() => {
     api.get("/projects").then(({ data }) => setProject(data.find((p) => p.project_id === projectId) || { name: "Project" }));
+    api.get(`/projects/${projectId}/members`).then(({ data }) => setMembers(data)).catch(() => setMembers([]));
     loadTasks();
   }, [projectId]); // eslint-disable-line
+
+  const updateTask = async (id, patch) => {
+    setTasks((t) => t.map((x) => x.task_id === id ? { ...x, ...patch } : x));
+    try {
+      const { data } = await api.put(`/tasks/${id}`, patch);
+      setTasks((t) => t.map((x) => x.task_id === id ? data : x));
+    } catch (e) { toast.error("Could not update task"); loadTasks(); }
+  };
 
   const addTask = async (status) => {
     if (!draft.trim()) { setAdding(null); return; }
@@ -79,7 +89,30 @@ export default function ProjectBoard() {
                       <p className="text-sm flex-1 min-w-0" style={{ color: "var(--text)" }}>{t.title}</p>
                       <button data-testid="task-delete-btn" onClick={() => remove(t.task_id)} className="text-muted-stitch hover:text-primary-stitch opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
-                    <div className="flex gap-1.5 mt-3">
+                    {(t.due_date || t.assignee_name) && (
+                      <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+                        {t.due_date && (
+                          <span data-testid="task-due-badge" className={`neu-sm text-[10px] px-2 py-1 rounded-full font-semibold flex items-center gap-1 ${new Date(t.due_date) < new Date(new Date().toDateString()) && t.status !== "done" ? "text-red-500" : "text-muted-stitch"}`}>
+                            <CalendarDays className="w-3 h-3" /> {new Date(t.due_date).toLocaleDateString([], { month: "short", day: "numeric" })}
+                          </span>
+                        )}
+                        {t.assignee_name && (
+                          <span data-testid="task-assignee-badge" className="neu-primary text-[10px] pl-1 pr-2.5 py-0.5 rounded-full font-semibold flex items-center gap-1.5">
+                            <span className="w-4 h-4 rounded-full bg-white/25 flex items-center justify-center text-[9px]">{t.assignee_name[0].toUpperCase()}</span>{t.assignee_name}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    <div className="flex gap-2 mt-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <select data-testid="task-assignee-select" value={t.assignee_id || ""} onChange={(e) => updateTask(t.task_id, { assignee_id: e.target.value })}
+                        className="neu-input rounded-lg text-[11px] py-1 px-2 flex-1 min-w-0 cursor-pointer" style={{ color: "var(--text)" }}>
+                        <option value="">Unassigned</option>
+                        {members.map((m) => <option key={m.user_id} value={m.user_id}>{m.name}</option>)}
+                      </select>
+                      <input data-testid="task-due-input" type="date" value={t.due_date ? t.due_date.slice(0, 10) : ""} onChange={(e) => updateTask(t.task_id, { due_date: e.target.value })}
+                        className="neu-input rounded-lg text-[11px] py-1 px-2 cursor-pointer" style={{ color: "var(--text)" }} />
+                    </div>
+                    <div className="flex gap-1.5 mt-2">
                       {COLUMNS.filter((c) => c.key !== t.status).map((c) => (
                         <button key={c.key} data-testid="task-move-btn" onClick={() => move(t, c.key)}
                           className="neu-sm text-[10px] px-2 py-1 rounded-full text-muted-stitch hover:text-primary-stitch font-semibold">→ {c.label}</button>

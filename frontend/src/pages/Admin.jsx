@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import api, { API } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { PageShell, PageHeader, Loader } from "@/components/Stitch";
+import { IntegrationsManager } from "@/pages/Integrations";
 
 const CARDS = [
   { key: "total_users", label: "Users", icon: Users },
@@ -473,6 +474,12 @@ function IntegrationsTab() {
           <div className="neu-pressed rounded-2xl py-3 px-5 mt-2 font-mono-stitch text-sm break-all" style={{ color: "var(--text)" }}>{goog.redirect_uri}</div>
         </div>
         <button data-testid="save-google-oauth" onClick={saveGoogle} disabled={savingG} className="neu-primary rounded-2xl px-6 py-3 font-semibold mt-4">{savingG ? "Saving…" : "Save credentials"}</button>
+      </div>
+
+      <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="admin-connect-integrations">
+        <h3 className="font-head font-bold text-xl mb-1" style={{ color: "var(--text)" }}>Connect an application</h3>
+        <p className="text-sm text-muted-stitch mb-5">Set up your own integrations here — nothing is forced, connect only what you need. The same catalog and wizard as the user dashboard.</p>
+        <IntegrationsManager />
       </div>
 
       <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up">

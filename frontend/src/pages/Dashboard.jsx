@@ -99,13 +99,20 @@ export default function Dashboard() {
           <p className="text-muted-stitch py-6 text-center">No tasks yet. Open a project's board to add some.</p>
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {myTasks.filter((t) => t.status !== "done").slice(0, 9).map((t) => (
+            {myTasks.filter((t) => t.status !== "done")
+              .sort((a, b) => (a.due_date || "9999").localeCompare(b.due_date || "9999"))
+              .slice(0, 9).map((t) => (
               <button key={t.task_id} data-testid="my-task-row" onClick={() => navigate(`/projects/${t.project_id}/board`)}
                 className="neu-pressed neu-hover rounded-2xl p-4 text-left flex items-start gap-3">
                 <Circle className={`w-4 h-4 mt-0.5 shrink-0 ${t.status === "doing" ? "text-primary-stitch" : "text-muted-stitch"}`} />
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>{t.title}</p>
-                  <p className="text-xs text-muted-stitch truncate">{t.project_name} · {t.status === "doing" ? "In progress" : "To do"}</p>
+                  <p className="text-xs text-muted-stitch truncate">{t.project_name}{t.assignee_name ? ` · ${t.assignee_name}` : ""}</p>
+                  {t.due_date && (
+                    <span className={`text-[11px] font-semibold ${new Date(t.due_date) < new Date(new Date().toDateString()) ? "text-red-500" : "text-primary-stitch"}`}>
+                      Due {new Date(t.due_date).toLocaleDateString([], { month: "short", day: "numeric" })}
+                    </span>
+                  )}
                 </div>
               </button>
             ))}

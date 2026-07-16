@@ -84,12 +84,16 @@ class TaskInput(BaseModel):
     title: str
     description: Optional[str] = ""
     status: Optional[str] = "todo"
+    assignee_id: Optional[str] = None
+    due_date: Optional[str] = None
 
 
 class TaskUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     status: Optional[str] = None
+    assignee_id: Optional[str] = None
+    due_date: Optional[str] = None
 
 
 class GoogleOAuthInput(BaseModel):

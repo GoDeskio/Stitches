@@ -9,7 +9,7 @@ import { PageShell, PageHeader, Loader } from "@/components/Stitch";
 
 const ICONS = { n8n: Workflow, aws_s3: HardDrive, dropbox: Cloud, google_drive: Cloud, llm: Sparkles, mcp: Server, email: Mail, custom: AppWindow };
 
-export default function Integrations() {
+export function IntegrationsManager() {
   const [catalog, setCatalog] = useState([]);
   const [connected, setConnected] = useState(null);
   const [wizard, setWizard] = useState(null);
@@ -67,11 +67,10 @@ export default function Integrations() {
     } catch (e) { toast.error(e.response?.data?.detail || "Test failed", { id: tid }); }
   };
 
-  if (connected === null) return <PageShell><Loader /></PageShell>;
+  if (connected === null) return <Loader />;
 
   return (
-    <PageShell>
-      <PageHeader title="Integrations" subtitle="Connect N8N, cloud storage, AI LLMs and MCP servers with your own credentials. Trigger workflows and browse files right here." />
+    <>
 
       {connected.length > 0 && (
         <div className="mb-10">
@@ -190,6 +189,15 @@ export default function Integrations() {
 
       {runTarget && <RunModal integration={runTarget} onClose={() => setRunTarget(null)} />}
       {filesTarget && <FilesModal integration={filesTarget} onClose={() => setFilesTarget(null)} />}
+    </>
+  );
+}
+
+export default function Integrations() {
+  return (
+    <PageShell>
+      <PageHeader title="Integrations" subtitle="Connect N8N, cloud storage, AI LLMs and MCP servers with your own credentials — no API knowledge required. Nothing is forced; set up only what you need." />
+      <IntegrationsManager />
     </PageShell>
   );
 }

@@ -1,0 +1,26 @@
+{
+  "summary": "Iteration 16 verifies (a) Kanban task ASSIGNEE + DUE DATE, (b) 'My Tasks' dashboard widget shows assignee + due, sorted, done-excluded, clickable, and (c) admin Integrations tab exposes the SAME catalog + wizard as user page. Backend: created /app/backend/tests/test_task_assignee_admin_integrations.py — 12/12 PASS. Also re-ran test_refactor_regression.py (18/18 PASS). Frontend UI: alice creates project + task, board renders [data-testid=task-assignee-select] with Alice/Bob options, [data-testid=task-due-input]; selecting Bob + 2026-06-15 -> reload -> [data-testid=task-assignee-badge] shows 'Bob Stitch' and [data-testid=task-due-badge] shows 'Jun 15' (persistence verified). Dashboard [data-testid=my-tasks-widget] renders [data-testid=my-task-row] with project name 'TEST_ui_iter16 · Bob Stitch' and 'Due Jun 15'; click navigates to /projects/{id}/board. Admin Integrations tab: [data-testid=google-oauth-card] present, [data-testid=admin-connect-integrations] section renders IntegrationsManager with all 8 connectors (n8n, aws_s3, dropbox, google_drive, llm, mcp, email, custom); wizard opened for Custom App with wizard-name -> wizard-next -> wizard-method-basic -> fields -> wizard-connect -> 'Custom App connected' toast, and integration appears in admin's /api/admin/integrations list. Security: non-member (demo) gets 403 on PUT /api/tasks/{id}. Backend enriches list_tasks + my_tasks with assignee_name resolved from users collection. Cleanup performed (all TEST_ projects + integrations deleted).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_task_assignee_admin_integrations.py",
+    "/app/backend/tests/test_refactor_regression.py",
+    "/app/test_reports/pytest/iteration_16.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routers/projects.py::_enrich_tasks — clean: single Mongo lookup per list call, N+1 avoided. Uses set + $in. Good.",
+    "TaskInput/TaskUpdate use Optional[str] for due_date — accepts empty string ('') from frontend when clearing. Backend stores as empty string not null; UI check `t.due_date &&` handles both. Consider validating ISO date format at Pydantic level for defensive coding (not blocking; current UI uses <input type=date> which enforces YYYY-MM-DD).",
+    "ProjectBoard.jsx cosmetic minor: assignee badge shows initial letter prefix appended to full name — the rendered text is 'BBob Stitch' because badge shows an avatar circle with first letter ('B') plus the full name ('Bob Stitch'). Visually the letter is inside a styled circle so it looks fine to a user, but any test relying on exact text of the badge should account for the leading initial letter. Not a bug — just noted.",
+    "Admin.jsx embeds <IntegrationsManager/> which itself calls GET /integrations and /integrations/catalog — same data as the user page. If admins ever want a distinction between 'admin-owned' vs 'user-owned', a separate list would be needed; current behaviour (admin manages its own connections) matches the spec: 'nothing is forced'.",
+    "File sizes: projects.py 229 lines, Admin.jsx 507 lines, Integrations.jsx 297 lines — all under 700-line threshold."
+  ],
+  "updated_files": ["/app/backend/tests/test_task_assignee_admin_integrations.py (NEW)"],
+  "success_rate": {"backend": "100% (12/12 new + 18/18 regression)", "frontend": "100% (board assignee/due persistence, my-tasks widget with sort+navigation, admin integrations tab with all 8 connectors + wizard-based custom-app connect)"},
+  "test_credentials": "admin@stitches.app/Admin@123, alice@stitches.app/Alice@123, bob@stitches.app/Bob@123, demo@stitches.app/Demo@123",
+  "seed_data_creation": "Created + cleaned: TEST_iter16_proj (with alice+bob members), TEST_task_assigned, TEST_task_update, TEST_task_403, TEST_mine_open, TEST_mine_done, TEST_admin_custom_iter16 (pytest), TEST_ui_iter16 (project) + 'UI test task iter16', TEST_ui_admin_iter16 (integration).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend list_tasks + /api/tasks/mine return `assignee_name` enriched from db.users (Bob's full name is 'Bob Stitch', not 'Bob'). due_date is stored as YYYY-MM-DD string. Data-testids added this round: task-assignee-select, task-due-input, task-assignee-badge, task-due-badge (on ProjectBoard), my-tasks-widget + my-task-row (Dashboard), admin-connect-integrations + google-oauth-card (Admin > Integrations). Assignee badge visually prepends an initial letter avatar circle before the name (text renders as 'BBob Stitch'). Non-member returns 403 on PUT /api/tasks/{id}. The full IntegrationsManager component is exported named from Integrations.jsx and re-used by Admin.jsx IntegrationsTab. httpbin.org/basic-auth/user/pass with user/pass is a valid custom-app config for connect-testing.",
+  "rca of the issue": "N/A — no bugs found. All acceptance criteria met for task assignee/due UI + backend enrichment + persistence + membership security, My Tasks widget (project_name + assignee + Due <date>, sort ascending, done excluded, click-navigate), and admin Integrations catalog availability (same catalog+wizard, connect works and appears in admin's list)."
+}

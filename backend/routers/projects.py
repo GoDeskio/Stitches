@@ -60,6 +60,17 @@ async def _task_for_member(task_id: str, user: dict) -> dict:
     return t
 
 
+async def _enrich_tasks(tasks):
+    ids = list({t.get("assignee_id") for t in tasks if t.get("assignee_id")})
+    names = {}
+    if ids:
+        for u in await db.users.find({"user_id": {"$in": ids}}, {"_id": 0, "user_id": 1, "name": 1}).to_list(500):
+            names[u["user_id"]] = u.get("name")
+    for t in tasks:
+        t["assignee_name"] = names.get(t.get("assignee_id"))
+    return tasks
+
+
 @router.get("/tasks/mine")
 async def my_tasks(user: dict = Depends(get_current_user)):
     projs = await db.projects.find({"members": user["user_id"]}, {"_id": 0, "project_id": 1, "name": 1}).to_list(500)
@@ -69,6 +80,7 @@ async def my_tasks(user: dict = Depends(get_current_user)):
     tasks = await db.tasks.find({"project_id": {"$in": list(pmap.keys())}}, {"_id": 0}).sort("created_at", -1).to_list(500)
     for t in tasks:
         t["project_name"] = pmap.get(t["project_id"])
+    await _enrich_tasks(tasks)
     return tasks
 
 
@@ -76,6 +88,7 @@ async def my_tasks(user: dict = Depends(get_current_user)):
 async def list_tasks(project_id: str, user: dict = Depends(get_current_user)):
     await _require_project_member(project_id, user)
     tasks = await db.tasks.find({"project_id": project_id}, {"_id": 0}).sort("created_at", 1).to_list(500)
+    await _enrich_tasks(tasks)
     return tasks
 
 
@@ -85,7 +98,8 @@ async def create_task(project_id: str, data: TaskInput, user: dict = Depends(get
     await _require_project_member(project_id, user)
     doc = {"task_id": f"task_{uuid.uuid4().hex[:12]}", "project_id": project_id,
            "title": data.title, "description": data.description or "",
-           "status": data.status or "todo", "owner_id": user["user_id"], "created_at": now_iso()}
+           "status": data.status or "todo", "assignee_id": data.assignee_id or "",
+           "due_date": data.due_date or "", "owner_id": user["user_id"], "created_at": now_iso()}
     await db.tasks.insert_one(doc)
     await log_activity(user["user_id"], "task_create", {"project_id": project_id})
     doc.pop("_id", None)
