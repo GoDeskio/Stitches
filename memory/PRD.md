@@ -149,8 +149,16 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - Verified (iteration_21): 100% frontend + backend REST/WS; two-client WebRTC media exchange confirmed working in-sandbox. Zero bugs.
 - NOTE: P2P mesh uses public STUN only (no TURN) — very restrictive corporate NATs may fail to connect media; add a TURN server for guaranteed connectivity at scale.
 
+## Implemented (2026-06-24, part 8) — conferencing (D) + self-hosted TURN
+- **Top-of-dashboard launch buttons** on both user & admin dashboards: "Video meeting" (camera icon) + "Audio call" (phone icon) via reusable `MeetingLaunchButtons`; audio call opens `/call/:id?mode=audio` (camera off).
+- **In-call features**: raise hand (indicator on tile + participant row), participants panel, and in-call text chat — all relayed over the call WebSocket (`chat`/`hand` message types). Participant count badge on the people button.
+- **Channel "Meet"**: a Meet button in the Messages channel header starts a meeting and auto-posts a "Started a video meeting — join here: <link>" message; URLs in messages are now **clickable** (`MentionText` linkify).
+- **Self-hosted TURN (option a/c, no third party)**: `GET /api/rtc/config` returns iceServers (STUN by default, +TURN when configured); admin-editable TURN server (urls/username/credential, credential masked & clearable) in Admin → Meetings (`turn-config-card`), env fallback `TURN_URLS/USERNAME/CREDENTIAL`. Calls fetch this config on join.
+- Verified (iteration_22): backend 5/5 pytest + WS chat/hand relay; frontend 100%. NOTE: SFU media server (option b, e.g. LiveKit/mediasoup) NOT added — it requires raw UDP ports this preview can't expose; deploy to real infra + run coturn/SFU there for large-group guaranteed connectivity.
+
 ## Backlog / Next
-- P3 (deferred): **Email reminders via Resend** — playbook ready; waiting on user's Resend API key + verified sender. (Would also power emailed new-device/security alerts.)
+- P2: (optional) self-hosted SFU (LiveKit/mediasoup) for large-group calls — requires real deployment infra (UDP ports).
+- P3 (deferred): **Email reminders via Resend** — waiting on user's Resend API key + verified sender.
 - P3: Dropbox one-click OAuth (manual-token connector available now); authenticated Drive download stream.
 
 ## Implemented (2026-06-24, part 3) — perf/polish

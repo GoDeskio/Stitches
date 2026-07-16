@@ -87,8 +87,9 @@ async def admin_set_rtc(request: Request, user: dict = Depends(require_admin)):
     existing = await db.settings.find_one({"key": "turn"})
     prev = (existing or {}).get("value", {})
     cred = body.get("credential", "")
-    val = {"urls": (body.get("urls") or "").strip(),
+    urls = (body.get("urls") or "").strip()
+    val = {"urls": urls,
            "username": (body.get("username") or "").strip(),
-           "credential": cred if cred else prev.get("credential", "")}
+           "credential": ("" if not urls else (cred if cred else prev.get("credential", "")))}
     await db.settings.update_one({"key": "turn"}, {"$set": {"key": "turn", "value": val}}, upsert=True)
     return {"ok": True}

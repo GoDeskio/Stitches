@@ -5,14 +5,16 @@ import api from "@/lib/api";
 
 export function MentionText({ text, light }) {
   if (!text) return null;
-  const parts = text.split(/(@\S+)/g);
+  const parts = text.split(/(@\S+|https?:\/\/[^\s]+)/g);
   return (
     <span>
-      {parts.map((p, i) =>
-        p.startsWith("@")
-          ? <span key={i} className="font-semibold" style={{ color: light ? "#fff" : "var(--primary)" }}>{p}</span>
-          : <span key={i}>{p}</span>
-      )}
+      {parts.map((p, i) => {
+        if (/^https?:\/\//.test(p))
+          return <a key={i} href={p} target="_blank" rel="noreferrer" className="underline font-semibold break-all" style={{ color: light ? "#fff" : "var(--primary)" }}>{p}</a>;
+        if (p.startsWith("@"))
+          return <span key={i} className="font-semibold" style={{ color: light ? "#fff" : "var(--primary)" }}>{p}</span>;
+        return <span key={i}>{p}</span>;
+      })}
     </span>
   );
 }
