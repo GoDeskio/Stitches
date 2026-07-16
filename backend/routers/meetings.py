@@ -34,7 +34,7 @@ async def _invite_users(invitee_ids, host, doc, join_url):
                     f"<p>{host.get('name')} invited you to a Stitches meeting{when_txt}.</p>"
                     f"<p><a href='{join_url}' style='background:#c0202e;color:#fff;padding:12px 22px;border-radius:12px;text-decoration:none;font-weight:600'>Join meeting</a></p>"
                     f"<p style='color:#888;font-size:13px'>Or open this link: {join_url}</p></div>")
-            await send_meeting_email(u["email"], f"Meeting invite: {doc['name']}", html, ics)
+            await send_meeting_email(u["email"], f"Meeting invite: {doc['name']}", html, ics, sender_user_id=host["user_id"])
 
 
 @router.post("/meetings")
@@ -252,15 +252,87 @@ def _send_email_sync(cfg, to_email, subject, html, ics):
             s.ehlo(); s.starttls(); s.ehlo(); s.login(cfg["username"], cfg["password"]); s.send_message(msg)
 
 
-async def send_meeting_email(to_email, subject, html, ics=None):
-    cfg = await _get_smtp_cfg()
-    if not (cfg["enabled"] and cfg["host"] and cfg["username"] and cfg["password"] and cfg["from_address"]):
+async def _get_user_smtp(user_id):
+    u = await db.users.find_one({"user_id": user_id}, {"_id": 0, "smtp": 1})
+    val = (u or {}).get("smtp") or {}
+    if not val:
+        return None
+    pwd = ""
+    if val.get("password_enc"):
+        try:
+            pwd = _fernet.decrypt(val["password_enc"].encode()).decode()
+        except Exception:
+            pwd = ""
+    return {"enabled": bool(val.get("enabled")), "host": val.get("host", ""), "port": int(val.get("port") or 587),
+            "username": val.get("username", ""), "password": pwd,
+            "from_address": val.get("from_address") or val.get("username", "")}
+
+
+def _smtp_complete(c):
+    return bool(c and c.get("enabled") and c["host"] and c["username"] and c["password"] and c["from_address"])
+
+
+async def send_meeting_email(to_email, subject, html, ics=None, sender_user_id=None):
+    cfg = None
+    if sender_user_id:
+        us = await _get_user_smtp(sender_user_id)
+        if _smtp_complete(us):
+            cfg = us
+    if not cfg:
+        admincfg = await _get_smtp_cfg()
+        if _smtp_complete(admincfg):
+            cfg = admincfg
+    if not cfg:
         return False
     try:
         await run_in_threadpool(_send_email_sync, cfg, to_email, subject, html, ics)
         return True
     except Exception:
         return False
+
+
+@router.get("/me/smtp-config")
+async def get_my_smtp(user: dict = Depends(get_current_user)):
+    c = await _get_user_smtp(user["user_id"]) or {"enabled": False, "host": "", "port": 587, "username": "", "from_address": "", "password": ""}
+    return {"enabled": c["enabled"], "host": c["host"], "port": c["port"], "username": c["username"],
+            "from_address": c["from_address"], "has_password": bool(c.get("password"))}
+
+
+@router.put("/me/smtp-config")
+async def set_my_smtp(request: Request, user: dict = Depends(get_current_user)):
+    body = await request.json()
+    prev = (await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0, "smtp": 1}) or {}).get("smtp") or {}
+    pw = body.get("password", "")
+    enc = _fernet.encrypt(pw.encode()).decode() if pw else prev.get("password_enc", "")
+    val = {"enabled": bool(body.get("enabled")), "host": (body.get("host") or "").strip(),
+           "port": int(body.get("port") or 587), "username": (body.get("username") or "").strip(),
+           "from_address": (body.get("from_address") or "").strip(), "password_enc": enc}
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"smtp": val}})
+    return {"ok": True}
+
+
+@router.delete("/me/smtp-config")
+async def clear_my_smtp(user: dict = Depends(get_current_user)):
+    await db.users.update_one({"user_id": user["user_id"]}, {"$unset": {"smtp": ""}})
+    return {"ok": True}
+
+
+@router.delete("/admin/smtp-config")
+async def admin_clear_smtp(user: dict = Depends(require_admin)):
+    await db.settings.delete_one({"key": "smtp"})
+    return {"ok": True}
+
+
+@router.delete("/admin/sfu-config")
+async def admin_clear_sfu(user: dict = Depends(require_admin)):
+    await db.settings.delete_one({"key": "livekit"})
+    return {"ok": True}
+
+
+@router.delete("/admin/rtc-config")
+async def admin_clear_rtc(user: dict = Depends(require_admin)):
+    await db.settings.delete_one({"key": "turn"})
+    return {"ok": True}
 
 
 @router.get("/meetings/{room_id}/ics")
