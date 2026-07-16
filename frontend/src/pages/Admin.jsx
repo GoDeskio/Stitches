@@ -66,7 +66,11 @@ export default function Admin() {
 
 function Overview() {
   const [stats, setStats] = useState(null);
-  useEffect(() => { api.get("/admin/stats").then(({ data }) => setStats(data)).catch(() => setStats({})); }, []);
+  const [health, setHealth] = useState(null);
+  useEffect(() => {
+    api.get("/admin/stats").then(({ data }) => setStats(data)).catch(() => setStats({}));
+    api.get("/admin/automation-health").then(({ data }) => setHealth(data)).catch(() => setHealth(null));
+  }, []);
   if (!stats) return <Loader />;
   return (
     <>
@@ -79,6 +83,23 @@ function Overview() {
           </div>
         ))}
       </div>
+      {health && health.total > 0 && (
+        <div className="neu-raised rounded-[1.75rem] p-6 mb-8 animate-fade-up" data-testid="automation-health-card">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center"><Workflow className="w-5 h-5 text-primary-stitch" /></div>
+            <div>
+              <h2 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Automation health</h2>
+              <p className="text-sm text-muted-stitch">Integration workflow reliability across the platform.</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <HealthStat label="Success rate" value={`${health.success_rate}%`} color={health.success_rate >= 90 ? "#16a34a" : health.success_rate >= 70 ? "#d97706" : "#dc2626"} />
+            <HealthStat label="Total runs" value={health.total} />
+            <HealthStat label="Failed runs" value={health.fail_count} color={health.fail_count > 0 ? "#dc2626" : undefined} />
+            <HealthStat label="Failing now" value={health.failing} color={health.failing > 0 ? "#dc2626" : "#16a34a"} testid="health-failing" />
+          </div>
+        </div>
+      )}
       <div className="neu-raised rounded-[1.75rem] p-7 animate-fade-up">
         <h2 className="font-head font-bold text-2xl mb-5" style={{ color: "var(--text)" }}>Recent Members</h2>
         <div className="space-y-3">
@@ -95,6 +116,15 @@ function Overview() {
         </div>
       </div>
     </>
+  );
+}
+
+function HealthStat({ label, value, color, testid }) {
+  return (
+    <div className="neu-pressed rounded-2xl p-4" data-testid={testid}>
+      <p className="font-head font-black text-3xl" style={{ color: color || "var(--text)" }}>{value}</p>
+      <p className="text-xs text-muted-stitch mt-1">{label}</p>
+    </div>
   );
 }
 

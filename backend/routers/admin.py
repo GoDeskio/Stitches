@@ -209,6 +209,23 @@ async def set_automation_alerts(request: Request, user: dict = Depends(require_a
     return {"ok": True}
 
 
+@router.get("/admin/automation-health")
+async def admin_automation_health(user: dict = Depends(require_admin)):
+    total = await db.integration_runs.count_documents({})
+    ok = await db.integration_runs.count_documents({"ok": True})
+    runs = await db.integration_runs.find({}, {"_id": 0, "integration_id": 1, "ok": 1}).sort("created_at", -1).to_list(2000)
+    seen, failing = set(), 0
+    for r in runs:
+        iid = r.get("integration_id")
+        if iid in seen:
+            continue
+        seen.add(iid)
+        if not r.get("ok"):
+            failing += 1
+    rate = round(ok * 100 / total) if total else 100
+    return {"total": total, "ok_count": ok, "fail_count": total - ok, "success_rate": rate, "failing": failing}
+
+
 @router.get("/admin/integration-runs")
 async def admin_integration_runs(kind: str = None, ok: str = None, owner_id: str = None,
                                  user: dict = Depends(require_admin)):

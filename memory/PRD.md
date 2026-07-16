@@ -199,6 +199,11 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - **Admin-configurable** in Admin → Automation ("Failure alerts" card, `automation-alerts-card`): enable toggle, threshold (1–20, default 3), alert email, webhook URL. Endpoints `GET/PUT /api/admin/automation-alerts` (admin-only; threshold clamped).
 - Verified (iteration_28): backend 5/5 pytest + frontend 100%, once-per-streak confirmed, zero issues.
 
+## Implemented (2026-06-25, part 5) — automation health summary + home welcome note
+- **Admin Overview "Automation health" card** (`automation-health-card`): success-rate % (green/amber/red), total runs, failed runs, and "failing now" (integrations whose latest run failed). Backed by `GET /api/admin/automation-health`; the card only renders when there is at least one run (no clutter otherwise).
+- **Home page welcome note**: dismissible glass-neumorphic card centered on the landing page (18px backdrop blur) with the dev-team welcome message; dismissal persists via `localStorage` (`stitches_welcome_dismissed`). Testids `welcome-note-card` / `welcome-note-close`.
+- Self-verified: health endpoint returns correct shape; home card renders and is sized to read without overpowering (screenshot confirmed).
+
 ## Implemented (2026-06-25) — per-user SMTP, clear-credentials, recurring meetings + week calendar
 - **Per-user SMTP sending**: meeting invites are sent from the host's own SMTP account when configured (`send_meeting_email(sender_user_id)` → personal SMTP → falls back to admin SMTP). New user Settings section "Send invites from your own email" (`my-smtp-section`) with save + **Clear credentials**; endpoints `GET/PUT/DELETE /api/me/smtp-config` (password Fernet-encrypted, port parse hardened via `_safe_port`).
 - **Explicit "Clear credentials" buttons** in Admin → Meetings for SMTP (`clear-smtp-btn`), SFU/LiveKit (`clear-sfu-btn`) and TURN (`clear-rtc/turn-btn`), wired to `DELETE /api/admin/{smtp,sfu,rtc}-config`.

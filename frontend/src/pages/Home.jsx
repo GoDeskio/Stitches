@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { LogIn } from "lucide-react";
+import { LogIn, X } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
 const STITCH_TEXTURE =
@@ -8,6 +9,12 @@ const STITCH_TEXTURE =
 export default function Home() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [showNote, setShowNote] = useState(() => localStorage.getItem("stitches_welcome_dismissed") !== "1");
+
+  const dismissNote = () => {
+    localStorage.setItem("stitches_welcome_dismissed", "1");
+    setShowNote(false);
+  };
 
   const goLogin = () => {
     if (user && user !== false) navigate("/dashboard");
@@ -60,7 +67,39 @@ export default function Home() {
           <LogIn className="w-4 h-4" /> Login
         </button>
 
-        {/* Center intentionally left blank for your logo */}
+        {/* Center: dismissible glass welcome note */}
+        {showNote && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center p-6 pointer-events-none">
+            <div
+              data-testid="welcome-note-card"
+              className="pointer-events-auto relative w-full max-w-md rounded-[1.75rem] p-8 animate-fade-up"
+              style={{
+                background: "rgba(28,20,23,0.45)",
+                boxShadow: "10px 10px 30px rgba(0,0,0,0.55), -6px -6px 20px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.08)",
+                backdropFilter: "blur(18px)",
+                WebkitBackdropFilter: "blur(18px)",
+                border: "1px solid rgba(255,255,255,0.10)",
+              }}
+            >
+              <button
+                onClick={dismissNote}
+                data-testid="welcome-note-close"
+                aria-label="Close"
+                className="absolute top-4 right-4 rounded-full p-1.5 transition-transform hover:-translate-y-0.5"
+                style={{ background: "rgba(255,255,255,0.08)", color: "#F3E8EA" }}
+              >
+                <X className="w-4 h-4" />
+              </button>
+              <img src="/logo.png" alt="Stitches" className="w-12 h-12 object-contain mb-4" />
+              <h2 className="font-head font-bold text-xl mb-3" style={{ color: "#F9EEF0" }}>Hello, and welcome</h2>
+              <p className="text-sm leading-relaxed" style={{ color: "rgba(243,232,234,0.88)" }}>
+                Thank you for visiting our website. It's new and has a lot of bugs, but if you use it and help
+                us improve it, it's free forever. Thank you for your patience and support.
+              </p>
+              <p className="text-sm font-semibold mt-4 text-right" style={{ color: "#F3E8EA" }}>— The Development team</p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
