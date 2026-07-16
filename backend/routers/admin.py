@@ -256,6 +256,36 @@ async def admin_automation_health(user: dict = Depends(require_admin)):
     return {"total": total, "ok_count": ok, "fail_count": total - ok, "success_rate": rate, "failing": failing}
 
 
+@router.get("/admin/support-requests")
+async def admin_support_requests(status: str = "all", limit: int = 50, skip: int = 0,
+                                 user: dict = Depends(require_admin)):
+    limit = max(1, min(int(limit or 50), 200))
+    skip = max(0, int(skip or 0))
+    q = {}
+    if status in ("open", "resolved"):
+        q["status"] = status
+    items = await db.support_requests.find(q, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    open_count = await db.support_requests.count_documents({"status": "open"})
+    total = await db.support_requests.count_documents({})
+    filtered_total = await db.support_requests.count_documents(q)
+    return {"requests": items, "open_count": open_count, "total": total,
+            "filtered_total": filtered_total, "skip": skip, "limit": limit,
+            "has_more": skip + len(items) < filtered_total}
+
+
+@router.post("/admin/support-requests/{request_id}/status")
+async def admin_set_support_status(request_id: str, request: Request, user: dict = Depends(require_admin)):
+    body = await request.json()
+    status = "resolved" if body.get("resolved") else "open"
+    res = await db.support_requests.update_one(
+        {"request_id": request_id},
+        {"$set": {"status": status, "resolved_at": now_iso() if status == "resolved" else None,
+                  "resolved_by": user.get("name") if status == "resolved" else None}})
+    if not res.matched_count:
+        raise HTTPException(status_code=404, detail="Request not found")
+    return {"ok": True, "status": status}
+
+
 @router.get("/admin/integration-runs")
 async def admin_integration_runs(kind: str = None, ok: str = None, owner_id: str = None,
                                  limit: int = 50, skip: int = 0,

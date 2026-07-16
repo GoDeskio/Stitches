@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Users, Layers, FolderKanban, FolderOpen, Plug, MessagesSquare, Shield,
   ToggleRight, Search, Activity, Grid3x3, LayoutDashboard, KeyRound, LogIn, BadgeCheck, Bell,
-  Ban, UserCheck, Download, Video, Plus, PhoneOff, Users as UsersIcon, Workflow, Megaphone,
+  Ban, UserCheck, Download, Video, Plus, PhoneOff, Users as UsersIcon, Workflow, Megaphone, LifeBuoy, Mail, Check,
 } from "lucide-react";
 import { toast } from "sonner";
 import api, { API } from "@/lib/api";
@@ -32,6 +32,7 @@ const TABS = [
   { id: "integrations", label: "Integrations", icon: Plug },
   { id: "automation", label: "Automation", icon: Workflow },
   { id: "sitenote", label: "Site Note", icon: Megaphone },
+  { id: "support", label: "Support", icon: LifeBuoy },
   { id: "meetings", label: "Meetings", icon: Video },
 ];
 
@@ -61,6 +62,7 @@ export default function Admin() {
       {tab === "integrations" && <IntegrationsTab />}
       {tab === "automation" && <AutomationTab />}
       {tab === "sitenote" && <SiteNoteTab />}
+      {tab === "support" && <SupportTab />}
       {tab === "meetings" && <MeetingsTab />}
     </PageShell>
   );
@@ -567,6 +569,93 @@ function IntegrationsTab() {
   );
 }
 
+
+function SupportTab() {
+  const [data, setData] = useState(null);
+  const [reqs, setReqs] = useState([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [filter, setFilter] = useState("open"); // open | resolved | all
+  const PAGE = 20;
+
+  const fetchPage = (skip, append) => {
+    return api.get("/admin/support-requests", { params: { status: filter, limit: PAGE, skip } }).then(({ data }) => {
+      setData(data); setHasMore(data.has_more);
+      setReqs((prev) => (append ? [...prev, ...data.requests] : data.requests));
+    }).catch(() => { setData({ open_count: 0, total: 0 }); setReqs([]); setHasMore(false); });
+  };
+  const load = () => fetchPage(0, false);
+  useEffect(() => { load(); }, [filter]); // eslint-disable-line
+
+  const setStatus = async (r, resolved) => {
+    try {
+      await api.post(`/admin/support-requests/${r.request_id}/status`, { resolved });
+      toast.success(resolved ? "Marked resolved" : "Reopened");
+      load();
+    } catch (e) { toast.error("Update failed"); }
+  };
+
+  if (!data) return <Loader />;
+  const FILTERS = [["open", "Open"], ["resolved", "Resolved"], ["all", "All"]];
+  return (
+    <div className="space-y-6" data-testid="support-tab">
+      <div className="grid grid-cols-2 gap-5">
+        <StatCard label="Open requests" value={data.open_count} color={data.open_count > 0 ? "#dc2626" : "#16a34a"} />
+        <StatCard label="Total requests" value={data.total} />
+      </div>
+      <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up">
+        <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
+          <div>
+            <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Support inbox</h3>
+            <p className="text-sm text-muted-stitch">Help requests escalated by Stitch AI. Reply by email, then mark resolved.</p>
+          </div>
+          <button data-testid="support-refresh" onClick={load} className="neu-btn rounded-xl px-4 py-2 text-sm font-semibold text-primary-stitch">Refresh</button>
+        </div>
+        <div className="neu-pressed rounded-full p-1.5 flex gap-1 mb-5 w-fit">
+          {FILTERS.map(([id, lbl]) => (
+            <button key={id} data-testid={`support-filter-${id}`} onClick={() => setFilter(id)}
+              className={`rounded-full py-2 px-5 text-sm font-semibold ${filter === id ? "neu-primary" : "text-muted-stitch"}`}>{lbl}</button>
+          ))}
+        </div>
+        {reqs.length === 0 ? (
+          <p className="text-sm text-muted-stitch" data-testid="support-empty">No {filter === "all" ? "" : filter} support requests.</p>
+        ) : (
+          <>
+            <div className="space-y-3">
+              {reqs.map((r) => (
+                <div key={r.request_id} data-testid="support-row" className="neu-pressed rounded-2xl p-4">
+                  <div className="flex items-start gap-3 flex-wrap">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-bold truncate" style={{ color: "var(--text)" }}>{r.subject}</p>
+                        <span className={`text-[11px] px-2 py-0.5 rounded-full neu-sm font-semibold ${r.status === "resolved" ? "text-green-500" : "text-amber-500"}`}>{r.status}</span>
+                      </div>
+                      <p className="text-sm text-muted-stitch mt-1 whitespace-pre-line">{r.message}</p>
+                      <p className="text-xs text-muted-stitch mt-2">{r.user_name} &lt;{r.user_email}&gt; · {new Date(r.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {r.user_email && (
+                        <a data-testid="support-reply" href={`mailto:${r.user_email}?subject=${encodeURIComponent("Re: " + r.subject)}`}
+                          className="neu-btn rounded-xl px-3 py-2 text-sm font-semibold text-primary-stitch flex items-center gap-1.5"><Mail className="w-4 h-4" /> Reply</a>
+                      )}
+                      {r.status === "resolved" ? (
+                        <button data-testid="support-reopen" onClick={() => setStatus(r, false)} className="neu-btn rounded-xl px-3 py-2 text-sm font-semibold">Reopen</button>
+                      ) : (
+                        <button data-testid="support-resolve" onClick={() => setStatus(r, true)} className="neu-primary rounded-xl px-3 py-2 text-sm font-semibold flex items-center gap-1.5"><Check className="w-4 h-4" /> Resolve</button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {hasMore && (
+              <button data-testid="support-load-more" onClick={() => fetchPage(reqs.length, true)} className="neu-btn rounded-2xl px-6 py-3 font-semibold text-primary-stitch mt-5 w-full">Load more</button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function SiteNoteTab() {
   const [cfg, setCfg] = useState(null);
