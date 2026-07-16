@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Users, Layers, FolderKanban, FolderOpen, Plug, MessagesSquare, Shield,
   ToggleRight, Search, Activity, Grid3x3, LayoutDashboard, KeyRound, LogIn, BadgeCheck, Bell,
-  Ban, UserCheck, Download, Video, Plus, PhoneOff, Users as UsersIcon, Workflow, Megaphone, LifeBuoy, Mail, Check, ShieldCheck, Contact2,
+  Ban, UserCheck, Download, Video, Plus, PhoneOff, Users as UsersIcon, Workflow, Megaphone, LifeBuoy, Mail, Check, ShieldCheck, Contact2, CreditCard,
 } from "lucide-react";
 import { toast } from "sonner";
 import api, { API } from "@/lib/api";
@@ -12,6 +12,7 @@ import { PageShell, PageHeader, Loader } from "@/components/Stitch";
 import { IntegrationsManager } from "@/pages/Integrations";
 import MeetingLaunchButtons from "@/components/MeetingLaunchButtons";
 import { CrmTab } from "@/pages/admin/CrmTab";
+import { PaymentsTab } from "@/pages/admin/PaymentsTab";
 import { EmailTab } from "@/pages/admin/EmailTab";
 import { StatCard } from "@/pages/admin/StatCard";
 import { SiteNoteTab } from "@/pages/admin/SiteNoteTab";
@@ -37,6 +38,7 @@ const TABS = [
   { id: "integrations", label: "Integrations", icon: Plug },
   { id: "automation", label: "Automation", icon: Workflow },
   { id: "crm", label: "CRM", icon: Contact2 },
+  { id: "payments", label: "Payments", icon: CreditCard },
   { id: "email", label: "Email", icon: Mail },
   { id: "sitenote", label: "Site Note", icon: Megaphone },
   { id: "support", label: "Support", icon: LifeBuoy },
@@ -100,6 +102,7 @@ export default function Admin() {
       {tab === "integrations" && <IntegrationsTab />}
       {tab === "automation" && <AutomationTab />}
       {tab === "crm" && <CrmTab />}
+      {tab === "payments" && <PaymentsTab />}
       {tab === "email" && <EmailTab />}
       {tab === "sitenote" && <SiteNoteTab />}
       {tab === "support" && <SupportTab />}
