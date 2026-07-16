@@ -83,10 +83,18 @@ def _device_label(ua: str) -> str:
 async def record_session(user_id: str, jti: str, request: Request):
     ua = request.headers.get("user-agent", "") if request else ""
     ip = (request.client.host if request and request.client else "") or ""
+    device = _device_label(ua)
+    prior = await db.sessions.count_documents({"user_id": user_id})
+    known = await db.sessions.count_documents({"user_id": user_id, "device": device, "ip": ip})
     await db.sessions.insert_one({
         "session_id": f"ses_{uuid.uuid4().hex[:12]}", "user_id": user_id, "jti": jti,
-        "device": _device_label(ua), "user_agent": ua[:300], "ip": ip,
+        "device": device, "user_agent": ua[:300], "ip": ip,
         "revoked": False, "created_at": now_iso(), "last_seen": now_iso()})
+    if prior > 0 and known == 0:
+        await create_notification(
+            user_id, "security", "New sign-in to your account",
+            f"A new device just signed in: {device}" + (f" · {ip}" if ip else "") + ". If this wasn't you, sign it out in Settings.",
+            "/settings")
 
 
 def jti_from_request(request: Request):

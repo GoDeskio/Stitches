@@ -157,7 +157,7 @@ async def list_sessions(request: Request, user: dict = Depends(get_current_user)
 @router.delete("/auth/sessions/{session_id}")
 async def revoke_session(session_id: str, user: dict = Depends(get_current_user)):
     await db.sessions.update_one({"session_id": session_id, "user_id": user["user_id"]},
-                                 {"$set": {"revoked": True}})
+                                 {"$set": {"revoked": True, "revoked_at": datetime.now(timezone.utc)}})
     return {"ok": True}
 
 
@@ -166,7 +166,8 @@ async def revoke_other_sessions(request: Request, response: Response, user: dict
     import time
     now_epoch = int(time.time())
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"sessions_valid_after": now_epoch}})
-    await db.sessions.update_many({"user_id": user["user_id"]}, {"$set": {"revoked": True}})
+    await db.sessions.update_many({"user_id": user["user_id"]},
+                                  {"$set": {"revoked": True, "revoked_at": datetime.now(timezone.utc)}})
     jti = uuid.uuid4().hex
     token = create_access_token(user["user_id"], user["email"], jti=jti)
     await record_session(user["user_id"], jti, request)

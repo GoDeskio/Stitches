@@ -133,10 +133,13 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - **Auth**: `create_access_token` now embeds `iat` + optional `jti`; login/register/QR-claim record a row in `sessions` (device/UA/IP). `resolve_user_from_token` rejects revoked-session `jti`s and any token issued before a per-user `sessions_valid_after` epoch (revoke-all). Backward compatible with pre-existing jti-less tokens. Indexes on `sessions.jti` / `sessions.user_id`.
 - Verified (iteration_20): 3/3 backend + 100% frontend; full revoke flow confirmed (other devices → 401, current device stays signed in). Google-login sessions are separate (not shown in this JWT panel).
 
+## Implemented (2026-06-24, part 5) — session hardening + new-device alerts
+- **"New sign-in" security notification**: when a device that hasn't been seen before (device label + IP) signs in — and it isn't the user's first-ever session — the user gets an in-app `security` notification linking to Settings. Verified created on a second-device login.
+- **Session scaling/cleanup**: added compound index `sessions {user_id:1, last_seen:-1}` and a **TTL index on `revoked_at` (7 days)** so revoked sessions are auto-purged; single-revoke and revoke-all now stamp `revoked_at`.
+
 ## Backlog / Next
-- P3 (deferred): **Email reminders via Resend** — playbook ready; waiting on user's Resend API key + verified sender.
+- P3 (deferred): **Email reminders via Resend** — playbook ready; waiting on user's Resend API key + verified sender. (Would also power emailed new-device alerts.)
 - P3: Dropbox one-click OAuth (manual-token connector available now); authenticated Drive download stream.
-- P3: index `sessions {user_id:1, last_seen:-1}` for scale; TTL cleanup of old revoked sessions.
 
 ## Implemented (2026-06-24, part 3) — perf/polish
 - **GitHub release lookup cached** (5-min TTL, in-memory per repo; cache cleared when admin changes the repo) to avoid api.github.com rate limits.
