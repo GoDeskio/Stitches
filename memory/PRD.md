@@ -114,6 +114,12 @@ Build a fully functional, dynamic, beautiful, heavily neumorphic web app (Slack/
 ## Owner setup required for Google Drive to work end-to-end
 In Google Cloud Console for the OAuth app: (1) enable **Google Drive API**, (2) add redirect URI `https://stitches-connect.preview.emergentagent.com/api/integrations/google/callback`, (3) add your Google account as a **Test user** (or publish the consent screen).
 
+## Implemented (2026-07-16, part 7)
+- **Kanban assignees + due dates**: task cards have an assignee dropdown (project members) and a due-date picker; cards show assignee + due badges (overdue in red); backend enriches tasks with `assignee_name`. Membership-gated updates (non-member 403).
+- **"My Tasks" upgraded**: dashboard widget sorts open tasks by due date, shows project + assignee + "Due <date>" (overdue highlighted), click-through to board.
+- **Integrations available on the admin dashboard**: the full catalog + setup wizard (extracted as reusable `IntegrationsManager`) now renders in Admin > Integrations ("Connect an application") alongside the Google OAuth editor and platform-wide list. Nothing is forced — connectors are just available with wizard + setup help.
+- Verified (iteration_16): 12/12 new + 18/18 regression, zero bugs.
+
 ## Backlog / Next
-- P3: Google Drive authenticated download stream (currently uses `uc?export=download` link — works for shareable files); Dropbox one-click OAuth.
-- P3: Kanban due dates + assignees; delete-avatar; wire Downloads buttons to CI release URLs; tidy stale pre-refactor tests.
+- P3: Dropbox one-click OAuth; authenticated Drive download stream; delete-avatar; wire Downloads buttons to CI release URLs; tidy stale pre-refactor tests.
+- P3: Task descriptions/comments; email/in-app reminders for tasks due soon.
