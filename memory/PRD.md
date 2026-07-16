@@ -183,6 +183,9 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - Verified (iteration_26): backend 12/12 pytest + frontend 100%. Fixed a React `useEffect` Promise-return bug in Run/MCP modals (found by testing agent).
 - NOTE: real MCP tool execution requires a real MCP server (untestable in-sandbox — validated graceful fallback only).
 
+## Implemented (2026-06-25, part 14) — "Send test email" button
+- **Admin test-email**: Site Note tab → "Test email delivery" card (`test-email-card`) with a recipient input (defaults to self) and Send button; `POST /api/admin/test-email` uses `send_email_detailed()` which returns the exact provider result. Verified it surfaces the real Resend error ("godesk.io domain is not verified…") — so once the domain is verified it will return success and confirm end-to-end delivery. Added `send_email_detailed(to, subject, html, ics, sender_user_id) -> (ok, detail)` in `services/email.py` (send_meeting_email now wraps it).
+
 ## Implemented (2026-06-25, part 13) — Resend email + Heat Map trend sparkline
 - **Resend email integration** (`services/email.py`): `send_meeting_email` now sends via **Resend** (`RESEND_API_KEY`, `SENDER_EMAIL` in backend/.env) as the platform default for all outbound mail (meeting invites, support escalations, failure alerts), with .ics attachment support. Priority: sender's personal SMTP (if set) → Resend → admin SMTP fallback. Package `resend==2.33.0`.
   - ⚠️ BLOCKED ON USER ACTION: the `godesk.io` domain is NOT yet verified in the Resend account, so live sends currently fail (code returns False gracefully, no crash). To enable delivery: verify godesk.io at https://resend.com/domains (add DNS records), or change `SENDER_EMAIL` to a verified domain. Sender email to be changed later per user.

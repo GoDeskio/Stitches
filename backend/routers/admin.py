@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from core import *
 from core import _create_message, _notify_mentions, ws_manager, _fernet
 from services.site import get_site_config
+from services.email import send_email_detailed
 from models import *
 
 router = APIRouter()
@@ -371,6 +372,19 @@ def _range_cutoff(rng):
     now = datetime.now(timezone.utc)
     return {"24h": now - timedelta(hours=24), "7d": now - timedelta(days=7),
             "30d": now - timedelta(days=30)}.get(rng)
+
+
+@router.post("/admin/test-email")
+async def admin_test_email(request: Request, user: dict = Depends(require_admin)):
+    body = await request.json()
+    to = (body.get("to") or user.get("email") or "").strip()
+    if not to:
+        raise HTTPException(status_code=400, detail="No recipient email")
+    html = ("<div style='font-family:sans-serif;max-width:520px'>"
+            "<h2 style='color:#c0202e'>Stitches test email</h2>"
+            "<p>If you're reading this, your email delivery is working. 🎉</p></div>")
+    ok, detail = await send_email_detailed(to, "Stitches test email", html)
+    return {"ok": ok, "detail": detail, "to": to}
 
 
 @router.get("/admin/heatmap/trend")

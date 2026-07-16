@@ -98,29 +98,32 @@ async def _send_via_resend(to_email, subject, html, ics):
     await run_in_threadpool(resend.Emails.send, params)
 
 
-async def send_meeting_email(to_email, subject, html, ics=None, sender_user_id=None):
-    # 1) sender's own SMTP (personal identity) always wins when fully configured
+async def send_email_detailed(to_email, subject, html, ics=None, sender_user_id=None):
+    # returns (ok: bool, detail: str)
     if sender_user_id:
         us = await get_user_smtp(sender_user_id)
         if _smtp_complete(us):
             try:
                 await run_in_threadpool(_send_email_sync, us, to_email, subject, html, ics)
-                return True
-            except Exception:
-                pass
-    # 2) platform default: Resend (if configured)
+                return True, "Sent via your personal SMTP"
+            except Exception as e:
+                return False, f"Personal SMTP failed: {e}"
     if os.environ.get("RESEND_API_KEY") and os.environ.get("SENDER_EMAIL"):
         try:
             await _send_via_resend(to_email, subject, html, ics)
-            return True
-        except Exception:
-            pass
-    # 3) fallback: admin SMTP
+            return True, f"Sent via Resend from {os.environ.get('SENDER_EMAIL')}"
+        except Exception as e:
+            return False, f"Resend error: {e}"
     admincfg = await get_smtp_cfg()
     if _smtp_complete(admincfg):
         try:
             await run_in_threadpool(_send_email_sync, admincfg, to_email, subject, html, ics)
-            return True
-        except Exception:
-            return False
-    return False
+            return True, "Sent via admin SMTP"
+        except Exception as e:
+            return False, f"Admin SMTP failed: {e}"
+    return False, "No email provider configured (set Resend or SMTP)"
+
+
+async def send_meeting_email(to_email, subject, html, ics=None, sender_user_id=None):
+    ok, _ = await send_email_detailed(to_email, subject, html, ics, sender_user_id)
+    return ok

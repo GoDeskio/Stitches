@@ -915,7 +915,43 @@ function SiteNoteTab() {
         <input data-testid="clarity-id-input" value={cfg.clarity_id} onChange={(e) => setCfg({ ...cfg, clarity_id: e.target.value })} placeholder="xnf9nc40tt" className="neu-input w-full rounded-2xl py-3 px-4 text-sm mt-4 font-mono-stitch" />
       </div>
 
+      <TestEmailCard />
+
       <button data-testid="save-sitenote-btn" onClick={save} disabled={saving} className="neu-primary rounded-2xl px-6 py-3 font-semibold">{saving ? "Saving…" : "Save site settings"}</button>
+    </div>
+  );
+}
+
+function TestEmailCard() {
+  const [to, setTo] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const send = async () => {
+    setBusy(true); setResult(null);
+    try {
+      const { data } = await api.post("/admin/test-email", { to: to || undefined });
+      setResult(data);
+      toast[data.ok ? "success" : "error"](data.ok ? `Sent to ${data.to}` : "Send failed");
+    } catch (e) { toast.error("Request failed"); } finally { setBusy(false); }
+  };
+  return (
+    <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="test-email-card">
+      <div className="flex items-center gap-3 mb-1">
+        <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center"><Mail className="w-5 h-5 text-primary-stitch" /></div>
+        <div>
+          <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Test email delivery</h3>
+          <p className="text-sm text-muted-stitch">Send a test message to confirm Resend/SMTP is working. Leave blank to send to yourself.</p>
+        </div>
+      </div>
+      <div className="flex gap-3 mt-4 flex-wrap">
+        <input data-testid="test-email-input" value={to} onChange={(e) => setTo(e.target.value)} placeholder="you@example.com (optional)" className="neu-input flex-1 min-w-[14rem] rounded-2xl py-3 px-4 text-sm" />
+        <button data-testid="send-test-email-btn" onClick={send} disabled={busy} className="neu-primary rounded-2xl px-6 py-3 font-semibold">{busy ? "Sending…" : "Send test"}</button>
+      </div>
+      {result && (
+        <div data-testid="test-email-result" className={`neu-pressed rounded-2xl p-4 mt-4 text-sm ${result.ok ? "text-green-500" : "text-red-400"}`}>
+          {result.ok ? "✓ " : "✕ "}{result.detail}
+        </div>
+      )}
     </div>
   );
 }
