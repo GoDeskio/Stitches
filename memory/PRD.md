@@ -120,6 +120,14 @@ In Google Cloud Console for the OAuth app: (1) enable **Google Drive API**, (2) 
 - **Integrations available on the admin dashboard**: the full catalog + setup wizard (extracted as reusable `IntegrationsManager`) now renders in Admin > Integrations ("Connect an application") alongside the Google OAuth editor and platform-wide list. Nothing is forced — connectors are just available with wizard + setup help.
 - Verified (iteration_16): 12/12 new + 18/18 regression, zero bugs.
 
+## Implemented (2026-07-16, part 8)
+- **Task due-soon reminders (in-app)**: background loop (every 30 min) + admin `POST /api/tasks/scan-reminders`; creates a `task_due` notification for the assignee of any not-done task due within 24h or overdue (idempotent via `reminded` flag; reset when due_date/assignee changes). Surfaced in the existing NotificationBell.
+- **Deployment-readiness (works outside Emergent)**: CORS now reads `CORS_ORIGINS` (comma-separated) with `FRONTEND_URL` fallback + credentials; Emergent auth session URL now env-driven (`AUTH_SESSION_URL`). `deployment_agent` scan = **PASS, no blockers**. All URLs/secrets externalized to env; backend :8001, frontend :3000, all routes `/api`-prefixed, MongoDB via `MONGO_URL`.
+- Verified (iteration_17): 16/16 backend + frontend smoke, zero issues.
+
+### Deploy env vars (set for the target domain)
+backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERGENT_LLM_KEY, FRONTEND_URL, ENCRYPTION_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_DRIVE_REDIRECT_URI, AUTH_SESSION_URL, (optional CORS_ORIGINS). frontend/.env: REACT_APP_BACKEND_URL. On a new domain, update FRONTEND_URL + GOOGLE_DRIVE_REDIRECT_URI and re-register the redirect URI in Google Cloud.
+
 ## Backlog / Next
-- P3: Dropbox one-click OAuth; authenticated Drive download stream; delete-avatar; wire Downloads buttons to CI release URLs; tidy stale pre-refactor tests.
-- P3: Task descriptions/comments; email/in-app reminders for tasks due soon.
+- P3: email reminders via Resend (needs Resend API key); Dropbox one-click OAuth; authenticated Drive download stream.
+- P3: pagination for messages/users/tasks lists (deployment WARN); delete-avatar; wire Downloads buttons to CI releases; tidy stale pre-refactor tests.
