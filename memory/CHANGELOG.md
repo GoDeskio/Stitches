@@ -1,5 +1,11 @@
 # Stitches Changelog
 
+## 2026-06 — Email verification on signup + email notifications
+- **Signup verification**: register now sets `email_verified=false`, generates a single-use 24h token (`email_verifications`), and emails a verify link. Endpoints: `GET/POST /api/auth/verify-email`, `POST /api/auth/resend-verification`. Google users auto-verified. Non-blocking (login still works); registration succeeds even if the email can't be delivered.
+- **Frontend**: `/verify-email` page (success/error states), an unverified banner in the app Layout with a Resend button, and `email_verified` exposed on the user.
+- **Email notifications**: `create_notification` now also emails the user (best-effort, gated by `notification_prefs.email`, default on) + a Settings toggle "Also send notifications to my email".
+- Tested iteration_33: 6/6 backend + all frontend flows pass. ⚠️ Actual email DELIVERY still requires a working sender (see prior entries) — currently none is fully configured.
+
 ## 2026-06 — Gmail service-account send + in-wizard test button
 - Added **Gmail service-account** send path (`services/gmail.py`): domain-wide delegation, impersonates the configured sender, `gmail.send` scope, HTML + .ics. Key stored **encrypted** (`settings.gmail_service_account` via Fernet), never in git/.env.
 - Provider abstraction now supports `gmail_sa | gmail | smtp` with priority order + Resend fallback (off). Endpoints: `PUT /api/admin/gmail/service-account`, `POST /api/admin/gmail/service-account/disconnect`; `email-provider` GET/PUT accept `gmail_sa`.
