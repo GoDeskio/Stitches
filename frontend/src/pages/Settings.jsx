@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
-import { Save, Sun, Moon, Minus, Plus, User, Building2, FolderKanban, Palette, Bell, Upload, Trash2, Smartphone, Monitor, LogOut, ShieldCheck, Mail } from "lucide-react";
+import { Save, Sun, Moon, Minus, Plus, User, Building2, FolderKanban, Palette, Bell, Upload, Trash2, Smartphone, Monitor, LogOut, ShieldCheck, Mail, CreditCard, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
+import { useNavigate } from "react-router-dom";
 import { PageShell, PageHeader } from "@/components/Stitch";
 
 export default function Settings() {
@@ -139,6 +140,10 @@ export default function Settings() {
       </div>
 
       <div className="mt-6">
+        <BillingSection />
+      </div>
+
+      <div className="mt-6">
         <DevicesSection />
       </div>
 
@@ -149,6 +154,53 @@ export default function Settings() {
         <MyMailgunSection />
       </div>
     </PageShell>
+  );
+}
+
+function BillingSection() {
+  const [data, setData] = useState(null);
+  const navigate = useNavigate();
+  useEffect(() => { api.get("/me/billing").then(({ data }) => setData(data)).catch(() => setData({ plan: null, subscription: null })); }, []);
+  if (!data) return null;
+  const { plan, subscription: sub } = data;
+  const fmt = (n) => "$" + (Number(n) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const intl = { month: "/mo", year: "/yr", once: " one-time" };
+  return (
+    <div className="neu-raised rounded-[1.75rem] p-7 animate-fade-up" data-testid="billing-section">
+      <div className="flex items-center gap-3 mb-5">
+        <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center"><CreditCard className="w-5 h-5 text-primary-stitch" /></div>
+        <div>
+          <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Billing &amp; plan</h3>
+          <p className="text-sm text-muted-stitch">Your current plan and renewal.</p>
+        </div>
+      </div>
+
+      <div className="neu-pressed rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p className="text-xs text-muted-stitch">Current plan</p>
+          <p className="font-head font-bold text-2xl" style={{ color: "var(--text)" }} data-testid="billing-plan-name">
+            {plan ? plan.name : "Free"}
+            {plan && Number(plan.price) > 0 && <span className="text-sm font-normal text-muted-stitch"> · {fmt(sub?.amount ?? plan.price)}{intl[sub?.billing || plan.interval] || ""}</span>}
+          </p>
+          {sub && sub.current_period_end && (
+            <p className="text-sm text-muted-stitch mt-1" data-testid="billing-renews">
+              Renews {new Date(sub.current_period_end).toLocaleDateString([], { month: "long", day: "numeric", year: "numeric" })}
+            </p>
+          )}
+          {!plan && <p className="text-sm text-muted-stitch mt-1">You're on the free tier. Upgrade to unlock more.</p>}
+        </div>
+        <div className="flex gap-2">
+          {sub && (
+            <button data-testid="billing-renew-btn" onClick={() => navigate("/pricing")} className="neu-primary rounded-2xl px-5 py-3 font-semibold text-sm flex items-center gap-2">
+              <Sparkles className="w-4 h-4" /> Renew
+            </button>
+          )}
+          <button data-testid="billing-plans-btn" onClick={() => navigate("/pricing")} className="neu-btn rounded-2xl px-5 py-3 font-semibold text-sm text-primary-stitch">
+            {plan ? "Change plan" : "See plans"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

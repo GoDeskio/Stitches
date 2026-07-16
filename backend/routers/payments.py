@@ -445,3 +445,17 @@ async def scan_subscription_renewals():
                 except Exception:
                     pass
             await db.subscriptions.update_one({"sub_id": s["sub_id"]}, {"$set": {"renewal_reminded": True}})
+
+
+@router.get("/me/billing")
+async def my_billing(user: dict = Depends(get_current_user)):
+    plan = None
+    pid = user.get("plan_id")
+    if pid:
+        p = await db.plans.find_one({"plan_id": pid})
+        if p:
+            plan = _plan_public(p)
+    sub = await db.subscriptions.find_one(
+        {"user_id": user["user_id"], "status": "active", "canceled": {"$ne": True}},
+        sort=[("created_at", -1)])
+    return {"gating": await get_plan_gating(), "plan": plan, "subscription": _public(sub) if sub else None}

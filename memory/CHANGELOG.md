@@ -121,3 +121,7 @@
 - **Admin → Users**: each user row now has a plan dropdown (data-testid user-plan-select) that assigns/clears a plan via POST /api/admin/users/{id}/plan (used by feature gating). Verified assign + clear + 404 on bad plan.
 - **Subscriptions**: successful pricing-page checkouts (month/year plans) create a `subscriptions` record with current_period_end. Admin → Payments has a Subscriptions panel showing Est. MRR, active count, per-sub status/renewal date, and Cancel. Endpoints: GET /api/admin/subscriptions, POST /api/admin/subscriptions/{id}/cancel.
 - **Auto-renewal reminders**: background scan (`scan_subscription_renewals`, added to server.py reminder loop) marks expired subs and, 7 days before period end, sends the customer a renewal reminder (in-app 'billing' notification for logged-in users + best-effort email) and sets renewal_reminded. Verified via direct scanner run (notification created). Note: not auto-charging (cards aren't vaulted with Direct Post) — reminder prompts re-purchase.
+
+## Implemented (2026-06-16) — "My billing" in user Settings
+- New `GET /api/me/billing` returns the user's current plan + active subscription (renewal date) + gating flag.
+- Settings page now has a **Billing & plan** section (between Notifications and Connected devices): shows current plan + price/interval, renewal date (if subscribed), and Renew/Change-plan buttons that link to /pricing. Free-tier users see an upgrade nudge. Verified via curl + screenshot (demo user shows "Pro · $10/mo · Change plan").
