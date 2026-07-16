@@ -35,10 +35,21 @@ async def crm_stats(user: dict = Depends(require_admin)):
     for s in STAGES:
         by_stage[s] = await db.crm_contacts.count_documents({"type": "lead", "stage": s})
     won = by_stage.get("won", 0)
+    week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    new_leads_week = await db.crm_contacts.count_documents({"type": "lead", "created_at": {"$gte": week_ago}})
     return {"visitors": visitors, "leads": leads, "users": users, "customers": won,
-            "by_stage": by_stage,
+            "by_stage": by_stage, "new_leads_week": new_leads_week,
             "visitor_to_lead": round(leads * 100 / visitors) if visitors else 0,
             "lead_to_customer": round(won * 100 / leads) if leads else 0}
+
+
+@router.get("/admin/crm/board")
+async def crm_board(user: dict = Depends(require_admin)):
+    board = {}
+    for s in STAGES:
+        rows = await db.crm_contacts.find({"type": "lead", "stage": s}).sort("updated_at", -1).limit(50).to_list(50)
+        board[s] = [_public(c) for c in rows]
+    return {"board": board, "stages": STAGES}
 
 
 @router.get("/admin/crm/contacts")

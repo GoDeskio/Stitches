@@ -14,12 +14,22 @@ export function CrmTab() {
   const [selected, setSelected] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [view, setView] = useState("list");
+  const [board, setBoard] = useState(null);
+  const [dragId, setDragId] = useState(null);
 
   const loadStats = () => api.get("/admin/crm/stats").then(({ data }) => setStats(data)).catch(() => {});
   const loadList = () => api.get("/admin/crm/contacts", { params: { type: type || undefined, stage: stage || undefined, q: q || undefined, page } })
     .then(({ data }) => setData(data)).catch(() => {});
+  const loadBoard = () => api.get("/admin/crm/board").then(({ data }) => setBoard(data)).catch(() => {});
   useEffect(() => { loadStats(); }, []);
-  useEffect(() => { loadList(); }, [type, stage, q, page]);
+  useEffect(() => { if (view === "list") loadList(); else loadBoard(); }, [type, stage, q, page, view]);
+
+  const moveStage = async (contactId, toStage) => {
+    setDragId(null);
+    try { await api.put(`/admin/crm/contacts/${contactId}`, { stage: toStage }); loadBoard(); loadStats(); }
+    catch (e) { toast.error("Move failed"); }
+  };
 
   const syncUsers = async () => {
     setSyncing(true);
@@ -29,7 +39,7 @@ export function CrmTab() {
 
   const funnel = stats ? [
     { label: "Visitors", val: stats.visitors, sub: "last 30d" },
-    { label: "Leads", val: stats.leads, sub: `${stats.visitor_to_lead}% of visitors` },
+    { label: "Leads", val: stats.leads, sub: `+${stats.new_leads_week || 0} this week` },
     { label: "Users", val: stats.users, sub: "" },
     { label: "Customers", val: stats.customers, sub: `${stats.lead_to_customer}% of leads` },
   ] : [];
@@ -58,11 +68,16 @@ export function CrmTab() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <div className="neu-pressed rounded-2xl p-1 flex">
+              <button data-testid="crm-view-list" onClick={() => setView("list")} className={`rounded-xl px-3 py-1.5 text-xs font-semibold ${view === "list" ? "neu-primary" : "text-muted-stitch"}`}>List</button>
+              <button data-testid="crm-view-pipeline" onClick={() => setView("pipeline")} className={`rounded-xl px-3 py-1.5 text-xs font-semibold ${view === "pipeline" ? "neu-primary" : "text-muted-stitch"}`}>Pipeline</button>
+            </div>
             <button data-testid="crm-sync-users-btn" onClick={syncUsers} disabled={syncing} className="neu-btn rounded-2xl px-4 py-2.5 text-sm font-semibold text-primary-stitch">{syncing ? "Syncing…" : "Sync users"}</button>
             <button data-testid="crm-add-lead-btn" onClick={() => setShowAdd(true)} className="neu-primary rounded-2xl px-4 py-2.5 text-sm font-semibold">+ Add lead</button>
           </div>
         </div>
 
+        {view === "list" && (
         <div className="flex items-center gap-2 flex-wrap mb-4">
           <input data-testid="crm-search" value={q} onChange={(e) => { setPage(1); setQ(e.target.value); }} placeholder="Search name, email, company…" className="neu-input rounded-2xl py-2.5 px-4 text-sm flex-1 min-w-[200px]" />
           <select data-testid="crm-filter-type" value={type} onChange={(e) => { setPage(1); setType(e.target.value); }} className="neu-input rounded-2xl py-2.5 px-4 text-sm">
@@ -76,8 +91,36 @@ export function CrmTab() {
             {CRM_STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
+        )}
 
-        {!data ? <Loader /> : data.contacts.length === 0 ? (
+        {view === "pipeline" ? (
+          !board ? <Loader /> : (
+            <div className="flex gap-3 overflow-x-auto pb-2" data-testid="crm-pipeline">
+              {board.stages.map((s) => (
+                <div key={s} data-testid={`crm-column-${s}`}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => dragId && moveStage(dragId, s)}
+                  className="shrink-0 w-56 neu-pressed rounded-2xl p-3">
+                  <div className="flex items-center justify-between mb-2 px-1">
+                    <span className="text-xs font-bold uppercase" style={{ color: stageColor[s] }}>{s}</span>
+                    <span className="text-xs text-muted-stitch">{board.board[s].length}</span>
+                  </div>
+                  <div className="space-y-2 min-h-[40px]">
+                    {board.board[s].map((c) => (
+                      <div key={c.contact_id} data-testid="crm-card" draggable
+                        onDragStart={() => setDragId(c.contact_id)} onDragEnd={() => setDragId(null)}
+                        onClick={() => setSelected(c)}
+                        className="neu-raised rounded-xl p-3 cursor-grab active:cursor-grabbing hover:opacity-90 transition-opacity">
+                        <p className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>{c.name || c.email}</p>
+                        <p className="text-xs text-muted-stitch truncate">{c.company || c.email}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        ) : !data ? <Loader /> : data.contacts.length === 0 ? (
           <p className="text-sm text-muted-stitch py-8 text-center">No contacts yet. Add a lead or sync your users to get started.</p>
         ) : (
           <div className="space-y-2">
@@ -104,8 +147,8 @@ export function CrmTab() {
         )}
       </div>
 
-      {showAdd && <CrmAddLead onClose={() => setShowAdd(false)} onSaved={() => { setShowAdd(false); loadStats(); loadList(); }} />}
-      {selected && <CrmContactModal contact={selected} onClose={() => setSelected(null)} onChanged={() => { loadStats(); loadList(); }} />}
+      {showAdd && <CrmAddLead onClose={() => setShowAdd(false)} onSaved={() => { setShowAdd(false); loadStats(); loadList(); loadBoard(); }} />}
+      {selected && <CrmContactModal contact={selected} onClose={() => setSelected(null)} onChanged={() => { loadStats(); loadList(); loadBoard(); }} />}
     </div>
   );
 }

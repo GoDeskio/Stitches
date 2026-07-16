@@ -1,5 +1,11 @@
 # Stitches Changelog
 
+## 2026-06 — CRM Kanban pipeline + more Admin.jsx refactor
+- **CRM pipeline (Kanban)**: List/Pipeline toggle in the CRM tab; drag lead cards across 6 stage columns (new→…→won/lost) with live persistence (`PUT` on drop). New `GET /api/admin/crm/board` groups leads by stage.
+- **"New leads this week"**: `new_leads_week` added to `/admin/crm/stats`, surfaced on the Leads funnel card.
+- **Refactor cont.**: extracted `SiteNoteTab`, `AutomationTab`, and shared `StatCard` into `src/pages/admin/`. Admin.jsx now 1037 lines (was 1263). UsersTab left in place (depends on many local helpers — needs a dedicated pass).
+- Verified: board endpoint groups leads, pipeline drag UI renders 6 columns/9 cards, all admin tabs render post-refactor (no crash).
+
 ## 2026-06 — Landing lead-capture CTA + Admin.jsx refactor
 - **Landing page**: "Request a demo" CTA + glass modal (name/email/company/message) posts to public `POST /api/leads`, flowing real visitors into the CRM funnel. On capture, admins are emailed (best-effort) via the delivery pipeline.
 - **Refactor**: split the 1970-line `Admin.jsx` → extracted `src/pages/admin/CrmTab.jsx` (197 lines) and `src/pages/admin/EmailTab.jsx` (526 lines); Admin.jsx now 1262 lines. Verified no regressions (all admin tabs render).
