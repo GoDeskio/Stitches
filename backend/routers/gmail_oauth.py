@@ -5,7 +5,7 @@ from core import db, require_admin, resolve_user_from_token, create_access_token
 from services.gmail import (get_gmail_status, gmail_authorize_url, gmail_exchange_code,
                             disconnect_gmail, save_service_account, get_service_account_status,
                             disconnect_service_account)
-from services.email import get_email_provider_cfg, get_smtp_cfg
+from services.email import get_email_provider_cfg, get_smtp_cfg, get_email_health
 
 router = APIRouter()
 
@@ -55,6 +55,11 @@ async def admin_set_service_account(request: Request, user: dict = Depends(requi
 async def admin_disconnect_service_account(user: dict = Depends(require_admin)):
     await disconnect_service_account()
     return {"ok": True}
+
+
+@router.get("/admin/email-health")
+async def admin_email_health(user: dict = Depends(require_admin)):
+    return await get_email_health()
 
 
 @router.get("/admin/gmail/authorize")

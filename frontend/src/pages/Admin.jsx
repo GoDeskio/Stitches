@@ -36,6 +36,29 @@ const TABS = [
   { id: "meetings", label: "Meetings", icon: Video },
 ];
 
+function EmailHealthBadge() {
+  const [health, setHealth] = useState(null);
+  useEffect(() => {
+    const load = () => api.get("/admin/email-health").then(({ data }) => setHealth(data)).catch(() => {});
+    load();
+    const t = setInterval(load, 30000);
+    return () => clearInterval(t);
+  }, []);
+  if (!health) return null;
+  const hasData = health.at != null;
+  const ok = health.ok === true;
+  const color = !hasData ? "#9ca3af" : ok ? "#16a34a" : "#ef4444";
+  const label = !hasData ? "No emails sent yet" : ok ? "Email working" : "Email failing";
+  const when = hasData ? new Date(health.at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+  return (
+    <div data-testid="email-health-badge" title={`${label}${when ? ` · last: ${when}` : ""}${health.detail ? `\n${health.detail}` : ""}`}
+      className="neu-pressed rounded-full pl-2.5 pr-3.5 py-2 flex items-center gap-2 text-xs font-semibold" style={{ color: "var(--text)" }}>
+      <span className="w-2.5 h-2.5 rounded-full" style={{ background: color, boxShadow: `0 0 8px ${color}` }} />
+      {label}
+    </div>
+  );
+}
+
 export default function Admin() {
   const [tab, setTab] = useState("overview");
   const [openSupport, setOpenSupport] = useState(0);
@@ -47,7 +70,7 @@ export default function Admin() {
     <PageShell>
       <div className="flex items-start justify-between gap-4 flex-wrap mb-2" data-testid="admin-call-bar">
         <PageHeader title="Admin Dashboard" subtitle="Full control over Stitches — members, features, SEO, monitoring and activity heat maps." />
-        <div className="pt-1"><MeetingLaunchButtons /></div>
+        <div className="pt-1 flex items-center gap-3"><EmailHealthBadge /><MeetingLaunchButtons /></div>
       </div>
       <div className="neu-pressed rounded-full p-1.5 flex gap-1 mb-8 overflow-x-auto animate-fade-up">
         {TABS.map((t) => (

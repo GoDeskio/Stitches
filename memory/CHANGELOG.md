@@ -1,5 +1,9 @@
 # Stitches Changelog
 
+## 2026-06 — Email health badge
+- Every send now records last result to `settings.email_last_send` (ok/detail/to/at) via a `send_email_detailed` wrapper. Endpoint `GET /api/admin/email-health`.
+- Admin header shows an **email health badge** (green "Email working" / red "Email failing" / gray "No emails sent yet") with a tooltip of the last detail + timestamp; auto-refreshes every 30s. Verified via curl + screenshot (currently red due to the SMTP app-password issue).
+
 ## 2026-06 — Verification soft-gate + SMTP diagnosis
 - Admin-configurable **"Require email verification"** toggle (Site tab, default **OFF**). When ON, unverified non-admin users get 403 on meeting creation (`ensure_verified` in core.py, enforced in `POST /meetings`). Verified via curl: enabled→403 (unverified)/200 (admin), disabled→200.
 - Stored `require_email_verification` setting; exposed via `/admin/site-config` GET/PUT.

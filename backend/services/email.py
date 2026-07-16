@@ -106,7 +106,25 @@ async def get_email_provider_cfg():
             "resend_fallback": bool(val.get("resend_fallback"))}
 
 
+async def get_email_health():
+    doc = await db.settings.find_one({"key": "email_last_send"})
+    return (doc or {}).get("value", {})
+
+
 async def send_email_detailed(to_email, subject, html, ics=None, sender_user_id=None):
+    from core import now_iso
+    ok, detail = await _send_email_impl(to_email, subject, html, ics, sender_user_id)
+    try:
+        await db.settings.update_one({"key": "email_last_send"},
+                                     {"$set": {"key": "email_last_send",
+                                               "value": {"ok": ok, "detail": detail, "to": to_email, "at": now_iso()}}},
+                                     upsert=True)
+    except Exception:
+        pass
+    return ok, detail
+
+
+async def _send_email_impl(to_email, subject, html, ics=None, sender_user_id=None):
     # returns (ok: bool, detail: str)
     from services.gmail import (gmail_connected, send_via_gmail,
                                 service_account_connected, send_via_service_account)
