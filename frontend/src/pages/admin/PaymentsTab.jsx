@@ -16,18 +16,28 @@ export function PaymentsTab() {
   const [config, setConfig] = useState(null);
   const [stats, setStats] = useState(null);
   const [txs, setTxs] = useState(null);
+  const [subs, setSubs] = useState(null);
+  const [subStats, setSubStats] = useState({ active: 0, mrr: 0 });
   const [processing, setProcessing] = useState(false);
   const [f, setF] = useState({ amount: "10.00", email: "", description: "", ccnumber: "", ccexp: "", cvv: "" });
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
 
   const loadStats = () => api.get("/admin/payments/stats").then(({ data }) => setStats(data)).catch(() => {});
   const loadTxs = () => api.get("/admin/payments/transactions").then(({ data }) => setTxs(data.transactions)).catch(() => setTxs([]));
+  const loadSubs = () => api.get("/admin/subscriptions").then(({ data }) => { setSubs(data.subscriptions); setSubStats({ active: data.active, mrr: data.mrr }); }).catch(() => setSubs([]));
 
   useEffect(() => {
     api.get("/admin/payments/config").then(({ data }) => setConfig(data)).catch(() => setConfig({ configured: false }));
     loadStats();
     loadTxs();
+    loadSubs();
   }, []);
+
+  const cancelSub = async (s) => {
+    if (!window.confirm(`Cancel the ${s.plan_name} subscription for ${s.email}?`)) return;
+    try { await api.post(`/admin/subscriptions/${s.sub_id}/cancel`); toast.success("Subscription canceled"); loadSubs(); }
+    catch (e) { toast.error(e?.response?.data?.detail || "Failed"); }
+  };
 
   const charge = async () => {
     if (!(parseFloat(f.amount) > 0)) { toast.error("Enter a valid amount"); return; }
@@ -181,6 +191,44 @@ export function PaymentsTab() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Subscriptions */}
+      <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="subscriptions-panel">
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+          <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Subscriptions</h3>
+          <div className="flex items-center gap-4">
+            <div className="text-right">
+              <p className="text-xs text-muted-stitch">Est. MRR</p>
+              <p className="font-head font-bold text-lg" style={{ color: "var(--text)" }} data-testid="sub-mrr">{fmtMoney(subStats.mrr)}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-muted-stitch">Active</p>
+              <p className="font-head font-bold text-lg" style={{ color: "var(--text)" }} data-testid="sub-active">{subStats.active}</p>
+            </div>
+          </div>
+        </div>
+        {!subs ? <Loader /> : subs.length === 0 ? (
+          <p className="text-sm text-muted-stitch py-6 text-center">No subscriptions yet. Purchases from the pricing page appear here.</p>
+        ) : (
+          <div className="space-y-2">
+            {subs.map((s) => (
+              <div key={s.sub_id} data-testid="sub-row" className="neu-pressed rounded-2xl px-4 py-3 flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>
+                    {s.plan_name} <span className="text-muted-stitch font-normal">· {fmtMoney(s.amount)}/{s.billing === "year" ? "yr" : "mo"}</span>
+                  </p>
+                  <p className="text-xs text-muted-stitch truncate">{s.email} · renews {s.current_period_end ? new Date(s.current_period_end).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : "—"}</p>
+                </div>
+                <span className="text-[11px] font-bold uppercase px-2 py-1 rounded-full shrink-0 text-white"
+                  style={{ background: s.canceled || s.status === "canceled" ? "#6b7280" : s.status === "expired" ? "#ef4444" : "#16a34a" }}>{s.status}</span>
+                {!s.canceled && s.status === "active" && (
+                  <button data-testid="sub-cancel-btn" onClick={() => cancelSub(s)} className="neu-btn rounded-xl px-3 py-2 text-xs font-semibold text-red-500 shrink-0">Cancel</button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

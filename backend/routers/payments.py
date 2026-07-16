@@ -5,7 +5,7 @@ from datetime import datetime, timezone, timedelta
 import httpx
 from urllib.parse import parse_qsl
 from fastapi import APIRouter, Depends, Request, HTTPException
-from core import db, require_admin, get_current_user, now_iso, log_activity, DEFAULT_FEATURES, get_user_entitlements, get_plan_gating, resolve_user_from_token
+from core import db, require_admin, get_current_user, now_iso, log_activity, DEFAULT_FEATURES, get_user_entitlements, get_plan_gating, resolve_user_from_token, create_notification
 
 router = APIRouter()
 
@@ -341,6 +341,16 @@ async def checkout_plan(request: Request):
     if buyer:
         await db.users.update_one({"user_id": buyer["user_id"]},
             {"$set": {"plan_id": plan_id, "plan_billing": billing, "plan_since": now_iso()}})
+    if interval in ("month", "year"):
+        period = timedelta(days=365 if interval == "year" else 30)
+        await db.subscriptions.insert_one({
+            "sub_id": f"sub_{uuid.uuid4().hex[:12]}",
+            "user_id": buyer["user_id"] if buyer else None,
+            "email": email, "plan_id": plan_id, "plan_name": plan.get("name"),
+            "billing": interval, "amount": amount, "status": "active", "canceled": False,
+            "renewal_reminded": False, "started_at": now_iso(),
+            "current_period_end": (datetime.now(timezone.utc) + period).isoformat(),
+            "nmi_transaction_id": doc["nmi_transaction_id"], "created_at": now_iso()})
     return {"success": True, "transaction_id": doc["nmi_transaction_id"], "plan": plan.get("name")}
 
 
@@ -374,3 +384,64 @@ async def admin_set_user_plan(user_id: str, request: Request, user: dict = Depen
     if not r.matched_count:
         raise HTTPException(status_code=404, detail="User not found")
     return {"ok": True, "plan_id": pid}
+
+
+# ---------------- Subscriptions & renewal reminders ----------------
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "").rstrip("/")
+
+
+@router.get("/admin/subscriptions")
+async def admin_subscriptions(user: dict = Depends(require_admin)):
+    rows = await db.subscriptions.find({}).sort("created_at", -1).limit(100).to_list(100)
+    active = await db.subscriptions.count_documents({"status": "active", "canceled": {"$ne": True}})
+    mrr = 0.0
+    async for s in db.subscriptions.find({"status": "active", "canceled": {"$ne": True}}):
+        amt = float(s.get("amount") or 0)
+        mrr += amt / 12 if s.get("billing") == "year" else amt
+    return {"subscriptions": [_public(s) for s in rows], "active": active, "mrr": round(mrr, 2)}
+
+
+@router.post("/admin/subscriptions/{sub_id}/cancel")
+async def admin_cancel_subscription(sub_id: str, user: dict = Depends(require_admin)):
+    s = await db.subscriptions.find_one({"sub_id": sub_id})
+    if not s:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    await db.subscriptions.update_one({"sub_id": sub_id}, {"$set": {"canceled": True, "status": "canceled", "canceled_at": now_iso()}})
+    return {"ok": True}
+
+
+async def scan_subscription_renewals():
+    now = datetime.now(timezone.utc)
+    soon = now + timedelta(days=7)
+    cur = db.subscriptions.find({"status": "active", "canceled": {"$ne": True}})
+    async for s in cur:
+        try:
+            end = datetime.fromisoformat(s["current_period_end"])
+        except Exception:
+            continue
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+        if end < now:
+            await db.subscriptions.update_one({"sub_id": s["sub_id"]}, {"$set": {"status": "expired"}})
+            continue
+        if now <= end <= soon and not s.get("renewal_reminded"):
+            when = end.strftime("%b %d, %Y")
+            price = f"${float(s.get('amount') or 0):.2f}"
+            per = "year" if s.get("billing") == "year" else "month"
+            body = f"Your {s.get('plan_name')} plan ({price}/{per}) renews on {when}. Renew to keep uninterrupted access."
+            if s.get("user_id"):
+                try:
+                    await create_notification(s["user_id"], "billing", "Your plan renews soon", body, "/pricing")
+                except Exception:
+                    pass
+            elif s.get("email"):
+                try:
+                    from services.email import send_email_detailed
+                    link = f"<p style='margin:18px 0'><a href='{FRONTEND_URL}/pricing' style='color:#c0202e;font-weight:600;text-decoration:none'>Renew now →</a></p>"
+                    html = (f"<div style='font-family:-apple-system,Segoe UI,sans-serif;max-width:520px;margin:0 auto;background:#f6f6f6;padding:28px'>"
+                            f"<h2 style='color:#c0202e;font-size:18px;margin:0 0 8px'>Your plan renews soon</h2>"
+                            f"<p style='color:#333;font-size:14px'>{body}</p>{link}</div>")
+                    await send_email_detailed(s["email"], f"Stitches · Your {s.get('plan_name')} plan renews {when}", html)
+                except Exception:
+                    pass
+            await db.subscriptions.update_one({"sub_id": s["sub_id"]}, {"$set": {"renewal_reminded": True}})

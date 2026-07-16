@@ -10,6 +10,7 @@ from routers import gmail_oauth
 from routers import crm
 from routers import payments
 from services.digest import scan_digest
+from routers.payments import scan_subscription_renewals
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -129,6 +130,7 @@ async def _reminder_loop():
             await scan_due_reminders()
             await scan_meeting_reminders()
             await scan_digest()
+            await scan_subscription_renewals()
         except Exception as e:
             logger.warning(f"reminder scan failed: {e}")
         await asyncio.sleep(1800)

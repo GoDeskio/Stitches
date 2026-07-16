@@ -180,10 +180,19 @@ function HealthStat({ label, value, color, testid }) {
 
 function UsersTab() {
   const [users, setUsers] = useState(null);
+  const [plans, setPlans] = useState([]);
   const navigate = useNavigate();
   const { startImpersonation } = useAuth();
   const load = () => api.get("/admin/users").then(({ data }) => setUsers(data));
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    api.get("/admin/plans").then(({ data }) => setPlans(data.plans || [])).catch(() => {});
+  }, []);
+
+  const setPlan = async (u, planId) => {
+    await api.post(`/admin/users/${u.user_id}/plan`, { plan_id: planId });
+    toast.success(planId ? "Plan assigned" : "Plan cleared"); load();
+  };
 
   const toggleActive = async (u) => {
     await api.put(`/admin/users/${u.user_id}`, { is_active: u.is_active === false });
@@ -218,6 +227,14 @@ function UsersTab() {
           </div>
           {u.is_active === false && <span className="text-xs px-3 py-1 rounded-full neu-sm text-red-500 font-semibold">Disabled</span>}
           <RolePill role={u.role} />
+          {plans.length > 0 && (
+            <select data-testid="user-plan-select" value={u.plan_id || ""} onChange={(e) => setPlan(u, e.target.value)}
+              title="Assign a plan (used when feature gating is on)"
+              className="neu-input rounded-xl py-2 px-3 text-sm">
+              <option value="">No plan</option>
+              {plans.map((p) => <option key={p.plan_id} value={p.plan_id}>{p.name}</option>)}
+            </select>
+          )}
           <div className="flex gap-2 items-center flex-wrap">
             <button
               data-testid="btn-active"
