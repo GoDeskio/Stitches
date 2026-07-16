@@ -187,7 +187,12 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - Post-deploy: enable LiveKit SFU / coturn TURN; configure SMTP to activate meeting-invite emails.
 - P3 (deferred): Resend as an alternative email provider (waiting on user's API key).
 - P3: Dropbox one-click OAuth (manual-token connector available now); authenticated Drive download stream.
-- Optional: extract a shared `services/` layer for email + livekit helpers to remove cross-router imports (meetings→smtp_config, rtc_config→sfu_config).
+- Optional: extract a shared `services/` layer (email + livekit helpers) to remove cross-router imports.  ✅ DONE 2026-06-25 (part 3)
+
+## Implemented (2026-06-25, part 3) — services layer + admin Automation activity
+- **Shared services layer**: extracted `backend/services/email.py` (`build_ics`, `send_meeting_email`, `get_smtp_cfg`, `get_user_smtp`, `_safe_port`) and `backend/services/livekit.py` (`get_livekit_cfg`). Routers `smtp_config`, `sfu_config`, `rtc_config`, `meetings` now import from services instead of importing each other — removes cross-router coupling. Behaviour-neutral (full regression passed).
+- **Admin "Automation activity" view**: new Admin tab (`admin-tab-automation`) + `GET /api/admin/integration-runs` (admin-only; 403 otherwise) showing every N8N workflow trigger & MCP tool call across the platform, enriched with owner_name / integration_name / type. Stat cards (Total/Succeeded/Failed), filter pills (all/succeeded/failed/N8N runs/MCP calls), and refresh. Turns the per-user run history into platform-wide observability.
+- Verified (iteration_27): backend 9/9 pytest + frontend 100%, zero issues.
 
 ## Implemented (2026-06-25) — per-user SMTP, clear-credentials, recurring meetings + week calendar
 - **Per-user SMTP sending**: meeting invites are sent from the host's own SMTP account when configured (`send_meeting_email(sender_user_id)` → personal SMTP → falls back to admin SMTP). New user Settings section "Send invites from your own email" (`my-smtp-section`) with save + **Clear credentials**; endpoints `GET/PUT/DELETE /api/me/smtp-config` (password Fernet-encrypted, port parse hardened via `_safe_port`).
