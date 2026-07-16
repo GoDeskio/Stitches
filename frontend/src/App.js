@@ -26,6 +26,7 @@ import Call from "@/pages/Call";
 import ProjectBoard from "@/pages/ProjectBoard";
 import Settings from "@/pages/Settings";
 import Admin from "@/pages/Admin";
+import VerifyEmail from "@/pages/VerifyEmail";
 import Tracker from "@/components/Tracker";
 
 function FullLoader() {
@@ -52,6 +53,7 @@ function AppRouter() {
       <Route path="/" element={<Home />} />
       <Route path="/login" element={<Login />} />
       <Route path="/qr-login/claim" element={<QrClaim />} />
+      <Route path="/verify-email" element={<VerifyEmail />} />
       <Route path="/call/:roomId" element={<Protected><Call /></Protected>} />
       <Route
         element={

@@ -115,6 +115,7 @@ def public_user(u: dict) -> dict:
     u = dict(u)
     u.pop("_id", None)
     u.pop("password_hash", None)
+    u["email_verified"] = u.get("email_verified", True)
     return u
 
 
@@ -189,7 +190,7 @@ def set_auth_cookie(response: Response, key: str, value: str, max_age: int):
 
 DEFAULT_FEATURES = {"chat": True, "projects": True, "assets": True,
                     "integrations": True, "ai_assistant": True, "friends": True}
-DEFAULT_NOTIF_PREFS = {"master": True, "workspace": True, "project": True, "friend": True, "security": True}
+DEFAULT_NOTIF_PREFS = {"master": True, "workspace": True, "project": True, "friend": True, "security": True, "email": True}
 DEFAULT_SEO = {"title": "Stitches — Where Ideas are Stitched together",
                "description": "A tactile neumorphic workspace for business & creative teams to chat, collaborate and share.",
                "keywords": "collaboration, workspace, chat, projects, teams, creative",
@@ -255,6 +256,21 @@ async def create_notification(user_id, ntype, title, body, link=""):
         "notification_id": f"ntf_{uuid.uuid4().hex[:12]}", "user_id": user_id,
         "type": ntype, "title": title, "body": body, "link": link,
         "read": False, "created_at": now_iso()})
+    # best-effort email delivery of the notification
+    if prefs.get("email", True) and glob.get("email", True):
+        try:
+            full = await db.users.find_one({"user_id": user_id}, {"_id": 0, "email": 1, "name": 1})
+            if full and full.get("email"):
+                from services.email import send_email_detailed
+                link_html = (f"<p style='margin:18px 0'><a href='{os.environ.get('FRONTEND_URL','').rstrip('/')}{link}' "
+                             f"style='color:#c0202e;font-weight:600;text-decoration:none'>Open in Stitches →</a></p>") if link else ""
+                html = (f"<div style='font-family:-apple-system,Segoe UI,sans-serif;max-width:520px;margin:0 auto;background:#f6f6f6;padding:28px'>"
+                        f"<h2 style='color:#c0202e;font-size:18px;margin:0 0 8px'>{title}</h2>"
+                        f"<p style='color:#333;font-size:14px'>{body}</p>{link_html}"
+                        f"<p style='color:#aaa;font-size:11px;margin-top:20px'>You're receiving this because notifications are on. Manage them in Settings → Notifications.</p></div>")
+                await send_email_detailed(full["email"], f"Stitches · {title}", html)
+        except Exception as e:
+            logger.warning(f"notification email failed: {e}")
 
 
 async def get_feature_flags():

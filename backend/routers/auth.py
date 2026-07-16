@@ -1,6 +1,7 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from core import *
 from core import _create_message, _notify_mentions, ws_manager, _fernet
+from services.email_verify import create_and_send_verification, verify_token
 from models import *
 
 router = APIRouter()
@@ -19,16 +20,41 @@ async def register(data: RegisterInput, response: Response, request: Request):
         "username": email.split("@")[0], "avatar": None, "phone": "", "address": "",
         "company": "", "company_role": "", "bio": "", "project_info": "",
         "theme": "dark", "ui_scale": 1.0, "auth_provider": "password",
-        "is_active": True, "friends": [],
+        "is_active": True, "email_verified": False, "friends": [],
         "created_at": now_iso(),
     }
     await db.users.insert_one(doc)
+    try:
+        await create_and_send_verification(user_id, email, data.name)
+    except Exception as e:
+        logger.warning(f"verification email failed: {e}")
     jti = uuid.uuid4().hex
     token = create_access_token(user_id, email, jti=jti)
     await record_session(user_id, jti, request)
     set_auth_cookie(response, "access_token", token, 604800)
     await log_activity(user_id, "register")
     return {"user": public_user(doc), "token": token}
+
+
+@router.get("/auth/verify-email")
+async def verify_email_get(token: str = Query(None)):
+    ok, message = await verify_token(token)
+    return {"ok": ok, "message": message}
+
+
+@router.post("/auth/verify-email")
+async def verify_email_post(request: Request):
+    body = await request.json()
+    ok, message = await verify_token((body or {}).get("token"))
+    return {"ok": ok, "message": message}
+
+
+@router.post("/auth/resend-verification")
+async def resend_verification(user: dict = Depends(get_current_user)):
+    if user.get("email_verified"):
+        return {"ok": True, "message": "Your email is already verified."}
+    ok, detail, _ = await create_and_send_verification(user["user_id"], user["email"], user.get("name", ""))
+    return {"ok": ok, "message": "Verification email sent." if ok else f"Could not send: {detail}"}
 
 
 @router.post("/auth/login")
@@ -81,7 +107,7 @@ async def google_session(request: Request, response: Response):
             "role": "user", "username": email.split("@")[0], "avatar": d.get("picture"),
             "phone": "", "address": "", "company": "", "company_role": "", "bio": "",
             "project_info": "", "theme": "dark", "ui_scale": 1.0, "auth_provider": "google",
-            "is_active": True, "friends": [],
+            "is_active": True, "email_verified": True, "friends": [],
             "created_at": now_iso(),
         }
         await db.users.insert_one(user)

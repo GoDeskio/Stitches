@@ -3,13 +3,14 @@ import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, MessagesSquare, FolderKanban, FolderOpen, Plug,
   Sparkles, User, Settings, Shield, LogOut, Menu, X, Sun, Moon, Users, Eye, StickyNote,
-  Activity, Download, Video,
+  Activity, Download, Video, MailWarning,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
 import { FeaturesProvider, useFeatures } from "@/context/FeaturesContext";
 import NotificationBell from "@/components/NotificationBell";
 import InstallPrompt from "@/components/InstallPrompt";
+import { toast } from "sonner";
 import api from "@/lib/api";
 
 const NAV = [
@@ -162,10 +163,38 @@ function LayoutInner() {
           <NotificationBell />
         </div>
         <div className="flex-1 overflow-y-auto">
+          <VerifyBanner />
           <Outlet />
         </div>
       </main>
       <InstallPrompt />
+    </div>
+  );
+}
+
+function VerifyBanner() {
+  const { user } = useAuth();
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  if (!user || user.email_verified !== false) return null;
+  const resend = async () => {
+    setSending(true);
+    try {
+      const { data } = await api.post("/auth/resend-verification");
+      setSent(true);
+      (data.ok ? toast.success : toast.error)(data.message);
+    } catch (e) { toast.error("Could not send verification email"); } finally { setSending(false); }
+  };
+  return (
+    <div data-testid="verify-email-banner" className="flex items-center justify-between gap-3 px-6 py-3 mx-4 mt-4 rounded-2xl text-sm neu-pressed" style={{ borderLeft: "3px solid var(--primary)" }}>
+      <span className="flex items-center gap-2" style={{ color: "var(--text)" }}>
+        <MailWarning className="w-4 h-4 text-primary-stitch shrink-0" />
+        Please verify your email <span className="font-semibold">{user.email}</span> to secure your account.
+      </span>
+      <button data-testid="resend-verification-btn" onClick={resend} disabled={sending || sent}
+        className="neu-btn rounded-xl px-4 py-2 text-sm font-semibold text-primary-stitch shrink-0">
+        {sent ? "Email sent ✓" : sending ? "Sending…" : "Resend email"}
+      </button>
     </div>
   );
 }

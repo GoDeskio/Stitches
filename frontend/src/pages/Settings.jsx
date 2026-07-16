@@ -16,7 +16,7 @@ export default function Settings() {
   });
   const [saving, setSaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [notif, setNotif] = useState({ master: true, workspace: true, project: true, friend: true, security: true, ...(user?.notification_prefs || {}) });
+  const [notif, setNotif] = useState({ master: true, workspace: true, project: true, friend: true, security: true, email: true, ...(user?.notification_prefs || {}) });
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const toggleNotif = (k) => setNotif((n) => ({ ...n, [k]: !n[k] }));
 
@@ -122,6 +122,7 @@ export default function Settings() {
             <NotifToggle label="Workspace invites" checked={notif.workspace} onToggle={() => toggleNotif("workspace")} testid="notif-workspace" disabled={!notif.master} />
             <NotifToggle label="Project invites" checked={notif.project} onToggle={() => toggleNotif("project")} testid="notif-project" disabled={!notif.master} />
             <NotifToggle label="New connections" checked={notif.friend} onToggle={() => toggleNotif("friend")} testid="notif-friend" disabled={!notif.master} />
+            <NotifToggle label="Also send notifications to my email" checked={notif.email} onToggle={() => toggleNotif("email")} testid="notif-email" disabled={!notif.master} />
             <div className="neu-pressed rounded-2xl p-4 flex items-center justify-between border" style={{ borderColor: "var(--primary)" }}>
               <div className="min-w-0 pr-3">
                 <span className="font-medium text-sm flex items-center gap-2" style={{ color: "var(--text)" }}><ShieldCheck className="w-4 h-4 text-primary-stitch" /> Security alerts</span>
