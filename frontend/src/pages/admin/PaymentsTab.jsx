@@ -133,6 +133,12 @@ export function PaymentsTab() {
               <p className="text-sm text-muted-stitch">Configure NMI keys to enable the card form.</p>
             )}
 
+            {config.configured && (
+              <p className="text-[11px] text-muted-stitch" data-testid="payments-init-hint">
+                If the card form shows “Failed to initialize”, your NMI keys need attention: verify a <span className="font-semibold">Tokenization</span> (public) key and an <span className="font-semibold">API</span> (private) key exist under Settings → Security Keys, attached to an active user.
+              </p>
+            )}
+
             <p className="text-[11px] text-muted-stitch flex items-center gap-1.5 justify-center"><ShieldCheck className="w-3.5 h-3.5" /> Card data is tokenized by NMI — it never touches this server.</p>
           </div>
         </div>

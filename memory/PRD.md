@@ -276,3 +276,11 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - **Downloads page** rebuilt with per-device install QR codes (`mobile-qr-android`, `mobile-qr-ios`, `desktop-qr`) + step-by-step add-to-home-screen instructions, alongside the existing Electron desktop client build section.
 - **QR cross-device login**: backend `POST /api/auth/qr/generate` (auth, 3-min single-use token via `qr_tokens` TTL index) + `POST /api/auth/qr/claim` (unauth, atomic find_one_and_update, issues JWT + cookie). Dashboard shows a "Log in on your phone" QR card (`QrLoginCard.jsx`, auto-refresh); scanning opens `/qr-login/claim?token=...` (`QrClaim.jsx`) which auto-signs-in the device and redirects to the dashboard. Continuity via shared backend + existing WebSockets.
 - Deps: `qrcode.react`. Verified (iteration_18): 5/5 backend + 100% frontend, zero bugs.
+
+## Implemented (2026-06-16) — Payments (NMI)
+- Admin → Payments tab with NMI v5 Payments API (backend `routers/payments.py`) + official Payment Component (`@nmipayments/nmi-pay-react`) frontend tokenization. Charge / transaction history / refund-void. Env keys in backend/.env: `NMI_API_BASE`, `NMI_TOKENIZATION_KEY`, `NMI_SECRET_KEY`, `NMI_CURRENCY`.
+- CRM forecast UI (Value inputs, weighted forecast, won/lost chart) verified stable.
+
+### P1 backlog / next
+- **[BLOCKED-on-user] NMI credentials invalid**: provided sandbox keys are rejected by NMI (public "API key not found"; private "Authenticated user is invalid"). Awaiting valid Tokenization (public) + API (private) keys attached to an active user, and confirmation of the gateway domain (Payment Component only targets secure.nmi.com; a reseller gateway needs classic Collect.js/Direct Post instead). Integration auto-activates once valid keys are in .env.
+- Decide what to charge for (subscriptions vs one-time) — user undecided; current tab is a generic "take a payment" admin tool.

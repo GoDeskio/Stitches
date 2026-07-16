@@ -90,3 +90,9 @@
 ## Earlier (prior session)
 - UI scale default 0.7 (slider min 0.55 / max 0.85, 70% centered) — confirmed already complete.
 - Per-user SMTP, Resend integration, Microsoft Clarity, click heatmap + reference overlay, Support inbox, N8N/MCP workflows, WebRTC/LiveKit conferencing, QR login, session management.
+
+## Implemented (2026-06-16) — NMI Payments (Admin → Payments tab)
+- **New Admin → Payments tab** (`src/pages/admin/PaymentsTab.jsx`): take-a-payment card (amount/email/description), recent-transactions list with status badges, and per-transaction refund/void. Stat cards: Collected, Successful sales, Failed, Refunds/voids.
+- **Frontend tokenization** via official NMI **Payment Component** (`@nmipayments/nmi-pay-react`, React 19 compatible) using the PUBLIC tokenization key; card data never touches our server. `onPay` returns the payment token to the backend.
+- **Backend** `routers/payments.py` uses NMI **v5 Payments API** (`{NMI_API_BASE}/payments/sale`, `Authorization: <private key>`), stores results in `payment_transactions`, exposes `GET /admin/payments/{config,stats,transactions}`, `POST /admin/payments/charge`, `POST /admin/payments/refund/{tx_id}` (refund→void fallback). Env: `NMI_API_BASE`, `NMI_TOKENIZATION_KEY`, `NMI_SECRET_KEY`, `NMI_CURRENCY`.
+- Status: code-complete & wired; backend endpoints verified via curl. **BLOCKED on valid NMI credentials** — the provided sandbox keys are rejected by NMI's own servers (public key: "Specified API key not found" 401; private key: "Authenticated user is invalid" 403), verified against secure.nmi.com AND sandbox.nmi.com. Not a code bug. Widget shows a graceful "Failed to initialize" + admin hint until valid Tokenization + API keys (attached to an active user) are supplied. Note: the new Payment Component only targets secure.nmi.com, so a reseller/white-label gateway would require a different (classic Collect.js/Direct Post) approach.
