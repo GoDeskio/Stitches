@@ -14,16 +14,22 @@ async def admin_get_notif_global(user: dict = Depends(require_admin)):
 
 # ---------------- Desktop release (downloads) ----------------
 _PLATFORM_EXT = {"windows": (".exe",), "macos": (".dmg",), "linux": (".appimage",)}
+_release_cache = {}
+_RELEASE_TTL = 300  # seconds
 
 
 @router.get("/downloads/release")
 async def downloads_release(user: dict = Depends(get_current_user)):
+    import time
     repo = await get_desktop_repo()
     result = {"repo": repo, "has_release": False, "tag": None,
               "releases_url": (f"https://github.com/{repo}/releases" if repo else ""),
               "assets": {"windows": None, "macos": None, "linux": None}}
     if not repo:
         return result
+    cached = _release_cache.get(repo)
+    if cached and (time.time() - cached[0]) < _RELEASE_TTL:
+        return cached[1]
     import httpx
     try:
         async with httpx.AsyncClient() as client:
@@ -42,6 +48,7 @@ async def downloads_release(user: dict = Depends(get_current_user)):
             result["has_release"] = any(result["assets"].values())
     except Exception:
         pass
+    _release_cache[repo] = (time.time(), result)
     return result
 
 
@@ -56,6 +63,7 @@ async def set_downloads_config(request: Request, user: dict = Depends(require_ad
     repo = (body or {}).get("repo", "").strip().strip("/")
     await db.settings.update_one({"key": "desktop_release"},
                                  {"$set": {"key": "desktop_release", "value": {"repo": repo}}}, upsert=True)
+    _release_cache.clear()
     return {"ok": True, "repo": repo}
 
 

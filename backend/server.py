@@ -56,6 +56,7 @@ async def startup():
     await db.users.create_index("email", unique=True)
     await db.users.create_index("user_id", unique=True)
     await db.user_sessions.create_index("session_token")
+    await db.messages.create_index([("channel_id", 1), ("created_at", 1)])
     await db.qr_tokens.create_index("token", unique=True)
     await db.qr_tokens.create_index("expires_at", expireAfterSeconds=0)
     admin_email = os.environ.get("ADMIN_EMAIL")

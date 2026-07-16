@@ -131,7 +131,12 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 ## Backlog / Next
 - P3 (deferred): **Email reminders via Resend** — playbook ready; waiting on user's Resend API key + verified sender.
 - P3: Dropbox one-click OAuth (already available as a manual-token connector on user + admin dashboards); authenticated Drive download stream.
-- P3: cache /api/downloads/release (GitHub API) with a short TTL; add (channel_id, created_at) index for message pagination; iOS "Add to Home Screen" inline hint in InstallPrompt.
+
+## Implemented (2026-06-24, part 3) — perf/polish
+- **GitHub release lookup cached** (5-min TTL, in-memory per repo; cache cleared when admin changes the repo) to avoid api.github.com rate limits.
+- **Message pagination index**: `messages` now has a compound `(channel_id, created_at)` index for fast cursor pagination at scale.
+- **iOS install hint**: `InstallPrompt` now also shows iPhone/iPad users (no `beforeinstallprompt`) a "tap Share → Add to Home Screen" hint when not already installed.
+- Verified via curl (cache 0.36s→0.11s) + index confirmed present; frontend compiles clean.
 
 ## Implemented (2026-06-24, part 2) — Downloads/CI, delete-avatar, pagination, install banner
 - **Desktop downloads wired to real releases**: `GET /api/downloads/release` resolves the latest GitHub release assets (win/.exe, mac/.dmg, linux/.AppImage) for an **admin-editable repo** (`Admin > Integrations > Desktop app releases`, settings key `desktop_release`, env fallback `DESKTOP_RELEASE_REPO`). Downloads buttons link to the matching asset, else the releases page, with a "no installers yet — push a v* tag" hint. CI workflow (`desktop-build.yml`) already publishes releases on `v*` tags.
