@@ -182,4 +182,19 @@ async def capture_lead(request: Request):
         "stage": "new", "source": (b.get("source") or "website").strip()[:60], "value": 0,
         "tags": [], "notes": [{"text": (b.get("message") or "").strip()[:2000], "author": "visitor", "created_at": now}] if b.get("message") else [],
         "user_id": None, "capture_ip": ip, "created_at": now, "updated_at": now})
+    # notify admins (best-effort)
+    try:
+        from services.email import send_email_detailed
+        admins = await db.users.find({"role": "admin"}, {"_id": 0, "email": 1}).to_list(20)
+        html = (f"<div style='font-family:-apple-system,Segoe UI,sans-serif;max-width:520px;margin:0 auto;background:#f6f6f6;padding:24px'>"
+                f"<h2 style='color:#c0202e;font-size:18px;margin:0 0 8px'>New lead captured</h2>"
+                f"<p style='font-size:14px;color:#333'><b>{(b.get('name') or 'Someone')}</b> ({email})"
+                f"{(' · ' + b['company']) if b.get('company') else ''} requested a demo.</p>"
+                f"{('<p style=font-size:13px;color:#555>“' + b['message'][:400] + '”</p>') if b.get('message') else ''}"
+                f"<p style='font-size:12px;color:#999'>View them in Admin → CRM.</p></div>")
+        for a in admins:
+            if a.get("email"):
+                await send_email_detailed(a["email"], f"New lead: {b.get('name') or email}", html)
+    except Exception:
+        pass
     return {"ok": True}

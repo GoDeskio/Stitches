@@ -1,5 +1,10 @@
 # Stitches Changelog
 
+## 2026-06 — Landing lead-capture CTA + Admin.jsx refactor
+- **Landing page**: "Request a demo" CTA + glass modal (name/email/company/message) posts to public `POST /api/leads`, flowing real visitors into the CRM funnel. On capture, admins are emailed (best-effort) via the delivery pipeline.
+- **Refactor**: split the 1970-line `Admin.jsx` → extracted `src/pages/admin/CrmTab.jsx` (197 lines) and `src/pages/admin/EmailTab.jsx` (526 lines); Admin.jsx now 1262 lines. Verified no regressions (all admin tabs render).
+- Verified: demo modal + CTA render, lead capture works, CRM/Email tabs intact post-refactor.
+
 ## 2026-06 — Full CRM + dedicated Email tab
 - **Email tab split**: email management (setup wizard, delivery analytics, test email, digest) moved into its own admin **Email** tab; Site Note tab keeps announcement/support/clarity/require-verification.
 - **CRM** (`routers/crm.py`, admin "CRM" tab): visitor→lead→user funnel with conversion rates, contacts list (filter by type/stage, search, pagination), lead CRUD, pipeline stages (new/contacted/qualified/proposal/won/lost), notes timeline, `sync-users` (idempotent import of registered users), and a **public `POST /api/leads`** capture endpoint with per-IP rate limiting (5/10min → 429).
