@@ -1,5 +1,12 @@
 # Stitches Changelog
 
+## 2026-06 — Mailgun webhooks, delivery analytics & easier setup
+- **Webhook receiver** `POST /api/webhooks/mailgun` — HMAC-SHA256 signature verified against the stored webhook signing key (406 on bad sig). Records events to `email_events`; bounced/complained → auto-added to `suppressed_emails`.
+- **Suppression guard**: `send_email_detailed` skips suppressed recipients (returns clear detail).
+- **Analytics**: `GET /api/admin/email-events` (delivered/opened/bounced counts, delivery+open rates, recent events, suppressed list, webhook URL) + `POST /api/admin/email-events/unsuppress`.
+- **Admin UI**: "Email delivery" card (live stats, suppressed list with Restore) + webhook signing key field + copyable **Webhook URL**. Added `CopyRow` copy-to-clipboard for the Mailgun webhook URL and the Gmail OAuth redirect URI (easier external-account setup).
+- Verified via curl: valid signed webhook records delivered, bounce auto-suppresses; UI renders stats + suppressed row + Restore.
+
 ## 2026-06 — Mailgun email provider (admin + per-user)
 - New **Mailgun** send path (`services/mailgun.py`): HTTP API via httpx, US/EU region, HTML + .ics attachments, API key stored **encrypted** (Fernet). Config lives in DB (dashboard-entered, no .env).
 - Provider abstraction (`services/email.py`): added `mailgun` to the order (`mailgun→gmail_sa→gmail→smtp`, Resend fallback off). Per-user sends now try personal Mailgun → personal SMTP first.

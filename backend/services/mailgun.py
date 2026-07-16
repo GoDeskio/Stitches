@@ -25,9 +25,11 @@ async def get_mailgun_admin(reveal=False):
     doc = await db.settings.find_one({"key": "mailgun_config"})
     val = (doc or {}).get("value", {})
     api_key = _dec(val.get("api_key_enc"))
+    wh = _dec(val.get("webhook_key_enc"))
     return {"enabled": bool(val.get("enabled")), "domain": val.get("domain", ""),
             "region": val.get("region", "US"), "sender": val.get("sender", ""),
-            "api_key": api_key if reveal else "", "has_api_key": bool(api_key)}
+            "api_key": api_key if reveal else "", "has_api_key": bool(api_key),
+            "webhook_signing_key": wh if reveal else "", "has_webhook_key": bool(wh)}
 
 
 async def save_mailgun_admin(body: dict):
@@ -35,9 +37,11 @@ async def save_mailgun_admin(body: dict):
     prev = (existing or {}).get("value", {})
     api_key = body.get("api_key", "")
     enc = _enc(api_key) if api_key else prev.get("api_key_enc", "")
+    wh = body.get("webhook_signing_key", "")
+    wh_enc = _enc(wh) if wh else prev.get("webhook_key_enc", "")
     val = {"enabled": bool(body.get("enabled", True)), "domain": (body.get("domain") or "").strip(),
            "region": (body.get("region") or "US").strip().upper(), "sender": (body.get("sender") or "").strip(),
-           "api_key_enc": enc}
+           "api_key_enc": enc, "webhook_key_enc": wh_enc}
     await db.settings.update_one({"key": "mailgun_config"}, {"$set": {"key": "mailgun_config", "value": val}}, upsert=True)
 
 
@@ -90,3 +94,61 @@ async def send_via_mailgun(cfg, to_email, subject, html, ics=None, sender=None):
         r = await client.post(url, auth=("api", cfg["api_key"]), data=data, files=files)
     if r.status_code != 200:
         raise RuntimeError(f"Mailgun {r.status_code}: {r.text[:200]}")
+
+
+# ---------------- Webhooks / delivery analytics ----------------
+import hashlib
+import hmac
+from datetime import datetime, timezone
+
+_BOUNCE_EVENTS = {"failed", "bounced", "complained", "rejected"}
+
+
+async def verify_webhook(timestamp: str, token: str, signature: str) -> bool:
+    cfg = await get_mailgun_admin(reveal=True)
+    key = cfg.get("webhook_signing_key")
+    if not key or not timestamp or not token or not signature:
+        return False
+    computed = hmac.new(key.encode(), f"{timestamp}{token}".encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(computed, signature)
+
+
+async def record_email_event(event: str, recipient: str, reason: str = ""):
+    await db.email_events.insert_one({
+        "event": event, "recipient": (recipient or "").lower(), "reason": (reason or "")[:300],
+        "created_at": datetime.now(timezone.utc)})
+    if event in _BOUNCE_EVENTS and recipient:
+        await db.suppressed_emails.update_one(
+            {"email": recipient.lower()},
+            {"$set": {"email": recipient.lower(), "reason": event, "detail": (reason or "")[:200],
+                      "created_at": datetime.now(timezone.utc)}}, upsert=True)
+
+
+async def is_suppressed(email: str) -> bool:
+    return bool(await db.suppressed_emails.find_one({"email": (email or "").lower()}))
+
+
+async def get_email_events_summary(limit=25):
+    counts = {}
+    for e in ("delivered", "opened", "clicked", "failed", "bounced", "complained"):
+        counts[e] = await db.email_events.count_documents({"event": e})
+    delivered = counts.get("delivered", 0)
+    opened = counts.get("opened", 0)
+    bounced = counts.get("failed", 0) + counts.get("bounced", 0) + counts.get("complained", 0)
+    recent = await db.email_events.find({}, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    for r in recent:
+        if isinstance(r.get("created_at"), datetime):
+            r["created_at"] = r["created_at"].isoformat()
+    suppressed = await db.suppressed_emails.find({}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    for s in suppressed:
+        if isinstance(s.get("created_at"), datetime):
+            s["created_at"] = s["created_at"].isoformat()
+    total = delivered + bounced
+    return {"counts": counts, "delivered": delivered, "opened": opened, "bounced": bounced,
+            "delivery_rate": round(delivered * 100 / total) if total else 0,
+            "open_rate": round(opened * 100 / delivered) if delivered else 0,
+            "recent": recent, "suppressed": suppressed}
+
+
+async def unsuppress(email: str):
+    await db.suppressed_emails.delete_one({"email": (email or "").lower()})

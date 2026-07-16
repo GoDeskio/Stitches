@@ -940,6 +940,8 @@ function SiteNoteTab() {
 
       <EmailSetupWizard />
 
+      <EmailAnalyticsCard />
+
       <TestEmailCard />
 
       <DigestCard />
@@ -967,6 +969,73 @@ function SiteNoteTab() {
 }
 
 const DOW = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+function CopyRow({ value, testid }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(value); setCopied(true); toast.success("Copied"); setTimeout(() => setCopied(false), 1500); }
+    catch (e) { toast.error("Copy failed"); }
+  };
+  return (
+    <div className="neu-pressed rounded-xl flex items-center gap-2 pl-3 pr-1.5 py-1.5 mt-1">
+      <span data-testid={testid} className="font-mono-stitch text-xs break-all flex-1" style={{ color: "var(--text)" }}>{value}</span>
+      <button data-testid={`${testid}-copy`} onClick={copy} className="neu-btn rounded-lg px-3 py-1.5 text-xs font-semibold text-primary-stitch shrink-0">{copied ? "Copied ✓" : "Copy"}</button>
+    </div>
+  );
+}
+
+function EmailAnalyticsCard() {
+  const [data, setData] = useState(null);
+  const load = () => api.get("/admin/email-events").then(({ data }) => setData(data)).catch(() => {});
+  useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, []);
+  const unsuppress = async (email) => {
+    try { await api.post("/admin/email-events/unsuppress", { email }); toast.success("Removed from suppression"); load(); }
+    catch (e) { toast.error("Failed"); }
+  };
+  if (!data) return null;
+  const stat = (label, val, sub) => (
+    <div className="neu-pressed rounded-2xl p-4 text-center">
+      <p className="text-2xl font-head font-bold" style={{ color: "var(--text)" }}>{val}</p>
+      <p className="text-xs text-muted-stitch mt-1">{label}{sub ? ` · ${sub}` : ""}</p>
+    </div>
+  );
+  return (
+    <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="email-analytics-card">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center"><Activity className="w-5 h-5 text-primary-stitch" /></div>
+        <div>
+          <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Email delivery</h3>
+          <p className="text-sm text-muted-stitch">Live stats from Mailgun webhooks. Bounced/complained addresses are auto-suppressed.</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {stat("Delivered", data.delivered, `${data.delivery_rate}%`)}
+        {stat("Opened", data.opened, `${data.open_rate}%`)}
+        {stat("Bounced", data.bounced)}
+        {stat("Suppressed", (data.suppressed || []).length)}
+      </div>
+      {(data.suppressed || []).length > 0 && (
+        <div className="mt-4">
+          <p className="text-xs font-semibold text-muted-stitch mb-2">Suppressed addresses</p>
+          <div className="space-y-2 max-h-52 overflow-y-auto">
+            {data.suppressed.map((s, i) => (
+              <div key={i} data-testid="suppressed-row" className="neu-pressed rounded-2xl px-4 py-2.5 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate" style={{ color: "var(--text)" }}>{s.email}</p>
+                  <p className="text-xs text-muted-stitch truncate">{s.reason}{s.detail ? ` · ${s.detail}` : ""}</p>
+                </div>
+                <button data-testid="unsuppress-btn" onClick={() => unsuppress(s.email)} className="neu-btn rounded-lg px-3 py-1.5 text-xs font-semibold text-primary-stitch shrink-0">Restore</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {data.recent && data.recent.length > 0 && (
+        <p className="text-xs text-muted-stitch mt-4">Last event: {data.recent[0].event} → {data.recent[0].recipient} ({new Date(data.recent[0].created_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })})</p>
+      )}
+    </div>
+  );
+}
 
 function EmailSetupWizard() {
   const [cfg, setCfg] = useState(null);
@@ -1025,7 +1094,7 @@ function EmailSetupWizard() {
   const saveMg = async () => {
     setSavingMg(true);
     try {
-      await api.put("/admin/mailgun-config", { enabled: true, domain: mg.domain, region: mg.region, sender: mg.sender, api_key: mg.api_key || "" });
+      await api.put("/admin/mailgun-config", { enabled: true, domain: mg.domain, region: mg.region, sender: mg.sender, api_key: mg.api_key || "", webhook_signing_key: mg.webhook_signing_key || "" });
       toast.success("Mailgun saved");
       load();
     } catch (e) { toast.error("Save failed"); } finally { setSavingMg(false); }
@@ -1059,6 +1128,7 @@ function EmailSetupWizard() {
   const g = cfg.gmail || {};
   const sa = cfg.gmail_sa || {};
   const mgStatus = cfg.mailgun || {};
+  const webhookUrl = `${process.env.REACT_APP_BACKEND_URL}/api/webhooks/mailgun`;
   const providerBtn = (id, label, sub) => (
     <button data-testid={`email-provider-${id}`} onClick={() => setCfg({ ...cfg, provider: id })}
       className={`flex-1 text-left rounded-2xl p-4 transition-all ${cfg.provider === id ? "neu-primary" : "neu-pressed"}`}>
@@ -1097,9 +1167,14 @@ function EmailSetupWizard() {
             </select>
             <input data-testid="mailgun-apikey" type="password" value={mg.api_key} onChange={(e) => setMg({ ...mg, api_key: e.target.value })} placeholder={mg.has_api_key ? "•••••• (saved)" : "Mailgun API key"} className="neu-input rounded-2xl py-3 px-4 text-sm" />
             <input data-testid="mailgun-sender" value={mg.sender} onChange={(e) => setMg({ ...mg, sender: e.target.value })} placeholder="noreply@mg.yourdomain.com" className="neu-input rounded-2xl py-3 px-4 text-sm" />
+            <input data-testid="mailgun-webhook-key" type="password" value={mg.webhook_signing_key || ""} onChange={(e) => setMg({ ...mg, webhook_signing_key: e.target.value })} placeholder={mgStatus.has_webhook_key ? "•••••• webhook key (saved)" : "Webhook signing key (optional — for delivery tracking)"} className="neu-input rounded-2xl py-3 px-4 text-sm sm:col-span-2" />
           </div>
           <button data-testid="save-mailgun-btn" onClick={saveMg} disabled={savingMg} className="neu-primary rounded-2xl px-6 py-3 font-semibold mt-4">{savingMg ? "Saving…" : "Save Mailgun"}</button>
-          <p className="text-xs text-muted-stitch mt-3">Get these from Mailgun → Sending → Domains → Domain settings → Sending API keys. Sandbox domains only send to authorized recipients.</p>
+          <div className="mt-4">
+            <label className="text-xs font-semibold text-muted-stitch">Webhook URL (paste into Mailgun → Webhooks)</label>
+            <CopyRow value={webhookUrl} testid="mailgun-webhook-url" />
+          </div>
+          <p className="text-xs text-muted-stitch mt-3">Get API key + domain at Mailgun → Sending → Domains → Domain settings. Add the webhook URL under Sending → Webhooks (delivered, opened, permanent failure, complained) to see delivery stats below. Sandbox domains only send to authorized recipients.</p>
         </div>
       ) : cfg.provider === "gmail_sa" ? (
         <div className="neu-pressed rounded-2xl p-4" data-testid="gmail-sa-config">
@@ -1130,7 +1205,8 @@ function EmailSetupWizard() {
             <div>
               <p className="text-sm text-muted-stitch mb-3">Authorize a Google account so Stitches can send email on your behalf.</p>
               <button data-testid="gmail-connect-btn" onClick={connectGmail} disabled={connecting} className="neu-primary rounded-2xl px-6 py-3 font-semibold">{connecting ? "Redirecting…" : "Connect Google account"}</button>
-              <p className="text-xs text-muted-stitch mt-3">Add this redirect URI in Google Cloud → Credentials: <span className="font-mono-stitch break-all">{g.redirect_uri}</span></p>
+              <p className="text-xs text-muted-stitch mt-3">Add this redirect URI in Google Cloud → Credentials:</p>
+              <CopyRow value={g.redirect_uri} testid="gmail-redirect-uri" />
             </div>
           )}
         </div>

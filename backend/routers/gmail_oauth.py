@@ -6,7 +6,8 @@ from services.gmail import (get_gmail_status, gmail_authorize_url, gmail_exchang
                             disconnect_gmail, save_service_account, get_service_account_status,
                             disconnect_service_account)
 from services.mailgun import (get_mailgun_admin, save_mailgun_admin, disconnect_mailgun_admin,
-                              get_mailgun_user, save_mailgun_user, clear_mailgun_user)
+                              get_mailgun_user, save_mailgun_user, clear_mailgun_user,
+                              verify_webhook, record_email_event, get_email_events_summary, unsuppress)
 from core import get_current_user
 from services.email import get_email_provider_cfg, get_smtp_cfg, get_email_health
 
@@ -23,7 +24,8 @@ async def admin_get_email_provider(user: dict = Depends(require_admin)):
     return {"provider": cfg["provider"], "sender": cfg["sender"], "resend_fallback": cfg["resend_fallback"],
             "gmail": gmail, "gmail_sa": sa,
             "mailgun": {"configured": bool(mg["domain"] and mg["has_api_key"]), "domain": mg["domain"],
-                        "region": mg["region"], "sender": mg["sender"], "has_api_key": mg["has_api_key"]},
+                        "region": mg["region"], "sender": mg["sender"], "has_api_key": mg["has_api_key"],
+                        "has_webhook_key": mg["has_webhook_key"]},
             "smtp": {"configured": bool(smtp["host"] and smtp["username"] and smtp["password"]),
                      "enabled": smtp["enabled"], "from_address": smtp["from_address"]},
             "resend_available": bool(os.environ.get("RESEND_API_KEY") and os.environ.get("SENDER_EMAIL"))}
@@ -102,6 +104,37 @@ async def admin_disconnect_service_account(user: dict = Depends(require_admin)):
 @router.get("/admin/email-health")
 async def admin_email_health(user: dict = Depends(require_admin)):
     return await get_email_health()
+
+
+@router.get("/admin/email-events")
+async def admin_email_events(user: dict = Depends(require_admin)):
+    summary = await get_email_events_summary()
+    frontend = os.environ.get("FRONTEND_URL", "").rstrip("/")
+    summary["webhook_url"] = f"{frontend}/api/webhooks/mailgun"
+    return summary
+
+
+@router.post("/admin/email-events/unsuppress")
+async def admin_unsuppress(request: Request, user: dict = Depends(require_admin)):
+    body = await request.json()
+    await unsuppress((body or {}).get("email", ""))
+    return {"ok": True}
+
+
+@router.post("/webhooks/mailgun")
+async def mailgun_webhook(request: Request):
+    body = await request.json()
+    sig = (body or {}).get("signature", {}) or {}
+    ok = await verify_webhook(sig.get("timestamp", ""), sig.get("token", ""), sig.get("signature", ""))
+    if not ok:
+        raise HTTPException(status_code=406, detail="Invalid signature")
+    ed = (body or {}).get("event-data", {}) or {}
+    event = ed.get("event", "")
+    recipient = ed.get("recipient", "")
+    reason = ed.get("reason", "") or (ed.get("delivery-status", {}) or {}).get("message", "")
+    if event:
+        await record_email_event(event, recipient, reason)
+    return {"ok": True}
 
 
 @router.get("/admin/gmail/authorize")

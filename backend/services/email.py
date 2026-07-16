@@ -113,6 +113,15 @@ async def get_email_health():
 
 async def send_email_detailed(to_email, subject, html, ics=None, sender_user_id=None):
     from core import now_iso
+    from services.mailgun import is_suppressed
+    if await is_suppressed(to_email):
+        detail = "Recipient suppressed (previous bounce/complaint)"
+        try:
+            await db.settings.update_one({"key": "email_last_send"},
+                                         {"$set": {"key": "email_last_send", "value": {"ok": False, "detail": detail, "to": to_email, "at": now_iso()}}}, upsert=True)
+        except Exception:
+            pass
+        return False, detail
     ok, detail = await _send_email_impl(to_email, subject, html, ics, sender_user_id)
     try:
         await db.settings.update_one({"key": "email_last_send"},
