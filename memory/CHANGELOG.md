@@ -1,5 +1,11 @@
 # Stitches Changelog
 
+## 2026-06 — Digest: Send History Log
+- `services/digest.py`: `_log_send` records every send to `digest_sends`; `get_digest_history` returns last 20. All send paths (scheduled/send-now/send-report) now log kind, recipient, ok, detail, timestamp.
+- Endpoint: `GET /api/admin/digest/history`.
+- `Admin.jsx` DigestCard: scrollable "Send history" list with kind, recipient, time, detail and Sent/Failed pill; refreshes after each send.
+- Verified via curl (rows logged for report + digest) and UI screenshot.
+
 ## 2026-06 — Digest: Full Report, Preview & Last-sent
 - `services/digest.py`: `_collect` now supports `full=True` (all-time, no window); added `send_report_now` and `render_digest` (preview HTML).
 - Endpoints: `POST /api/admin/digest/send-report`, `GET /api/admin/digest/preview?frequency=&full=`.

@@ -934,10 +934,14 @@ function DigestCard() {
   const [result, setResult] = useState(null);
   const [preview, setPreview] = useState(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
+  const [history, setHistory] = useState([]);
+
+  const loadHistory = () => api.get("/admin/digest/history").then(({ data }) => setHistory(data.history || [])).catch(() => {});
 
   useEffect(() => {
     api.get("/admin/digest-config").then(({ data }) => setCfg(data))
       .catch(() => setCfg({ enabled: false, frequency: "weekly", day_of_week: 0, day_of_month: 1, hour: 9, recipient: "admin@godesk.io", last_sent: "" }));
+    loadHistory();
   }, []);
 
   const save = async () => {
@@ -954,6 +958,7 @@ function DigestCard() {
     try {
       const { data } = await api.post("/admin/digest/send-now", { frequency: cfg.frequency, recipient: cfg.recipient });
       setResult(data);
+      loadHistory();
       toast[data.ok ? "success" : "error"](data.ok ? "Digest sent" : "Send failed");
     } catch (e) { toast.error("Request failed"); } finally { setSending(false); }
   };
@@ -963,6 +968,7 @@ function DigestCard() {
     try {
       const { data } = await api.post("/admin/digest/send-report", { recipient: cfg.recipient });
       setResult(data);
+      loadHistory();
       toast[data.ok ? "success" : "error"](data.ok ? "Full report sent" : "Send failed");
     } catch (e) { toast.error("Request failed"); } finally { setReporting(false); }
   };
@@ -1050,6 +1056,27 @@ function DigestCard() {
       {result && (
         <div data-testid="digest-result" className={`neu-pressed rounded-2xl p-4 mt-4 text-sm ${result.ok ? "text-green-500" : "text-red-400"}`}>
           {result.ok ? "✓ " : "✕ "}{result.detail}
+        </div>
+      )}
+
+      {history.length > 0 && (
+        <div className="mt-5" data-testid="digest-history">
+          <p className="text-xs font-semibold text-muted-stitch mb-2">Send history</p>
+          <div className="space-y-2 max-h-60 overflow-y-auto">
+            {history.map((h, i) => (
+              <div key={i} data-testid="digest-history-row" className="neu-pressed rounded-2xl px-4 py-2.5 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate" style={{ color: "var(--text)" }}>
+                    <span className="text-xs uppercase tracking-wide text-muted-stitch mr-2">{h.kind}</span>{h.recipient}
+                  </p>
+                  <p className="text-xs text-muted-stitch truncate">{new Date(h.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} · {h.detail}</p>
+                </div>
+                <span className={`text-xs font-bold px-2.5 py-1 rounded-full shrink-0 ${h.ok ? "text-green-500" : "text-red-400"}`} style={{ background: "var(--neu-dark)" }}>
+                  {h.ok ? "Sent" : "Failed"}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

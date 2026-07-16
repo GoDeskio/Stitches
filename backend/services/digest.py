@@ -117,7 +117,20 @@ def build_digest_html(frequency: str, data: dict):
             f"</div>")
 
 
-async def send_digest_now(frequency: str = None, recipient: str = None):
+async def _log_send(kind: str, recipient: str, ok: bool, detail: str):
+    try:
+        await db.digest_sends.insert_one({
+            "kind": kind, "recipient": recipient, "ok": bool(ok),
+            "detail": (detail or "")[:300], "created_at": now_iso()})
+    except Exception as e:
+        logger.warning(f"digest log failed: {e}")
+
+
+async def get_digest_history(limit: int = 20):
+    return await db.digest_sends.find({}, {"_id": 0}).sort("created_at", -1).to_list(max(1, min(limit, 100)))
+
+
+async def send_digest_now(frequency: str = None, recipient: str = None, kind: str = "manual"):
     cfg = await get_digest_config()
     freq = frequency or cfg.get("frequency", "weekly")
     to = (recipient or cfg.get("recipient") or "").strip()
@@ -126,7 +139,9 @@ async def send_digest_now(frequency: str = None, recipient: str = None):
     data = await _collect(freq)
     html = build_digest_html(freq, data)
     subject = f"Stitches {_FREQ_LABEL.get(freq, 'Weekly')} Digest — {datetime.now(timezone.utc).strftime('%b %d')}"
-    return await send_email_detailed(to, subject, html)
+    ok, detail = await send_email_detailed(to, subject, html)
+    await _log_send(f"digest:{freq}" if kind != "scheduled" else f"scheduled:{freq}", to, ok, detail)
+    return ok, detail
 
 
 async def send_report_now(recipient: str = None):
@@ -137,7 +152,9 @@ async def send_report_now(recipient: str = None):
     data = await _collect("full", full=True)
     html = build_digest_html("full", data)
     subject = f"Stitches Full Report — {datetime.now(timezone.utc).strftime('%b %d, %Y')}"
-    return await send_email_detailed(to, subject, html)
+    ok, detail = await send_email_detailed(to, subject, html)
+    await _log_send("report", to, ok, detail)
+    return ok, detail
 
 
 async def render_digest(frequency: str = "weekly", full: bool = False):
@@ -166,6 +183,6 @@ async def scan_digest():
     now = datetime.now(timezone.utc)
     if not _is_due(cfg, now):
         return
-    ok, detail = await send_digest_now(cfg.get("frequency"), cfg.get("recipient"))
+    ok, detail = await send_digest_now(cfg.get("frequency"), cfg.get("recipient"), kind="scheduled")
     await save_digest_config({"last_sent": now_iso()})
     logger.info(f"digest sent ok={ok} detail={detail}")

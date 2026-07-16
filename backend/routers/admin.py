@@ -3,7 +3,7 @@ from core import *
 from core import _create_message, _notify_mentions, ws_manager, _fernet
 from services.site import get_site_config
 from services.email import send_email_detailed
-from services.digest import get_digest_config, save_digest_config, send_digest_now, send_report_now, render_digest
+from services.digest import get_digest_config, save_digest_config, send_digest_now, send_report_now, render_digest, get_digest_history
 from models import *
 
 router = APIRouter()
@@ -434,6 +434,11 @@ async def admin_digest_preview(frequency: str = "weekly", full: bool = False,
     freq = frequency if frequency in ("daily", "weekly", "monthly") else "weekly"
     html = await render_digest(freq, full=bool(full))
     return {"html": html}
+
+
+@router.get("/admin/digest/history")
+async def admin_digest_history(user: dict = Depends(require_admin)):
+    return {"history": await get_digest_history(20)}
 
 
 @router.get("/admin/heatmap/trend")
