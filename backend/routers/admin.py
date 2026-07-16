@@ -3,6 +3,7 @@ from core import *
 from core import _create_message, _notify_mentions, ws_manager, _fernet
 from services.site import get_site_config
 from services.email import send_email_detailed
+from services.digest import get_digest_config, save_digest_config, send_digest_now
 from models import *
 
 router = APIRouter()
@@ -385,6 +386,39 @@ async def admin_test_email(request: Request, user: dict = Depends(require_admin)
             "<p>If you're reading this, your email delivery is working. 🎉</p></div>")
     ok, detail = await send_email_detailed(to, "Stitches test email", html)
     return {"ok": ok, "detail": detail, "to": to}
+
+
+# ---------------- Weekly / scheduled admin digest email ----------------
+@router.get("/admin/digest-config")
+async def admin_get_digest(user: dict = Depends(require_admin)):
+    return await get_digest_config()
+
+
+@router.put("/admin/digest-config")
+async def admin_set_digest(request: Request, user: dict = Depends(require_admin)):
+    body = await request.json()
+    patch = {}
+    if "enabled" in body:
+        patch["enabled"] = bool(body.get("enabled"))
+    if body.get("frequency") in ("daily", "weekly", "monthly"):
+        patch["frequency"] = body["frequency"]
+    if "day_of_week" in body:
+        patch["day_of_week"] = max(0, min(6, int(body.get("day_of_week") or 0)))
+    if "day_of_month" in body:
+        patch["day_of_month"] = max(1, min(28, int(body.get("day_of_month") or 1)))
+    if "hour" in body:
+        patch["hour"] = max(0, min(23, int(body.get("hour") or 0)))
+    if "recipient" in body:
+        patch["recipient"] = (body.get("recipient") or "").strip()[:200]
+    cfg = await save_digest_config(patch)
+    return cfg
+
+
+@router.post("/admin/digest/send-now")
+async def admin_send_digest_now(request: Request, user: dict = Depends(require_admin)):
+    body = await request.json() if request.headers.get("content-length") else {}
+    ok, detail = await send_digest_now(body.get("frequency"), body.get("recipient"))
+    return {"ok": ok, "detail": detail}
 
 
 @router.get("/admin/heatmap/trend")

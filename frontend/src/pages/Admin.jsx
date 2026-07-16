@@ -917,7 +917,110 @@ function SiteNoteTab() {
 
       <TestEmailCard />
 
+      <DigestCard />
+
       <button data-testid="save-sitenote-btn" onClick={save} disabled={saving} className="neu-primary rounded-2xl px-6 py-3 font-semibold">{saving ? "Saving…" : "Save site settings"}</button>
+    </div>
+  );
+}
+
+const DOW = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+function DigestCard() {
+  const [cfg, setCfg] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState(null);
+
+  useEffect(() => {
+    api.get("/admin/digest-config").then(({ data }) => setCfg(data))
+      .catch(() => setCfg({ enabled: false, frequency: "weekly", day_of_week: 0, day_of_month: 1, hour: 9, recipient: "admin@godesk.io" }));
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const { data } = await api.put("/admin/digest-config", cfg);
+      setCfg(data);
+      toast.success("Digest schedule saved");
+    } catch (e) { toast.error("Save failed"); } finally { setSaving(false); }
+  };
+
+  const sendNow = async () => {
+    setSending(true); setResult(null);
+    try {
+      const { data } = await api.post("/admin/digest/send-now", { frequency: cfg.frequency, recipient: cfg.recipient });
+      setResult(data);
+      toast[data.ok ? "success" : "error"](data.ok ? "Digest sent" : "Send failed");
+    } catch (e) { toast.error("Request failed"); } finally { setSending(false); }
+  };
+
+  if (!cfg) return null;
+  const sel = "neu-input rounded-2xl py-3 px-4 text-sm";
+  return (
+    <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="digest-card">
+      <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center"><Mail className="w-5 h-5 text-primary-stitch" /></div>
+          <div>
+            <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Scheduled digest email</h3>
+            <p className="text-sm text-muted-stitch">Automated summary: new signups, open support requests, top pages and automation health.</p>
+          </div>
+        </div>
+        <button data-testid="digest-enabled-toggle" onClick={() => setCfg({ ...cfg, enabled: !cfg.enabled })}
+          className={`w-14 h-8 rounded-full flex items-center px-1 transition-all shrink-0 ${cfg.enabled ? "justify-end" : "justify-start"}`}
+          style={{ background: cfg.enabled ? "var(--primary)" : "var(--neu-dark)" }}>
+          <span className="w-6 h-6 rounded-full bg-white shadow" />
+        </button>
+      </div>
+
+      <div className="grid sm:grid-cols-3 gap-3 mt-4">
+        <div>
+          <label className="text-xs font-semibold text-muted-stitch">Frequency</label>
+          <select data-testid="digest-frequency" value={cfg.frequency} onChange={(e) => setCfg({ ...cfg, frequency: e.target.value })} className={`${sel} w-full mt-1`}>
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+          </select>
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-muted-stitch">
+            {cfg.frequency === "weekly" ? "Day of week" : cfg.frequency === "monthly" ? "Day of month" : "Day"}
+          </label>
+          {cfg.frequency === "weekly" ? (
+            <select data-testid="digest-day-week" value={cfg.day_of_week} onChange={(e) => setCfg({ ...cfg, day_of_week: parseInt(e.target.value) })} className={`${sel} w-full mt-1`}>
+              {DOW.map((d, i) => <option key={i} value={i}>{d}</option>)}
+            </select>
+          ) : cfg.frequency === "monthly" ? (
+            <select data-testid="digest-day-month" value={cfg.day_of_month} onChange={(e) => setCfg({ ...cfg, day_of_month: parseInt(e.target.value) })} className={`${sel} w-full mt-1`}>
+              {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+          ) : (
+            <select disabled className={`${sel} w-full mt-1 opacity-50`}><option>Every day</option></select>
+          )}
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-muted-stitch">Time (UTC)</label>
+          <select data-testid="digest-hour" value={cfg.hour} onChange={(e) => setCfg({ ...cfg, hour: parseInt(e.target.value) })} className={`${sel} w-full mt-1`}>
+            {Array.from({ length: 24 }, (_, i) => i).map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="mt-3">
+        <label className="text-xs font-semibold text-muted-stitch">Recipient email</label>
+        <input data-testid="digest-recipient" value={cfg.recipient} onChange={(e) => setCfg({ ...cfg, recipient: e.target.value })} placeholder="admin@godesk.io" className={`${sel} w-full mt-1`} />
+      </div>
+
+      <div className="mt-4 flex items-center gap-3 flex-wrap">
+        <button data-testid="save-digest-btn" onClick={save} disabled={saving} className="neu-primary rounded-2xl px-6 py-3 font-semibold">{saving ? "Saving…" : "Save schedule"}</button>
+        <button data-testid="send-digest-now-btn" onClick={sendNow} disabled={sending} className="neu-btn rounded-2xl px-6 py-3 font-semibold text-primary-stitch">{sending ? "Sending…" : "Send now"}</button>
+      </div>
+      {result && (
+        <div data-testid="digest-result" className={`neu-pressed rounded-2xl p-4 mt-4 text-sm ${result.ok ? "text-green-500" : "text-red-400"}`}>
+          {result.ok ? "✓ " : "✕ "}{result.detail}
+        </div>
+      )}
     </div>
   );
 }

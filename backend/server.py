@@ -6,6 +6,7 @@ import os
 import asyncio
 
 from routers import auth, users, messaging, projects, assets, integrations, ai, admin, meetings, rtc_config, sfu_config, smtp_config
+from services.digest import scan_digest
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -124,6 +125,7 @@ async def _reminder_loop():
         try:
             await scan_due_reminders()
             await scan_meeting_reminders()
+            await scan_digest()
         except Exception as e:
             logger.warning(f"reminder scan failed: {e}")
         await asyncio.sleep(1800)
