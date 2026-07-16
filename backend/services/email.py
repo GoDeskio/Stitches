@@ -98,8 +98,19 @@ async def _send_via_resend(to_email, subject, html, ics):
     await run_in_threadpool(resend.Emails.send, params)
 
 
+async def get_email_provider_cfg():
+    doc = await db.settings.find_one({"key": "email_provider"})
+    val = (doc or {}).get("value", {})
+    return {"provider": val.get("provider") or "gmail",
+            "sender": val.get("sender") or os.environ.get("SENDER_EMAIL", "") or "admin@godesk.io",
+            "resend_fallback": bool(val.get("resend_fallback"))}
+
+
 async def send_email_detailed(to_email, subject, html, ics=None, sender_user_id=None):
     # returns (ok: bool, detail: str)
+    from services.gmail import gmail_connected, send_via_gmail
+
+    # 1) a user sending their own invite via personal SMTP takes priority
     if sender_user_id:
         us = await get_user_smtp(sender_user_id)
         if _smtp_complete(us):
@@ -108,20 +119,38 @@ async def send_email_detailed(to_email, subject, html, ics=None, sender_user_id=
                 return True, "Sent via your personal SMTP"
             except Exception as e:
                 return False, f"Personal SMTP failed: {e}"
-    if os.environ.get("RESEND_API_KEY") and os.environ.get("SENDER_EMAIL"):
+
+    cfg = await get_email_provider_cfg()
+    sender = cfg["sender"]
+    order = ["gmail", "smtp"] if cfg["provider"] == "gmail" else ["smtp", "gmail"]
+    last = "No email provider configured (connect Gmail or SMTP in the admin Email setup)"
+
+    for p in order:
+        if p == "gmail":
+            if await gmail_connected():
+                try:
+                    await send_via_gmail(to_email, subject, html, ics, sender=sender)
+                    return True, "Sent via Gmail"
+                except Exception as e:
+                    last = f"Gmail failed: {e}"
+        else:
+            admincfg = await get_smtp_cfg()
+            if _smtp_complete(admincfg):
+                try:
+                    await run_in_threadpool(_send_email_sync, admincfg, to_email, subject, html, ics)
+                    return True, "Sent via admin SMTP"
+                except Exception as e:
+                    last = f"Admin SMTP failed: {e}"
+
+    # Resend only if explicitly enabled as a fallback
+    if cfg["resend_fallback"] and os.environ.get("RESEND_API_KEY") and os.environ.get("SENDER_EMAIL"):
         try:
             await _send_via_resend(to_email, subject, html, ics)
             return True, f"Sent via Resend from {os.environ.get('SENDER_EMAIL')}"
         except Exception as e:
-            return False, f"Resend error: {e}"
-    admincfg = await get_smtp_cfg()
-    if _smtp_complete(admincfg):
-        try:
-            await run_in_threadpool(_send_email_sync, admincfg, to_email, subject, html, ics)
-            return True, "Sent via admin SMTP"
-        except Exception as e:
-            return False, f"Admin SMTP failed: {e}"
-    return False, "No email provider configured (set Resend or SMTP)"
+            last = f"Resend error: {e}"
+
+    return False, last
 
 
 async def send_meeting_email(to_email, subject, html, ics=None, sender_user_id=None):

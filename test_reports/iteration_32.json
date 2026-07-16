@@ -1,0 +1,21 @@
+{
+  "summary": "Verified backend email-provider endpoints, Gmail OAuth authorize/disconnect, weekly digest 'Upcoming meetings' section, and frontend Email setup wizard (provider switching + save toast). 8/8 pytest tests passed and all UI checks succeeded.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": [
+    {"screen": "Admin > Site Note > Digest card", "issues": ["React hydration warning: <span> child of <option> in digest hour/minute <select> (data-testid=digest-hour). Non-blocking but noisy in console."]}
+  ]},
+  "test_report_links": ["/app/backend/tests/test_email_provider_and_digest.py", "/app/test_reports/pytest/pytest_email.xml"],
+  "action_items": ["Optional: remove wrapping <span> around <option> children inside digest hour/minute selects to fix React hydration warning."],
+  "critical_code_review_comments": [
+    "gmail_oauth.py PUT /admin/email-provider does not validate 'sender' as an email — currently accepts any 200-char string. Consider basic regex validation.",
+    "services/gmail.py Flow.from_client_config uses scopes=None on token exchange; fine but relies on Google echoing scopes — acceptable.",
+    "Admin.jsx is 1543 lines — should be split into per-tab modules for maintainability."
+  ],
+  "updated_files": ["/app/backend/tests/test_email_provider_and_digest.py", "/app/test_reports/iteration_32.json"],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% of scoped checks"},
+  "test_credentials": "admin@stitches.app / Admin@123",
+  "seed_data_creation": "None (persisted email_provider state is restored to provider=gmail at end of test)",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend endpoints verified: GET/PUT /api/admin/email-provider, GET /api/admin/gmail/authorize (returns accounts.google.com URL), POST /api/admin/gmail/disconnect, GET /api/admin/digest/preview?frequency=weekly (contains 'Upcoming meetings'), GET /api/admin/digest/history. Frontend wizard at Admin > 'Site Note' tab (id=sitenote): sender defaults to admin@godesk.io, resend-fallback-toggle OFF by default, provider cards switch Step-2 config between gmail-config and smtp-config-wizard, 'Save email settings' shows success toast. Actual email send not tested (out of scope per request)."
+}

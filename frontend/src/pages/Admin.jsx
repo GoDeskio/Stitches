@@ -915,6 +915,8 @@ function SiteNoteTab() {
         <input data-testid="clarity-id-input" value={cfg.clarity_id} onChange={(e) => setCfg({ ...cfg, clarity_id: e.target.value })} placeholder="xnf9nc40tt" className="neu-input w-full rounded-2xl py-3 px-4 text-sm mt-4 font-mono-stitch" />
       </div>
 
+      <EmailSetupWizard />
+
       <TestEmailCard />
 
       <DigestCard />
@@ -925,6 +927,133 @@ function SiteNoteTab() {
 }
 
 const DOW = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+function EmailSetupWizard() {
+  const [cfg, setCfg] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [smtp, setSmtp] = useState(null);
+  const [savingSmtp, setSavingSmtp] = useState(false);
+
+  const load = () => {
+    api.get("/admin/email-provider").then(({ data }) => setCfg(data)).catch(() => {});
+    api.get("/admin/smtp-config").then(({ data }) => setSmtp(data)).catch(() => setSmtp({ enabled: false, host: "", port: 587, username: "", from_address: "", has_password: false }));
+  };
+  useEffect(() => {
+    load();
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("gmail") === "connected") { toast.success("Gmail connected"); window.history.replaceState({}, "", window.location.pathname); }
+    else if (params.get("gmail") === "error") { toast.error("Gmail connection failed — check Google Cloud setup"); window.history.replaceState({}, "", window.location.pathname); }
+  }, []);
+
+  const saveProvider = async () => {
+    setSaving(true);
+    try {
+      const { data } = await api.put("/admin/email-provider", { provider: cfg.provider, sender: cfg.sender, resend_fallback: cfg.resend_fallback });
+      setCfg((c) => ({ ...c, ...data }));
+      toast.success("Email settings saved");
+    } catch (e) { toast.error("Save failed"); } finally { setSaving(false); }
+  };
+
+  const connectGmail = async () => {
+    setConnecting(true);
+    try {
+      const { data } = await api.get("/admin/gmail/authorize");
+      window.location.href = data.authorization_url;
+    } catch (e) { toast.error(e?.response?.data?.detail || "Could not start Google connection"); setConnecting(false); }
+  };
+  const disconnectGmail = async () => {
+    try { await api.post("/admin/gmail/disconnect"); toast.success("Gmail disconnected"); load(); }
+    catch (e) { toast.error("Failed to disconnect"); }
+  };
+  const saveSmtp = async () => {
+    setSavingSmtp(true);
+    try {
+      await api.put("/admin/smtp-config", { enabled: true, host: smtp.host, port: smtp.port, username: smtp.username, from_address: smtp.from_address, password: smtp.password || "" });
+      toast.success("SMTP saved");
+      load();
+    } catch (e) { toast.error("Save failed"); } finally { setSavingSmtp(false); }
+  };
+
+  if (!cfg || !smtp) return null;
+  const g = cfg.gmail || {};
+  const providerBtn = (id, label, sub) => (
+    <button data-testid={`email-provider-${id}`} onClick={() => setCfg({ ...cfg, provider: id })}
+      className={`flex-1 text-left rounded-2xl p-4 transition-all ${cfg.provider === id ? "neu-primary" : "neu-pressed"}`}>
+      <p className={`font-head font-bold ${cfg.provider === id ? "text-white" : ""}`} style={cfg.provider === id ? {} : { color: "var(--text)" }}>{label}</p>
+      <p className={`text-xs mt-0.5 ${cfg.provider === id ? "text-white/80" : "text-muted-stitch"}`}>{sub}</p>
+    </button>
+  );
+
+  return (
+    <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="email-setup-wizard">
+      <div className="flex items-center gap-3 mb-1">
+        <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center"><Mail className="w-5 h-5 text-primary-stitch" /></div>
+        <div>
+          <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Email setup</h3>
+          <p className="text-sm text-muted-stitch">Choose how Stitches sends email (invites, digests, alerts). No domain verification needed.</p>
+        </div>
+      </div>
+
+      <p className="text-xs font-semibold text-muted-stitch mt-4 mb-2">Step 1 — Choose a provider</p>
+      <div className="flex gap-3 flex-wrap">
+        {providerBtn("gmail", "Gmail API", "Connect a Google account (OAuth). Recommended.")}
+        {providerBtn("smtp", "SMTP", "Any mailbox: Gmail app-password, Outlook, or your own server.")}
+      </div>
+
+      <p className="text-xs font-semibold text-muted-stitch mt-6 mb-2">Step 2 — Configure</p>
+      {cfg.provider === "gmail" ? (
+        <div className="neu-pressed rounded-2xl p-4" data-testid="gmail-config">
+          {!g.configured ? (
+            <p className="text-sm text-red-400">Google OAuth credentials are not configured on the server. Add <span className="font-mono-stitch">GOOGLE_CLIENT_ID</span> / <span className="font-mono-stitch">GOOGLE_CLIENT_SECRET</span> and enable the Gmail API.</p>
+          ) : g.connected ? (
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-sm" style={{ color: "var(--text)" }}>✓ Connected as <span className="font-semibold" data-testid="gmail-connected-email">{g.email || "Google account"}</span></p>
+              <button data-testid="gmail-disconnect-btn" onClick={disconnectGmail} className="neu-btn rounded-xl px-4 py-2 text-sm font-semibold text-red-500">Disconnect</button>
+            </div>
+          ) : (
+            <div>
+              <p className="text-sm text-muted-stitch mb-3">Authorize a Google account so Stitches can send email on your behalf.</p>
+              <button data-testid="gmail-connect-btn" onClick={connectGmail} disabled={connecting} className="neu-primary rounded-2xl px-6 py-3 font-semibold">{connecting ? "Redirecting…" : "Connect Google account"}</button>
+              <p className="text-xs text-muted-stitch mt-3">Add this redirect URI in Google Cloud → Credentials: <span className="font-mono-stitch break-all">{g.redirect_uri}</span></p>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="neu-pressed rounded-2xl p-4" data-testid="smtp-config-wizard">
+          <div className="grid sm:grid-cols-2 gap-3">
+            <input data-testid="wiz-smtp-host" value={smtp.host} onChange={(e) => setSmtp({ ...smtp, host: e.target.value })} placeholder="smtp.gmail.com" className="neu-input rounded-2xl py-3 px-4 text-sm" />
+            <input data-testid="wiz-smtp-port" type="number" value={smtp.port} onChange={(e) => setSmtp({ ...smtp, port: e.target.value })} placeholder="587" className="neu-input rounded-2xl py-3 px-4 text-sm" />
+            <input data-testid="wiz-smtp-username" value={smtp.username} onChange={(e) => setSmtp({ ...smtp, username: e.target.value })} placeholder="you@gmail.com" className="neu-input rounded-2xl py-3 px-4 text-sm" />
+            <input data-testid="wiz-smtp-password" type="password" value={smtp.password || ""} onChange={(e) => setSmtp({ ...smtp, password: e.target.value })} placeholder={smtp.has_password ? "•••••• (saved)" : "app password"} className="neu-input rounded-2xl py-3 px-4 text-sm" />
+            <input data-testid="wiz-smtp-from" value={smtp.from_address} onChange={(e) => setSmtp({ ...smtp, from_address: e.target.value })} placeholder="from address" className="neu-input rounded-2xl py-3 px-4 text-sm sm:col-span-2" />
+          </div>
+          <button data-testid="wiz-save-smtp" onClick={saveSmtp} disabled={savingSmtp} className="neu-primary rounded-2xl px-6 py-3 font-semibold mt-4">{savingSmtp ? "Saving…" : "Save SMTP"}</button>
+        </div>
+      )}
+
+      <p className="text-xs font-semibold text-muted-stitch mt-6 mb-2">Step 3 — Default sender & fallback</p>
+      <div>
+        <label className="text-xs font-semibold text-muted-stitch">Sender / "from" address</label>
+        <input data-testid="email-sender-input" value={cfg.sender} onChange={(e) => setCfg({ ...cfg, sender: e.target.value })} placeholder="admin@godesk.io" className="neu-input rounded-2xl py-3 px-4 text-sm w-full mt-1" />
+      </div>
+      <div className="neu-pressed rounded-2xl p-4 flex items-center justify-between mt-3">
+        <div className="min-w-0 pr-3">
+          <span className="font-medium text-sm" style={{ color: "var(--text)" }}>Use Resend as fallback</span>
+          <p className="text-xs text-muted-stitch mt-0.5">Off by default. Only used if your primary provider fails{cfg.resend_available ? "" : " (Resend keys not present)"}.</p>
+        </div>
+        <button data-testid="resend-fallback-toggle" onClick={() => setCfg({ ...cfg, resend_fallback: !cfg.resend_fallback })}
+          className={`w-14 h-8 rounded-full flex items-center px-1 transition-all shrink-0 ${cfg.resend_fallback ? "justify-end" : "justify-start"}`}
+          style={{ background: cfg.resend_fallback ? "var(--primary)" : "var(--neu-dark)" }}>
+          <span className="w-6 h-6 rounded-full bg-white shadow" />
+        </button>
+      </div>
+
+      <button data-testid="save-email-provider-btn" onClick={saveProvider} disabled={saving} className="neu-primary rounded-2xl px-6 py-3 font-semibold mt-4">{saving ? "Saving…" : "Save email settings"}</button>
+    </div>
+  );
+}
+
 
 function DigestCard() {
   const [cfg, setCfg] = useState(null);
