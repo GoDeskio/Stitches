@@ -1,0 +1,23 @@
+{
+  "summary": "Iteration 20: Verified Connected Devices panel (Settings) + revoke-others + single-revoke flows end-to-end. Backend pytest 3/3 pass. Frontend UI walkthrough confirmed: devices-section renders, device-row rows list correctly, current-device-badge shown exactly once, friendly device label + IP + last-active time visible, revoke-device-btn removes the row and invalidates that token (401), revoke-others-btn reduces list to 1 row + replaces stitches_token in localStorage + keeps current browser authenticated (dashboard reachable) while all other tokens 401. Admin login regression passes.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_devices_sessions.py",
+    "/app/test_reports/pytest/iter20_devices.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "DELETE /api/auth/sessions/{id} only sets revoked=true on the sessions row but relies on jti check + sessions_valid_after for revoke-others. Single-revoke correctly invalidates the target token via the resolve_user_from_token jti check — verified. OK.",
+    "revoke-others iterates via update_many + issues a fresh token — good. Consider also updating last_seen on the new session record (record_session already does). No action needed.",
+    "The devices list uses sessions.find with revoked $ne true — ensure index on {user_id:1, last_seen:-1} for scale."
+  ],
+  "updated_files": ["/app/backend/tests/test_devices_sessions.py"],
+  "success_rate": {"backend": "100% (3/3)", "frontend": "100% (all flows)"},
+  "test_credentials": "admin@stitches.app / Admin@123, demo@stitches.app / Demo@123",
+  "seed_data_creation": "Created transient demo sessions during testing; all cleaned up via revoke-others at end of the flow (1 active session left).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Test IDs for devices panel: devices-section, device-row, current-device-badge, revoke-others-btn, revoke-device-btn. Backend endpoints: GET /api/auth/sessions, DELETE /api/auth/sessions/{id}, POST /api/auth/sessions/revoke-others (returns fresh token, frontend saves to localStorage 'stitches_token'). Note: httpOnly access_token cookie persists login even after localStorage.clear() — /login redirects back to /dashboard in that state; use /api/auth/logout to fully clear.",
+  "rca of the issue": "N/A — no issues found."
+}

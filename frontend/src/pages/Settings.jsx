@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Save, Sun, Moon, Minus, Plus, User, Building2, FolderKanban, Palette, Bell, Upload, Trash2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Save, Sun, Moon, Minus, Plus, User, Building2, FolderKanban, Palette, Bell, Upload, Trash2, Smartphone, Monitor, LogOut, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -125,7 +125,85 @@ export default function Settings() {
           </Section>
         </div>
       </div>
+
+      <div className="mt-6">
+        <DevicesSection />
+      </div>
     </PageShell>
+  );
+}
+
+function DevicesSection() {
+  const [sessions, setSessions] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const load = () => api.get("/auth/sessions").then(({ data }) => setSessions(data)).catch(() => setSessions([]));
+  useEffect(() => { load(); }, []);
+
+  const revoke = async (id) => {
+    try { await api.delete(`/auth/sessions/${id}`); toast.success("Device signed out"); load(); }
+    catch (e) { toast.error("Failed to sign out device"); }
+  };
+  const revokeOthers = async () => {
+    setBusy(true);
+    try {
+      const { data } = await api.post("/auth/sessions/revoke-others");
+      if (data.token) localStorage.setItem("stitches_token", data.token);
+      toast.success("Signed out of all other devices");
+      load();
+    } catch (e) { toast.error("Failed"); } finally { setBusy(false); }
+  };
+
+  const others = (sessions || []).filter((s) => !s.current).length;
+
+  return (
+    <div className="neu-raised rounded-[1.75rem] p-7 animate-fade-up" data-testid="devices-section">
+      <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center"><ShieldCheck className="w-5 h-5 text-primary-stitch" /></div>
+          <div>
+            <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Connected devices</h3>
+            <p className="text-sm text-muted-stitch">Devices currently signed in to your account.</p>
+          </div>
+        </div>
+        {others > 0 && (
+          <button data-testid="revoke-others-btn" onClick={revokeOthers} disabled={busy}
+            className="neu-btn rounded-2xl px-4 py-2.5 text-sm font-semibold text-primary-stitch flex items-center gap-2">
+            <LogOut className="w-4 h-4" /> {busy ? "Signing out…" : "Sign out all other devices"}
+          </button>
+        )}
+      </div>
+      {sessions === null ? (
+        <p className="text-sm text-muted-stitch py-4">Loading…</p>
+      ) : sessions.length === 0 ? (
+        <p className="text-sm text-muted-stitch py-4">No active sessions found.</p>
+      ) : (
+        <div className="space-y-3">
+          {sessions.map((s) => {
+            const Icon = /iphone|ipad|android/i.test(s.device || "") ? Smartphone : Monitor;
+            return (
+              <div key={s.session_id} data-testid="device-row" className="neu-pressed rounded-2xl p-4 flex items-center gap-4">
+                <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center shrink-0"><Icon className="w-5 h-5 text-primary-stitch" /></div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--text)" }}>
+                    {s.device}
+                    {s.current && <span data-testid="current-device-badge" className="text-[11px] font-bold px-2 py-0.5 rounded-full text-white" style={{ background: "var(--primary)" }}>This device</span>}
+                  </p>
+                  <p className="text-xs text-muted-stitch truncate">
+                    {s.ip ? `${s.ip} · ` : ""}Last active {new Date(s.last_seen).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  </p>
+                </div>
+                {!s.current && (
+                  <button data-testid="revoke-device-btn" onClick={() => revoke(s.session_id)}
+                    className="neu-btn rounded-xl px-3 py-2 text-sm font-semibold text-muted-stitch flex items-center gap-1.5 shrink-0">
+                    <LogOut className="w-4 h-4" /> Sign out
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 

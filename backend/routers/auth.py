@@ -8,7 +8,7 @@ router = APIRouter()
 
 # ---------------- Auth Routes ----------------
 @router.post("/auth/register")
-async def register(data: RegisterInput, response: Response):
+async def register(data: RegisterInput, response: Response, request: Request):
     email = data.email.lower()
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -23,7 +23,9 @@ async def register(data: RegisterInput, response: Response):
         "created_at": now_iso(),
     }
     await db.users.insert_one(doc)
-    token = create_access_token(user_id, email)
+    jti = uuid.uuid4().hex
+    token = create_access_token(user_id, email, jti=jti)
+    await record_session(user_id, jti, request)
     set_auth_cookie(response, "access_token", token, 604800)
     await log_activity(user_id, "register")
     return {"user": public_user(doc), "token": token}
@@ -51,7 +53,9 @@ async def login(data: LoginInput, response: Response, request: Request):
     if user.get("is_active") is False:
         raise HTTPException(status_code=403, detail="Your account has been disabled by an administrator")
     await db.login_attempts.delete_one({"identifier": identifier})
-    token = create_access_token(user["user_id"], email)
+    jti = uuid.uuid4().hex
+    token = create_access_token(user["user_id"], email, jti=jti)
+    await record_session(user["user_id"], jti, request)
     set_auth_cookie(response, "access_token", token, 604800)
     await log_activity(user["user_id"], "login")
     return {"user": public_user(user), "token": token}
@@ -131,9 +135,43 @@ async def qr_claim(request: Request, response: Response):
     dbuser = await db.users.find_one({"user_id": doc["user_id"]})
     if not dbuser or dbuser.get("is_active") is False:
         raise HTTPException(status_code=403, detail="Account unavailable")
-    access = create_access_token(dbuser["user_id"], dbuser["email"])
+    jti = uuid.uuid4().hex
+    access = create_access_token(dbuser["user_id"], dbuser["email"], jti=jti)
+    await record_session(dbuser["user_id"], jti, request)
     set_auth_cookie(response, "access_token", access, 604800)
     await log_activity(dbuser["user_id"], "qr_login")
     return {"user": public_user(dbuser), "token": access}
+
+
+# ---------------- Connected devices / sessions ----------------
+@router.get("/auth/sessions")
+async def list_sessions(request: Request, user: dict = Depends(get_current_user)):
+    cur = jti_from_request(request)
+    items = await db.sessions.find({"user_id": user["user_id"], "revoked": {"$ne": True}},
+                                   {"_id": 0}).sort("last_seen", -1).to_list(100)
+    for s in items:
+        s["current"] = (s.get("jti") == cur)
+    return items
+
+
+@router.delete("/auth/sessions/{session_id}")
+async def revoke_session(session_id: str, user: dict = Depends(get_current_user)):
+    await db.sessions.update_one({"session_id": session_id, "user_id": user["user_id"]},
+                                 {"$set": {"revoked": True}})
+    return {"ok": True}
+
+
+@router.post("/auth/sessions/revoke-others")
+async def revoke_other_sessions(request: Request, response: Response, user: dict = Depends(get_current_user)):
+    import time
+    now_epoch = int(time.time())
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"sessions_valid_after": now_epoch}})
+    await db.sessions.update_many({"user_id": user["user_id"]}, {"$set": {"revoked": True}})
+    jti = uuid.uuid4().hex
+    token = create_access_token(user["user_id"], user["email"], jti=jti)
+    await record_session(user["user_id"], jti, request)
+    set_auth_cookie(response, "access_token", token, 604800)
+    await log_activity(user["user_id"], "revoke_other_sessions")
+    return {"ok": True, "token": token}
 
 

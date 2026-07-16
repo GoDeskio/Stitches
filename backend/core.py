@@ -52,10 +52,55 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
-def create_access_token(user_id: str, email: str) -> str:
-    payload = {"sub": user_id, "email": email,
-               "exp": datetime.now(timezone.utc) + timedelta(days=7), "type": "access"}
+def create_access_token(user_id: str, email: str, jti: str = None) -> str:
+    now = datetime.now(timezone.utc)
+    payload = {"sub": user_id, "email": email, "iat": now,
+               "exp": now + timedelta(days=7), "type": "access"}
+    if jti:
+        payload["jti"] = jti
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def _device_label(ua: str) -> str:
+    ua = ua or ""
+    low = ua.lower()
+    if "iphone" in low: os_name = "iPhone"
+    elif "ipad" in low: os_name = "iPad"
+    elif "android" in low: os_name = "Android"
+    elif "mac os" in low or "macintosh" in low: os_name = "macOS"
+    elif "windows" in low: os_name = "Windows"
+    elif "linux" in low: os_name = "Linux"
+    else: os_name = "Unknown device"
+    if "edg/" in low: browser = "Edge"
+    elif "chrome" in low and "chromium" not in low: browser = "Chrome"
+    elif "firefox" in low: browser = "Firefox"
+    elif "safari" in low: browser = "Safari"
+    elif "electron" in low or "stitches" in low: browser = "Desktop app"
+    else: browser = "Browser"
+    return f"{browser} on {os_name}"
+
+
+async def record_session(user_id: str, jti: str, request: Request):
+    ua = request.headers.get("user-agent", "") if request else ""
+    ip = (request.client.host if request and request.client else "") or ""
+    await db.sessions.insert_one({
+        "session_id": f"ses_{uuid.uuid4().hex[:12]}", "user_id": user_id, "jti": jti,
+        "device": _device_label(ua), "user_agent": ua[:300], "ip": ip,
+        "revoked": False, "created_at": now_iso(), "last_seen": now_iso()})
+
+
+def jti_from_request(request: Request):
+    token = request.cookies.get("access_token")
+    if not token:
+        h = request.headers.get("Authorization", "")
+        if h.startswith("Bearer "):
+            token = h[7:]
+    if not token:
+        return None
+    try:
+        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM]).get("jti")
+    except jwt.InvalidTokenError:
+        return None
 
 
 def public_user(u: dict) -> dict:
@@ -74,6 +119,25 @@ async def resolve_user_from_token(token: str) -> Optional[dict]:
         if payload.get("type") == "access":
             user = await db.users.find_one({"user_id": payload["sub"]}, {"_id": 0})
             if user:
+                sva = user.get("sessions_valid_after")
+                iat = payload.get("iat")
+                if sva and (not iat or int(iat) < int(sva)):
+                    return None
+                jti = payload.get("jti")
+                if jti:
+                    sess = await db.sessions.find_one({"jti": jti})
+                    if sess:
+                        if sess.get("revoked"):
+                            return None
+                        last = sess.get("last_seen")
+                        stale = True
+                        if last:
+                            try:
+                                stale = (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds() > 60
+                            except Exception:
+                                stale = True
+                        if stale:
+                            await db.sessions.update_one({"jti": jti}, {"$set": {"last_seen": now_iso()}})
                 return user
     except jwt.InvalidTokenError:
         pass
