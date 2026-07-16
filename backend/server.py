@@ -30,6 +30,10 @@ async def call_websocket(websocket: WebSocket, room_id: str, token: str = Query(
             t = msg.get("type")
             if t == "signal":
                 await call_manager.send(room_id, msg.get("to"), {"type": "signal", "from": peer_id, "data": msg.get("data")})
+            elif t == "chat":
+                await call_manager.broadcast(room_id, {"type": "chat", "from": peer_id, "name": display, "text": str(msg.get("text", ""))[:2000]}, exclude=peer_id)
+            elif t == "hand":
+                await call_manager.broadcast(room_id, {"type": "hand", "from": peer_id, "name": display, "raised": bool(msg.get("raised"))}, exclude=peer_id)
             elif t == "leave":
                 break
     except WebSocketDisconnect:

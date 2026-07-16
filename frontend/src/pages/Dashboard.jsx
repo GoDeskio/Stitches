@@ -4,6 +4,7 @@ import { FolderKanban, FolderOpen, Plug, MessagesSquare, Layers, ArrowUpRight, S
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { PageShell, PageHeader, Loader } from "@/components/Stitch";
+import MeetingLaunchButtons from "@/components/MeetingLaunchButtons";
 import QrLoginCard from "@/components/QrLoginCard";
 
 const STATS = [
@@ -32,10 +33,13 @@ export default function Dashboard() {
 
   return (
     <PageShell>
-      <PageHeader
-        title={`${greet}, ${(user?.name || "").split(" ")[0] || "there"}`}
-        subtitle="Here's what's happening across your Stitches workspaces today."
-      />
+      <div className="flex items-start justify-between gap-4 flex-wrap mb-2" data-testid="dashboard-call-bar">
+        <PageHeader
+          title={`${greet}, ${(user?.name || "").split(" ")[0] || "there"}`}
+          subtitle="Here's what's happening across your Stitches workspaces today."
+        />
+        <div className="pt-1"><MeetingLaunchButtons /></div>
+      </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-5 mb-8">
         {STATS.map(({ key, label, icon: Icon }, i) => (

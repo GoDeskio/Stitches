@@ -1,0 +1,37 @@
+{
+  "summary": "Iteration 22 (conferencing enhancements): Backend rtc/config STUN default + TURN injection + admin-gate verified via pytest (5/5). Frontend dashboard/admin top call bars, in-call chat/hand/participants panels, channel Meet auto-post, and admin TURN editor all verified in browser.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PUT /api/admin/rtc-config", "issue": "Sending empty credential preserves the previous stored credential (backend keeps prev.credential when body.credential is falsy). Cleanup effectively works because _build_ice only adds TURN when urls is non-empty, but admin cannot explicitly clear an existing credential without a manual sentinel. After UI cleanup, GET /api/admin/rtc-config still returns has_credential: true even though calls fall back to STUN."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Channel Meet auto-post", "issue": "The posted message renders the join URL as plain text, not as a clickable <a> tag. Message text/content is correct and includes the full /call/<room> URL, but users must copy-paste it or click the message. Consider auto-linking URLs in message bodies.", "affected_selectors": ["[data-testid='channel-meet-btn']", "message body"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_rtc_config.py",
+    "/app/test_reports/pytest/iteration_22_rtc.xml"
+  ],
+  "action_items": [
+    "(Minor) Auto-linkify URLs in chat messages so the /call/<room> link in the auto-posted meeting invite is clickable.",
+    "(Minor) In PUT /api/admin/rtc-config, allow an explicit way to clear the stored TURN credential (e.g. treat empty string as clear, or accept credential: null)."
+  ],
+  "critical_code_review_comments": [
+    "meetings.py PUT rtc-config: `credential: cred if cred else prev.get('credential','')` prevents explicit credential clearing — sentinel needed.",
+    "Messages.jsx startChannelMeeting: message body contains a full URL but is rendered as plain text; consider a linkify pass or Markdown link.",
+    "Call.jsx panels/chat/hand controls all wired with data-testid — good testability. Chat input clears after send; participant count badge visible on people-btn ('1' for solo)."
+  ],
+  "updated_files": ["/app/backend/tests/test_rtc_config.py"],
+  "success_rate": {"backend": "100% (5/5 pytest)", "frontend": "100% (all requested flows)"},
+  "test_credentials": "admin@stitches.app / Admin@123, demo@stitches.app / Demo@123, alice@stitches.app / Alice@123",
+  "seed_data_creation": "Created 1 test meeting via POST /api/meetings and 1 additional room via channel Meet button (auto-created). Both are host=Demo User in db.meetings.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All conferencing enhancement acceptance criteria pass. Backend pytest at /app/backend/tests/test_rtc_config.py covers STUN default, TURN injection, admin gating, credential masking. Chat send appears in chat-messages as 'You' + text on same line (no newline separator — cosmetic). Two-client chat/hand relay not re-tested this iteration (already verified via ws in iter 21). TURN fields cleared post-test; calls default to STUN (verified via GET /api/rtc/config).",
+  "rca of the issue": "N/A — no blocking issues. Two minor observations documented above."
+}

@@ -10,6 +10,7 @@ import api, { API } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { PageShell, PageHeader, Loader } from "@/components/Stitch";
 import { IntegrationsManager } from "@/pages/Integrations";
+import MeetingLaunchButtons from "@/components/MeetingLaunchButtons";
 
 const CARDS = [
   { key: "total_users", label: "Users", icon: Users },
@@ -36,7 +37,10 @@ export default function Admin() {
   const [tab, setTab] = useState("overview");
   return (
     <PageShell>
-      <PageHeader title="Admin Dashboard" subtitle="Full control over Stitches — members, features, SEO, monitoring and activity heat maps." />
+      <div className="flex items-start justify-between gap-4 flex-wrap mb-2" data-testid="admin-call-bar">
+        <PageHeader title="Admin Dashboard" subtitle="Full control over Stitches — members, features, SEO, monitoring and activity heat maps." />
+        <div className="pt-1"><MeetingLaunchButtons /></div>
+      </div>
       <div className="neu-pressed rounded-full p-1.5 flex gap-1 mb-8 overflow-x-auto animate-fade-up">
         {TABS.map((t) => (
           <button key={t.id} data-testid={`admin-tab-${t.id}`} onClick={() => setTab(t.id)}
@@ -534,8 +538,14 @@ function MeetingsTab() {
   const navigate = useNavigate();
   const [items, setItems] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [turn, setTurn] = useState(null);
+  const [savingTurn, setSavingTurn] = useState(false);
   const load = () => api.get("/admin/meetings").then(({ data }) => setItems(data)).catch(() => setItems([]));
-  useEffect(() => { load(); const t = setInterval(load, 10000); return () => clearInterval(t); }, []);
+  useEffect(() => {
+    load(); const t = setInterval(load, 10000);
+    api.get("/admin/rtc-config").then(({ data }) => setTurn(data)).catch(() => setTurn({ urls: "", username: "", has_credential: false }));
+    return () => clearInterval(t);
+  }, []);
 
   const start = async () => {
     setCreating(true);
@@ -550,8 +560,16 @@ function MeetingsTab() {
     try { await api.post(`/admin/meetings/${roomId}/end`); toast.success("Meeting ended"); load(); }
     catch (e) { toast.error("Failed to end meeting"); }
   };
+  const saveTurn = async () => {
+    setSavingTurn(true);
+    try {
+      await api.put("/admin/rtc-config", { urls: turn.urls, username: turn.username, credential: turn.credential || "" });
+      toast.success("TURN server saved — calls will use it for reliable connectivity");
+      const { data } = await api.get("/admin/rtc-config"); setTurn(data);
+    } catch (e) { toast.error("Save failed"); } finally { setSavingTurn(false); }
+  };
 
-  if (!items) return <Loader />;
+  if (!items || !turn) return <Loader />;
   return (
     <div className="space-y-6">
       <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up flex items-center justify-between gap-4 flex-wrap" data-testid="admin-meetings-card">
@@ -562,6 +580,17 @@ function MeetingsTab() {
         <button data-testid="admin-start-meeting" onClick={start} disabled={creating} className="neu-primary rounded-2xl px-5 py-3 font-semibold flex items-center gap-2">
           <Plus className="w-5 h-5" /> {creating ? "Starting…" : "New meeting"}
         </button>
+      </div>
+
+      <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="turn-config-card">
+        <h3 className="font-head font-bold text-xl mb-1" style={{ color: "var(--text)" }}>Call quality — TURN server</h3>
+        <p className="text-sm text-muted-stitch mb-4">Calls use free STUN by default. For rock-solid connectivity behind strict firewalls, run your own <span className="font-mono-stitch">coturn</span> server and enter its details here (no third party required). Applies to all calls instantly.</p>
+        <div className="grid sm:grid-cols-3 gap-3">
+          <input data-testid="turn-urls-input" value={turn.urls} onChange={(e) => setTurn({ ...turn, urls: e.target.value })} placeholder="turn:your-host:3478" className="neu-input rounded-2xl py-3 px-4 font-mono-stitch text-sm" />
+          <input data-testid="turn-username-input" value={turn.username} onChange={(e) => setTurn({ ...turn, username: e.target.value })} placeholder="username" className="neu-input rounded-2xl py-3 px-4 text-sm" />
+          <input data-testid="turn-credential-input" type="password" value={turn.credential || ""} onChange={(e) => setTurn({ ...turn, credential: e.target.value })} placeholder={turn.has_credential ? "•••••• (saved)" : "credential"} className="neu-input rounded-2xl py-3 px-4 text-sm" />
+        </div>
+        <button data-testid="save-turn-btn" onClick={saveTurn} disabled={savingTurn} className="neu-primary rounded-2xl px-6 py-3 font-semibold mt-4">{savingTurn ? "Saving…" : "Save TURN server"}</button>
       </div>
 
       <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up">

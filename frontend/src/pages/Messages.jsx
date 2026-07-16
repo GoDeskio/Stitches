@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Plus, Hash, Send, Layers, X, UserPlus, Mail, UserMinus, MessageSquare, Smile, AtSign, CornerDownRight } from "lucide-react";
+import { Plus, Hash, Send, Layers, X, UserPlus, Mail, UserMinus, MessageSquare, Smile, AtSign, CornerDownRight, Video } from "lucide-react";
 import { toast } from "sonner";
 import api, { API } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -141,6 +141,18 @@ export default function Messages() {
   }, [messages]);
 
   const extractMentions = (t) => members.filter((m) => m.name && t.includes("@" + m.name)).map((m) => m.user_id);
+
+  const startChannelMeeting = async () => {
+    if (!activeCh) return;
+    try {
+      const { data } = await api.post("/meetings", { name: `${activeCh.name} meeting` });
+      const link = `${window.location.origin}/call/${data.room_id}`;
+      await api.post("/messages", { channel_id: activeCh.channel_id, text: `Started a video meeting — join here: ${link}`, mentions: [] });
+      window.open(`/call/${data.room_id}`, "_blank", "width=1200,height=820");
+      refreshLatest(activeCh.channel_id);
+      toast.success("Meeting started — invite posted to the channel");
+    } catch (err) { toast.error("Could not start meeting"); }
+  };
 
   const send = async (e) => {
     e.preventDefault();
@@ -357,6 +369,10 @@ export default function Messages() {
                     <UserPlus className="w-4 h-4" /> Members
                   </button>
                 )}
+                <button data-testid="channel-meet-btn" onClick={startChannelMeeting}
+                  className={`neu-primary rounded-xl px-4 py-2 flex items-center gap-2 text-sm font-semibold ${activeWs && activeCh.type !== "dm" ? "" : "ml-auto"}`}>
+                  <Video className="w-4 h-4" /> Meet
+                </button>
               </div>
 
               <div className="neu-pressed m-4 rounded-2xl flex-1 overflow-y-auto p-5 space-y-4">
