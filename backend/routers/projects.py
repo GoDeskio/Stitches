@@ -111,9 +111,17 @@ async def update_task(task_id: str, data: TaskUpdate, user: dict = Depends(get_c
     await _task_for_member(task_id, user)
     updates = {k: v for k, v in data.model_dump().items() if v is not None}
     if updates:
+        if "due_date" in updates or "assignee_id" in updates:
+            updates["reminded"] = False
         await db.tasks.update_one({"task_id": task_id}, {"$set": updates})
     t = await db.tasks.find_one({"task_id": task_id}, {"_id": 0})
     return t
+
+
+@router.post("/tasks/scan-reminders")
+async def scan_reminders(user: dict = Depends(require_admin)):
+    n = await scan_due_reminders()
+    return {"reminded": n}
 
 
 @router.delete("/tasks/{task_id}")

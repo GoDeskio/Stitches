@@ -212,6 +212,24 @@ async def get_google_oauth_cfg():
     }
 
 
+async def scan_due_reminders():
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone.utc)
+    horizon = (now + timedelta(hours=24)).date().isoformat()
+    today = now.date().isoformat()
+    count = 0
+    cur = db.tasks.find({"status": {"$ne": "done"}, "assignee_id": {"$nin": [None, ""]},
+                         "due_date": {"$nin": [None, ""], "$lte": horizon}, "reminded": {"$ne": True}})
+    async for t in cur:
+        overdue = t.get("due_date", "") < today
+        title = "Task overdue" if overdue else "Task due soon"
+        body = f"'{t.get('title')}' is {'overdue' if overdue else 'due ' + t.get('due_date', '')}"
+        await create_notification(t["assignee_id"], "task_due", title, body, "/dashboard")
+        await db.tasks.update_one({"task_id": t["task_id"]}, {"$set": {"reminded": True}})
+        count += 1
+    return count
+
+
 # ---------------- Storage ----------------
 storage_key = None
 

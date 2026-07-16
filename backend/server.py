@@ -3,6 +3,7 @@ from core import _create_message, resolve_user_from_token, ws_manager, public_us
 from fastapi import FastAPI, APIRouter, WebSocket, WebSocketDisconnect, Query
 from starlette.middleware.cors import CORSMiddleware
 import os
+import asyncio
 
 from routers import auth, users, messaging, projects, assets, integrations, ai, admin
 
@@ -45,7 +46,6 @@ app.add_middleware(
 
 
 @app.on_event("startup")
-@app.on_event("startup")
 async def startup():
     await db.users.create_index("email", unique=True)
     await db.users.create_index("user_id", unique=True)
@@ -68,6 +68,16 @@ async def startup():
         logger.info("Storage initialized")
     except Exception as e:
         logger.error(f"Storage init failed: {e}")
+    asyncio.create_task(_reminder_loop())
+
+
+async def _reminder_loop():
+    while True:
+        try:
+            await scan_due_reminders()
+        except Exception as e:
+            logger.warning(f"reminder scan failed: {e}")
+        await asyncio.sleep(1800)
 
 
 @app.on_event("shutdown")
