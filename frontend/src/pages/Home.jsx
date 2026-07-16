@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { LogIn, X, Sparkles } from "lucide-react";
+import { LogIn, X, Sparkles, Tag } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/lib/api";
 
@@ -78,20 +78,35 @@ export default function Home() {
           </span>
         </div>
 
-        {/* Top-right: small login button */}
-        <button
-          onClick={goLogin}
-          data-testid="home-login-btn"
-          className="absolute top-6 right-6 z-10 rounded-full px-5 py-2.5 flex items-center gap-2 text-sm font-semibold transition-transform hover:-translate-y-0.5"
-          style={{
-            background: "rgba(20,15,17,0.55)",
-            color: "#F3E8EA",
-            boxShadow: "6px 6px 14px rgba(0,0,0,0.55), -4px -4px 12px rgba(255,255,255,0.06)",
-            backdropFilter: "blur(6px)",
-          }}
-        >
-          <LogIn className="w-4 h-4" /> Login
-        </button>
+        {/* Top-right: pricing + login buttons */}
+        <div className="absolute top-6 right-6 z-10 flex items-center gap-2">
+          <button
+            onClick={() => navigate("/pricing")}
+            data-testid="home-pricing-btn"
+            className="rounded-full px-5 py-2.5 flex items-center gap-2 text-sm font-semibold transition-transform hover:-translate-y-0.5"
+            style={{
+              background: "rgba(20,15,17,0.55)",
+              color: "#F3E8EA",
+              boxShadow: "6px 6px 14px rgba(0,0,0,0.55), -4px -4px 12px rgba(255,255,255,0.06)",
+              backdropFilter: "blur(6px)",
+            }}
+          >
+            <Tag className="w-4 h-4" /> Pricing
+          </button>
+          <button
+            onClick={goLogin}
+            data-testid="home-login-btn"
+            className="rounded-full px-5 py-2.5 flex items-center gap-2 text-sm font-semibold transition-transform hover:-translate-y-0.5"
+            style={{
+              background: "rgba(20,15,17,0.55)",
+              color: "#F3E8EA",
+              boxShadow: "6px 6px 14px rgba(0,0,0,0.55), -4px -4px 12px rgba(255,255,255,0.06)",
+              backdropFilter: "blur(6px)",
+            }}
+          >
+            <LogIn className="w-4 h-4" /> Login
+          </button>
+        </div>
 
         {/* Bottom-center: Request a demo CTA */}
         <button

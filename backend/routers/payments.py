@@ -1,6 +1,7 @@
 import os
 import re
 import uuid
+from datetime import datetime, timezone, timedelta
 import httpx
 from urllib.parse import parse_qsl
 from fastapi import APIRouter, Depends, Request, HTTPException
@@ -166,3 +167,154 @@ async def payments_refund(tx_id: str, user: dict = Depends(require_admin)):
     if not success:
         raise HTTPException(status_code=400, detail=doc["response_text"] or "Refund failed")
     return {"success": True, "op": op, "transaction": _public(doc)}
+
+
+# ---------------- Pricing plans ----------------
+INTERVALS = {"month", "year", "once"}
+
+
+def _plan_public(p):
+    p = dict(p)
+    p.pop("_id", None)
+    return p
+
+
+def _plan_from_body(b: dict) -> dict:
+    try:
+        price = round(float(b.get("price") or 0), 2)
+    except Exception:
+        price = 0
+    interval = b.get("interval") if b.get("interval") in INTERVALS else "month"
+    features = [str(x).strip() for x in (b.get("features") or []) if str(x).strip()][:20]
+    try:
+        sort_order = int(b.get("sort_order") or 0)
+    except Exception:
+        sort_order = 0
+    return {
+        "name": (b.get("name") or "").strip()[:80],
+        "description": (b.get("description") or "").strip()[:300],
+        "price": price,
+        "interval": interval,
+        "features": features,
+        "highlighted": bool(b.get("highlighted")),
+        "cta": (b.get("cta") or "Get started").strip()[:40],
+        "sort_order": sort_order,
+        "active": b.get("active", True) if isinstance(b.get("active"), bool) else True,
+    }
+
+
+@router.get("/plans")
+async def public_plans():
+    rows = await db.plans.find({"active": True}).sort([("sort_order", 1), ("price", 1)]).to_list(50)
+    return {"plans": [_plan_public(p) for p in rows]}
+
+
+@router.get("/admin/plans")
+async def admin_plans(user: dict = Depends(require_admin)):
+    rows = await db.plans.find({}).sort([("sort_order", 1), ("price", 1)]).to_list(100)
+    return {"plans": [_plan_public(p) for p in rows]}
+
+
+@router.post("/admin/plans")
+async def admin_create_plan(request: Request, user: dict = Depends(require_admin)):
+    b = await request.json()
+    doc = _plan_from_body(b)
+    if not doc["name"]:
+        raise HTTPException(status_code=400, detail="Plan name is required")
+    doc.update({"plan_id": f"plan_{uuid.uuid4().hex[:10]}", "created_at": now_iso(), "updated_at": now_iso()})
+    await db.plans.insert_one(doc)
+    return _plan_public(doc)
+
+
+@router.put("/admin/plans/{plan_id}")
+async def admin_update_plan(plan_id: str, request: Request, user: dict = Depends(require_admin)):
+    b = await request.json()
+    upd = _plan_from_body(b)
+    upd["updated_at"] = now_iso()
+    r = await db.plans.update_one({"plan_id": plan_id}, {"$set": upd})
+    if not r.matched_count:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    p = await db.plans.find_one({"plan_id": plan_id})
+    return _plan_public(p)
+
+
+@router.delete("/admin/plans/{plan_id}")
+async def admin_delete_plan(plan_id: str, user: dict = Depends(require_admin)):
+    await db.plans.delete_one({"plan_id": plan_id})
+    return {"ok": True}
+
+
+async def _crm_mark_won(email: str, name: str, company: str, value: float, plan_name: str, ip: str):
+    email = (email or "").strip().lower()
+    if not email:
+        return
+    now = now_iso()
+    note = {"text": f"Purchased {plan_name} (${value:.2f}) via pricing page", "author": "checkout", "created_at": now}
+    existing = await db.crm_contacts.find_one({"email": email})
+    if existing:
+        await db.crm_contacts.update_one({"email": email}, {
+            "$set": {"stage": "won", "value": value, "updated_at": now,
+                     "name": existing.get("name") or name, "company": existing.get("company") or company},
+            "$push": {"notes": note}})
+    else:
+        await db.crm_contacts.insert_one({
+            "contact_id": f"crm_{uuid.uuid4().hex[:12]}", "type": "lead", "name": (name or "").strip(),
+            "email": email, "company": (company or "").strip(), "phone": "", "stage": "won",
+            "source": "pricing", "value": value, "tags": ["pricing"], "notes": [note],
+            "user_id": None, "capture_ip": ip, "created_at": now, "updated_at": now})
+
+
+@router.post("/checkout/plan")
+async def checkout_plan(request: Request):
+    if not NMI_SECRET_KEY:
+        raise HTTPException(status_code=400, detail="Payments are not available right now")
+    b = await request.json()
+    plan_id = (b.get("plan_id") or "").strip()
+    plan = await db.plans.find_one({"plan_id": plan_id, "active": True})
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    amount = round(float(plan.get("price") or 0), 2)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="This plan is free — just sign up.")
+
+    email = (b.get("email") or "").strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="A valid email is required")
+    ip = (request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+          or (request.client.host if request.client else "")) or "unknown"
+    recent = await db.payment_transactions.count_documents(
+        {"capture_ip": ip, "created_at": {"$gte": (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()}})
+    if recent >= 6:
+        raise HTTPException(status_code=429, detail="Too many attempts. Please try again shortly.")
+
+    ccnumber = re.sub(r"\s+", "", str(b.get("ccnumber") or ""))
+    ccexp = _norm_exp(str(b.get("ccexp") or ""))
+    cvv = re.sub(r"\D", "", str(b.get("cvv") or ""))
+    if not ccnumber or len(ccexp) != 4:
+        raise HTTPException(status_code=400, detail="Enter a valid card number and expiry (MM/YY)")
+
+    order_id = f"sub_{uuid.uuid4().hex[:10]}"
+    payload = {"type": "sale", "amount": f"{amount:.2f}", "ccnumber": ccnumber, "ccexp": ccexp,
+               "orderid": order_id, "order_description": f"{plan.get('name')} plan"}
+    if cvv:
+        payload["cvv"] = cvv
+    try:
+        res = await _nmi_post(payload)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Gateway error: {e}")
+
+    success = res.get("response") == "1"
+    doc = {
+        "tx_id": f"tx_{uuid.uuid4().hex[:12]}", "type": "sale", "order_id": order_id,
+        "amount": amount, "currency": DEFAULT_CURRENCY, "card_last4": ccnumber[-4:],
+        "email": email, "description": f"{plan.get('name')} plan", "plan_id": plan_id,
+        "plan_name": plan.get("name"), "plan_interval": plan.get("interval"),
+        "status": "success" if success else "failed", "nmi_transaction_id": res.get("transactionid", ""),
+        "auth_code": res.get("authcode", ""), "response_text": res.get("responsetext", ""),
+        "source": "pricing", "capture_ip": ip, "created_by": "checkout", "created_at": now_iso(),
+    }
+    await db.payment_transactions.insert_one(doc)
+    if not success:
+        return {"success": False, "error": doc["response_text"] or "Payment declined"}
+    await _crm_mark_won(email, b.get("name") or "", b.get("company") or "", amount, plan.get("name"), ip)
+    return {"success": True, "transaction_id": doc["nmi_transaction_id"], "plan": plan.get("name")}

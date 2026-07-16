@@ -1,0 +1,30 @@
+{
+  "summary": "Frontend E2E testing of admin Plans CRUD and public /pricing NMI checkout with CRM won-deal upsert. All frontend wiring, data-testid selectors, admin plan CRUD (add/edit/toggle/delete with reload persistence), pricing page, checkout modal, and CRM won-deal creation from checkout are working correctly. Non-regression: Admin Plans tab and Payments tab both load.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/checkout/plan", "issue": "NMI Direct Post payload does not include dup_seconds=0, so NMI rejects retries of the same amount+card within ~2 minutes with 'Duplicate transaction REFID:...'. This blocks legitimate retries after a form error and makes automated E2E tests flaky. Fix: add dup_seconds=0 (and same in /admin/payments/charge) or make it configurable."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Optional: add 'dup_seconds': '0' to the NMI payload in /app/backend/routers/payments.py (checkout_plan + payments_charge) to avoid NMI's 2-min duplicate-transaction rejection on retries."
+  ],
+  "critical_code_review_comments": [
+    "payments.py checkout_plan does not pass dup_seconds=0 to NMI, resulting in 'Duplicate transaction' errors when users retry with same card+amount within ~2 min.",
+    "Pricing.jsx CheckoutModal shows a text error but not a way to retry with a different card / clear state; minor UX improvement."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skip)", "frontend": "100%"},
+  "test_credentials": "admin@stitches.app / Admin@123",
+  "seed_data_creation": "Created and deleted a temporary plan 'TEST_UNIQ_<ts>' at $39/mo to bypass NMI duplicate detection; created one CRM contact buyer.uniq<ts>@example.com marked WON via /api/checkout/plan (source=pricing).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "NMI sandbox rejects duplicate amount+card within ~2 min. When testing checkout E2E, use a unique price (create a temp admin plan with an uncommon amount) or add dup_seconds=0 in the backend. All data-testid selectors are working: admin-tab-plans, plans-tab, plan-card, plans-add-btn, plan-editor-modal, plan-name/price/interval/features/cta/save-btn, plan-edit-btn, plan-active-toggle, plan-delete-btn, pricing-grid, pricing-card, pricing-select, checkout-modal, checkout-name/email/ccnumber/ccexp/cvv/pay/success/error, admin-tab-crm, crm-tab, crm-search, crm-contact-row.",
+  "rca of the issue": "First checkout test hit NMI 'Duplicate transaction' because a previous manual test used the same card ($29) within the 2-min NMI dedupe window. Root cause: backend does not send dup_seconds=0. Mitigation for tests: use a unique amount. Mitigation for prod: add dup_seconds=0 to NMI payload."
+}

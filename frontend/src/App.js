@@ -7,6 +7,7 @@ import { API } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import AuthCallback from "@/components/AuthCallback";
 import Home from "@/pages/Home";
+import Pricing from "@/pages/Pricing";
 import Login from "@/pages/Login";
 import QrClaim from "@/pages/QrClaim";
 import Layout from "@/components/Layout";
@@ -51,6 +52,7 @@ function AppRouter() {
   return (
     <Routes>
       <Route path="/" element={<Home />} />
+      <Route path="/pricing" element={<Pricing />} />
       <Route path="/login" element={<Login />} />
       <Route path="/qr-login/claim" element={<QrClaim />} />
       <Route path="/verify-email" element={<VerifyEmail />} />
