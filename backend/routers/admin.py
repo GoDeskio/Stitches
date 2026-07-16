@@ -9,14 +9,14 @@ router = APIRouter()
 
 @router.get("/site-config")
 async def public_site_config():
-    ann, support_email = await get_site_config()
-    return {"announcement": ann, "support_email": support_email}
+    ann, support_email, clarity_id = await get_site_config()
+    return {"announcement": ann, "support_email": support_email, "clarity_id": clarity_id}
 
 
 @router.get("/admin/site-config")
 async def admin_get_site_config(user: dict = Depends(require_admin)):
-    ann, support_email = await get_site_config()
-    return {"announcement": ann, "support_email": support_email}
+    ann, support_email, clarity_id = await get_site_config()
+    return {"announcement": ann, "support_email": support_email, "clarity_id": clarity_id}
 
 
 @router.put("/admin/site-config")
@@ -33,6 +33,9 @@ async def admin_set_site_config(request: Request, user: dict = Depends(require_a
     if "support_email" in body:
         await db.settings.update_one({"key": "support_email"},
                                      {"$set": {"key": "support_email", "value": {"email": (body.get("support_email") or "").strip()}}}, upsert=True)
+    if "clarity_id" in body:
+        await db.settings.update_one({"key": "clarity"},
+                                     {"$set": {"key": "clarity", "value": {"id": (body.get("clarity_id") or "").strip()[:40]}}}, upsert=True)
     return {"ok": True}
 
 
@@ -387,6 +390,38 @@ async def heatmap_clicks(path: str, user: dict = Depends(require_admin)):
         {"$sort": {"count": -1}}, {"$limit": 15}]).to_list(15)
     top = [{"label": a["_id"], "count": a["count"]} for a in agg]
     return {"points": pts, "top_elements": top, "count": len(pts)}
+
+
+# Reference background images (public pages only, for overlaying the click heatmap)
+PUBLIC_REF_PATHS = {"/", "/login", "/qr-login/claim"}
+
+
+@router.get("/track/reference")
+async def track_reference_needed(path: str):
+    if path not in PUBLIC_REF_PATHS:
+        return {"needed": False}
+    exists = await db.heat_refs.find_one({"path": path}, {"_id": 1})
+    return {"needed": exists is None}
+
+
+@router.post("/track/reference")
+async def track_reference_upload(request: Request):
+    body = await request.json()
+    path = str((body or {}).get("path") or "")
+    image = (body or {}).get("image") or ""
+    if path not in PUBLIC_REF_PATHS:
+        raise HTTPException(status_code=400, detail="Path not allowed for reference capture")
+    if not isinstance(image, str) or not image.startswith("data:image") or len(image) > 1_600_000:
+        raise HTTPException(status_code=400, detail="Invalid or oversized image")
+    await db.heat_refs.update_one({"path": path},
+                                  {"$set": {"path": path, "image": image, "updated_at": now_iso()}}, upsert=True)
+    return {"ok": True}
+
+
+@router.get("/admin/heatmap/reference")
+async def admin_heatmap_reference(path: str, user: dict = Depends(require_admin)):
+    doc = await db.heat_refs.find_one({"path": path}, {"_id": 0, "image": 1})
+    return {"image": (doc or {}).get("image")}
 
 
 # ---------------- Admin user management ----------------

@@ -18,4 +18,6 @@ async def get_site_config():
         ann.update(ann_doc.get("value", {}))
     sup = await db.settings.find_one({"key": "support_email"})
     support_email = ((sup or {}).get("value", {}) or {}).get("email", "") or os.environ.get("SUPPORT_EMAIL", "")
-    return ann, support_email
+    cl = await db.settings.find_one({"key": "clarity"})
+    clarity_id = ((cl or {}).get("value", {}) or {}).get("id", "") or "xnf9nc40tt"
+    return ann, support_email, clarity_id

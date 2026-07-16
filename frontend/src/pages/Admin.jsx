@@ -454,7 +454,7 @@ function HeatmapCanvas({ points }) {
     }
     ctx.putImageData(img, 0, 0);
   }, [points]);
-  return <canvas ref={ref} width={W} height={H} data-testid="heatmap-canvas" className="w-full rounded-2xl" style={{ background: "var(--neu-dark)", aspectRatio: "16 / 9" }} />;
+  return <canvas ref={ref} width={W} height={H} data-testid="heatmap-canvas" className="absolute inset-0 w-full h-full" />;
 }
 
 function HeatmapTab() {
@@ -462,8 +462,11 @@ function HeatmapTab() {
   const [paths, setPaths] = useState(null);
   const [sel, setSel] = useState("");
   const [clicks, setClicks] = useState(null);
+  const [refImg, setRefImg] = useState(null);
+  const [clarityId, setClarityId] = useState("");
 
   useEffect(() => { api.get("/admin/heatmap").then(({ data }) => setGrid(data.grid)).catch(() => setGrid([[0]])); }, []);
+  useEffect(() => { api.get("/site-config").then(({ data }) => setClarityId(data.clarity_id || "")).catch(() => {}); }, []);
   useEffect(() => {
     api.get("/admin/heatmap/paths").then(({ data }) => {
       setPaths(data);
@@ -471,9 +474,10 @@ function HeatmapTab() {
     }).catch(() => setPaths({ paths: [], visitors: 0, total_clicks: 0, total_views: 0 }));
   }, []);
   useEffect(() => {
-    if (!sel) { setClicks(null); return; }
-    setClicks(null);
+    if (!sel) { setClicks(null); setRefImg(null); return; }
+    setClicks(null); setRefImg(null);
     api.get("/admin/heatmap/clicks", { params: { path: sel } }).then(({ data }) => setClicks(data)).catch(() => setClicks({ points: [], top_elements: [], count: 0 }));
+    api.get("/admin/heatmap/reference", { params: { path: sel } }).then(({ data }) => setRefImg(data.image || null)).catch(() => setRefImg(null));
   }, [sel]);
 
   if (!grid || !paths) return <Loader />;
@@ -482,17 +486,25 @@ function HeatmapTab() {
 
   return (
     <div className="space-y-6" data-testid="heatmap-tab">
-      <div className="grid grid-cols-3 gap-5">
-        <StatCard label="Unique visitors" value={paths.visitors} />
-        <StatCard label="Total clicks" value={paths.total_clicks} color="#dc2626" />
-        <StatCard label="Page views" value={paths.total_views} />
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="grid grid-cols-3 gap-5 flex-1 min-w-[18rem]">
+          <StatCard label="Unique visitors" value={paths.visitors} />
+          <StatCard label="Total clicks" value={paths.total_clicks} color="#dc2626" />
+          <StatCard label="Page views" value={paths.total_views} />
+        </div>
+        {clarityId && (
+          <a href={`https://clarity.microsoft.com/projects/view/${clarityId}/dashboard`} target="_blank" rel="noreferrer"
+            data-testid="open-clarity-btn" className="neu-primary rounded-2xl px-5 py-3 font-semibold flex items-center gap-2 shrink-0">
+            <Activity className="w-4 h-4" /> Open Microsoft Clarity
+          </a>
+        )}
       </div>
 
       <div className="neu-raised rounded-[1.75rem] p-7 animate-fade-up">
         <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
           <div>
             <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Site click heatmap</h3>
-            <p className="text-sm text-muted-stitch">Where visitors and users click across the whole site. Positions are normalised to each page.</p>
+            <p className="text-sm text-muted-stitch">Where visitors and users click across the whole site. Public pages show the real page behind the heat.</p>
           </div>
           <select data-testid="heatmap-path-select" value={sel} onChange={(e) => setSel(e.target.value)}
             className="neu-input rounded-2xl py-2.5 px-4 text-sm max-w-[16rem]">
@@ -509,8 +521,11 @@ function HeatmapTab() {
         ) : (
           <div className="grid lg:grid-cols-3 gap-6 mt-4">
             <div className="lg:col-span-2">
-              <HeatmapCanvas points={clicks.points} />
-              <p className="text-xs text-muted-stitch mt-2">{clicks.count} click(s) on <span className="font-semibold">{sel}</span> · blue = light, red = hot</p>
+              <div className="relative w-full rounded-2xl overflow-hidden" style={{ aspectRatio: "16 / 9", background: "var(--neu-dark)" }}>
+                {refImg && <img src={refImg} alt="page reference" className="absolute inset-0 w-full h-full object-cover object-top opacity-70" data-testid="heatmap-ref-img" />}
+                <HeatmapCanvas points={clicks.points} />
+              </div>
+              <p className="text-xs text-muted-stitch mt-2">{clicks.count} click(s) on <span className="font-semibold">{sel}</span> · blue = light, red = hot{refImg ? " · overlaid on the live page" : ""}</p>
             </div>
             <div>
               <p className="text-sm font-semibold mb-3" style={{ color: "var(--text)" }}>Most clicked elements</p>
@@ -788,15 +803,15 @@ function SiteNoteTab() {
   const [cfg, setCfg] = useState(null);
   const [saving, setSaving] = useState(false);
   useEffect(() => {
-    api.get("/admin/site-config").then(({ data }) => setCfg({ announcement: { enabled: true, title: "", message: "", signature: "", ...data.announcement }, support_email: data.support_email || "" }))
-      .catch(() => setCfg({ announcement: { enabled: false, title: "", message: "", signature: "" }, support_email: "" }));
+    api.get("/admin/site-config").then(({ data }) => setCfg({ announcement: { enabled: true, title: "", message: "", signature: "", ...data.announcement }, support_email: data.support_email || "", clarity_id: data.clarity_id || "" }))
+      .catch(() => setCfg({ announcement: { enabled: false, title: "", message: "", signature: "" }, support_email: "", clarity_id: "" }));
   }, []);
   const setAnn = (k, v) => setCfg((c) => ({ ...c, announcement: { ...c.announcement, [k]: v } }));
 
   const save = async () => {
     setSaving(true);
     try {
-      await api.put("/admin/site-config", { announcement: cfg.announcement, support_email: cfg.support_email });
+      await api.put("/admin/site-config", { announcement: cfg.announcement, support_email: cfg.support_email, clarity_id: cfg.clarity_id });
       toast.success("Site settings saved");
     } catch (e) { toast.error("Save failed"); } finally { setSaving(false); }
   };
@@ -846,6 +861,17 @@ function SiteNoteTab() {
           </div>
         </div>
         <input data-testid="support-email-input" value={cfg.support_email} onChange={(e) => setCfg({ ...cfg, support_email: e.target.value })} placeholder="support@yourco.com" className="neu-input w-full rounded-2xl py-3 px-4 text-sm mt-4" />
+      </div>
+
+      <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="clarity-card">
+        <div className="flex items-center gap-3 mb-1">
+          <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center"><Activity className="w-5 h-5 text-primary-stitch" /></div>
+          <div>
+            <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Microsoft Clarity</h3>
+            <p className="text-sm text-muted-stitch">Project ID used for the "Open Clarity" deep-link in the Heat Map tab.</p>
+          </div>
+        </div>
+        <input data-testid="clarity-id-input" value={cfg.clarity_id} onChange={(e) => setCfg({ ...cfg, clarity_id: e.target.value })} placeholder="xnf9nc40tt" className="neu-input w-full rounded-2xl py-3 px-4 text-sm mt-4 font-mono-stitch" />
       </div>
 
       <button data-testid="save-sitenote-btn" onClick={save} disabled={saving} className="neu-primary rounded-2xl px-6 py-3 font-semibold">{saving ? "Saving…" : "Save site settings"}</button>

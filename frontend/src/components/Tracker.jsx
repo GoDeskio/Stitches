@@ -1,6 +1,33 @@
 import { useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
+import axios from "axios";
 import { API } from "@/lib/api";
+
+const PUBLIC_REF = new Set(["/", "/login", "/qr-login/claim"]);
+
+async function maybeCaptureReference(path) {
+  const key = "heat_ref_" + path;
+  if (localStorage.getItem(key)) return;
+  try {
+    const { data } = await axios.get(`${API}/track/reference`, { params: { path } });
+    if (!data.needed) { localStorage.setItem(key, "1"); return; }
+  } catch (e) { return; }
+  setTimeout(async () => {
+    try {
+      const html2canvas = (await import("html2canvas")).default;
+      const shot = await html2canvas(document.body, { scale: 0.5, logging: false, useCORS: true, backgroundColor: "#1c1417", windowWidth: document.documentElement.scrollWidth });
+      const w = 960, h = Math.round(w * (shot.height / shot.width));
+      const out = document.createElement("canvas");
+      out.width = w; out.height = h;
+      out.getContext("2d").drawImage(shot, 0, 0, w, h);
+      const img = out.toDataURL("image/jpeg", 0.5);
+      if (img.length <= 1_600_000) {
+        await axios.post(`${API}/track/reference`, { path, image: img });
+        localStorage.setItem(key, "1");
+      }
+    } catch (e) { /* ignore */ }
+  }, 2600);
+}
 
 function getVisitorId() {
   let v = localStorage.getItem("stitches_vid");
@@ -36,6 +63,7 @@ export default function Tracker() {
 
   useEffect(() => {
     queue.current.push({ type: "view", path: loc.pathname });
+    if (PUBLIC_REF.has(loc.pathname)) maybeCaptureReference(loc.pathname);
   }, [loc.pathname]);
 
   useEffect(() => {

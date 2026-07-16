@@ -146,7 +146,7 @@ async def _contact_support(p, user):
     if not msg:
         return {"ok": False, "error": "Please tell me what the support team should know"}
     subject = (p.get("subject") or "Support request from Stitches").strip()[:140]
-    _, support_email = await get_site_config()
+    _, support_email, _clarity = await get_site_config()
     await db.support_requests.insert_one({
         "request_id": f"sup_{uuid.uuid4().hex[:12]}", "user_id": user["user_id"],
         "user_email": user.get("email"), "user_name": user.get("name"),
