@@ -129,8 +129,16 @@ In Google Cloud Console for the OAuth app: (1) enable **Google Drive API**, (2) 
 backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERGENT_LLM_KEY, FRONTEND_URL, ENCRYPTION_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_DRIVE_REDIRECT_URI, AUTH_SESSION_URL, (optional CORS_ORIGINS). frontend/.env: REACT_APP_BACKEND_URL. On a new domain, update FRONTEND_URL + GOOGLE_DRIVE_REDIRECT_URI and re-register the redirect URI in Google Cloud.
 
 ## Backlog / Next
-- P3: email reminders via Resend (needs Resend API key); Dropbox one-click OAuth; authenticated Drive download stream.
-- P3: pagination for messages/users/tasks lists (deployment WARN); delete-avatar; wire Downloads buttons to CI releases; tidy stale pre-refactor tests.
+- P3 (deferred): **Email reminders via Resend** — playbook ready; waiting on user's Resend API key + verified sender.
+- P3: Dropbox one-click OAuth (already available as a manual-token connector on user + admin dashboards); authenticated Drive download stream.
+- P3: cache /api/downloads/release (GitHub API) with a short TTL; add (channel_id, created_at) index for message pagination; iOS "Add to Home Screen" inline hint in InstallPrompt.
+
+## Implemented (2026-06-24, part 2) — Downloads/CI, delete-avatar, pagination, install banner
+- **Desktop downloads wired to real releases**: `GET /api/downloads/release` resolves the latest GitHub release assets (win/.exe, mac/.dmg, linux/.AppImage) for an **admin-editable repo** (`Admin > Integrations > Desktop app releases`, settings key `desktop_release`, env fallback `DESKTOP_RELEASE_REPO`). Downloads buttons link to the matching asset, else the releases page, with a "no installers yet — push a v* tag" hint. CI workflow (`desktop-build.yml`) already publishes releases on `v*` tags.
+- **Delete avatar**: `DELETE /api/users/me/avatar` + a "Remove" button in Settings (shown only when an avatar is set).
+- **Message pagination**: `GET /api/channels/{id}/messages?limit=&before=` (cursor, newest-first fetch, ascending return); Messages UI has a "Load earlier messages" button + merge-on-poll so history isn't clobbered. `GET /api/users?limit=&skip=&q=` supports bounded/searchable user lists.
+- **PWA install banner**: `InstallPrompt` (uses `beforeinstallprompt`) offers a one-tap Install button in-app (Chromium). Dropbox confirmed available as a connector on both user + admin dashboards.
+- Verified (iteration_19): 9/9 backend + 100% frontend, zero bugs. (Resend email reminders deferred at user's request.)
 
 ## Implemented (2026-06-24) — Mobile client (PWA) + QR cross-device login
 - **Installable PWA**: added `public/manifest.json` (standalone, start_url /dashboard, crimson theme), `public/service-worker.js` (app-shell cache, bypasses /api & /ws), SW registration + apple/mobile meta in `index.html`, and generated app icons (`icon-192/512`, `maskable-512`, `apple-touch-icon`). Installs to home screen/dock on phone & desktop with a custom Stitches voodoo-doll icon.
