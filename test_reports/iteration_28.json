@@ -1,0 +1,23 @@
+{
+  "summary": "Iteration 28: Automation failure alerts feature verified end-to-end. Backend: 5/5 pytest pass — admin GET/PUT /api/admin/automation-alerts works (threshold clamped 1..20), non-admin gets 403 on both, and a full run-integration failure streak against httpbin.org/status/500 with threshold=2 produced exactly ONE 'automation' notification titled 'Automation failing: TEST_iter28_fail' for admin, and a 3rd failure did NOT duplicate the alert (once-per-streak confirmed). Frontend: Admin → Automation tab shows the Failure alerts card with all required data-testids; toggling on, setting threshold=3, filling email + webhook and clicking Save produces a 'Failure alerts enabled' toast; values persist across reload; toggle-off Save leaves it disabled. Regression: automation-tab, automation-empty and the 5 filter pills (All/Succeeded/Failed/N8N runs/MCP calls) still render.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": { "ui_bugs": [], "integration_issues": [], "design_issues": [] },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration28_alerts.py",
+    "/app/test_reports/pytest/iteration_28.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "PUT /admin/automation-alerts uses `int(body.get('threshold') or 3)` — treats explicit 0 (falsy) as 'unset' and defaults to 3 instead of clamping to 1. Minor quirk; either document or use `body.get('threshold', 3)` before int() to actually clamp 0 → 1.",
+    "_maybe_alert_failure sets failure_alerted=True BEFORE sending email/webhook. If SMTP or webhook raises, the flag is already set so admins won't be re-alerted for the same streak — acceptable but worth logging failed side-effects so ops know delivery failed.",
+    "_record_run also serializes the raw request payload into integration_runs; consider stripping potentially sensitive fields (basic_pass, api_key) if payloads ever contain them.",
+    "N8N run endpoint catches network exception and returns 502 while still recording a failed run — good; frontend/BE flow treats both httpbin 500 (200 ok:false) and 502 as failures uniformly."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration28_alerts.py"],
+  "success_rate": { "backend": "100% (5/5)", "frontend": "100%" },
+  "test_credentials": "admin@stitches.app / Admin@123, demo@stitches.app / Demo@123",
+  "seed_data_creation": "Test created TEST_iter28_fail n8n integration (owner=demo) with 3 runs and 1 automation notification for admin. Teardown block deletes the integration (cascades runs), deletes the automation notification, and resets automation_alerts to {enabled:false, threshold:3, email:'', webhook_url:''}. UI test toggled the setting on and then off again as final cleanup.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Automation alerts backend + frontend are wired via /api/admin/automation-alerts (config) and /api/notifications (delivery). Alert notification type='automation', link='/admin'. failure_alerted flag on integration doc is reset on any ok run and set true when threshold hits. To retest end-to-end just POST /api/admin/automation-alerts {enabled:true,threshold:N} then run a failing n8n integration N times."
+}

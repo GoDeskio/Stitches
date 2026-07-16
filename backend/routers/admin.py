@@ -188,6 +188,27 @@ async def admin_monitoring(user: dict = Depends(require_admin)):
             "feed": feed}
 
 
+@router.get("/admin/automation-alerts")
+async def get_automation_alerts(user: dict = Depends(require_admin)):
+    cfg = (await db.settings.find_one({"key": "automation_alerts"}) or {}).get("value", {})
+    return {"enabled": bool(cfg.get("enabled")), "threshold": int(cfg.get("threshold") or 3),
+            "email": cfg.get("email", ""), "webhook_url": cfg.get("webhook_url", "")}
+
+
+@router.put("/admin/automation-alerts")
+async def set_automation_alerts(request: Request, user: dict = Depends(require_admin)):
+    body = await request.json()
+    try:
+        threshold = int(body.get("threshold") or 3)
+    except (TypeError, ValueError):
+        threshold = 3
+    threshold = max(1, min(threshold, 20))
+    val = {"enabled": bool(body.get("enabled")), "threshold": threshold,
+           "email": (body.get("email") or "").strip(), "webhook_url": (body.get("webhook_url") or "").strip()}
+    await db.settings.update_one({"key": "automation_alerts"}, {"$set": {"key": "automation_alerts", "value": val}}, upsert=True)
+    return {"ok": True}
+
+
 @router.get("/admin/integration-runs")
 async def admin_integration_runs(kind: str = None, ok: str = None, owner_id: str = None,
                                  user: dict = Depends(require_admin)):

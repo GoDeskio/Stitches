@@ -539,6 +539,8 @@ function IntegrationsTab() {
 function AutomationTab() {
   const [data, setData] = useState(null);
   const [filter, setFilter] = useState("all"); // all | ok | fail | run | mcp_call
+  const [alerts, setAlerts] = useState(null);
+  const [savingAlerts, setSavingAlerts] = useState(false);
   const load = () => {
     const params = {};
     if (filter === "ok") params.ok = "true";
@@ -547,6 +549,15 @@ function AutomationTab() {
     api.get("/admin/integration-runs", { params }).then(({ data }) => setData(data)).catch(() => setData({ runs: [], total: 0, ok_count: 0, fail_count: 0 }));
   };
   useEffect(() => { load(); }, [filter]); // eslint-disable-line
+  useEffect(() => { api.get("/admin/automation-alerts").then(({ data }) => setAlerts(data)).catch(() => setAlerts({ enabled: false, threshold: 3, email: "", webhook_url: "" })); }, []);
+
+  const saveAlerts = async () => {
+    setSavingAlerts(true);
+    try {
+      await api.put("/admin/automation-alerts", alerts);
+      toast.success(alerts.enabled ? "Failure alerts enabled" : "Alert settings saved");
+    } catch (e) { toast.error("Save failed"); } finally { setSavingAlerts(false); }
+  };
 
   if (!data) return <Loader />;
   const FILTERS = [["all", "All"], ["ok", "Succeeded"], ["fail", "Failed"], ["run", "N8N runs"], ["mcp_call", "MCP calls"]];
@@ -557,6 +568,41 @@ function AutomationTab() {
         <StatCard label="Succeeded" value={data.ok_count} color="#16a34a" />
         <StatCard label="Failed" value={data.fail_count} color="#dc2626" />
       </div>
+
+      {alerts && (
+        <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="automation-alerts-card">
+          <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
+            <div>
+              <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Failure alerts</h3>
+              <p className="text-sm text-muted-stitch">Get notified when an integration fails repeatedly in a row (in-app, plus optional email & webhook).</p>
+            </div>
+            <button data-testid="alerts-enabled-toggle" onClick={() => setAlerts({ ...alerts, enabled: !alerts.enabled })}
+              className={`w-14 h-8 rounded-full flex items-center px-1 transition-all shrink-0 ${alerts.enabled ? "justify-end" : "justify-start"}`}
+              style={{ background: alerts.enabled ? "var(--primary)" : "var(--neu-dark)" }}>
+              <span className="w-6 h-6 rounded-full bg-white shadow" />
+            </button>
+          </div>
+          <div className="grid sm:grid-cols-3 gap-3 mt-4">
+            <div>
+              <label className="text-xs font-semibold text-muted-stitch">Failures in a row</label>
+              <input data-testid="alerts-threshold-input" type="number" min="1" max="20" value={alerts.threshold}
+                onChange={(e) => setAlerts({ ...alerts, threshold: e.target.value })} className="neu-input w-full rounded-2xl py-3 px-4 text-sm mt-1" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-muted-stitch">Alert email (optional)</label>
+              <input data-testid="alerts-email-input" value={alerts.email}
+                onChange={(e) => setAlerts({ ...alerts, email: e.target.value })} placeholder="ops@yourco.com" className="neu-input w-full rounded-2xl py-3 px-4 text-sm mt-1" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-muted-stitch">Webhook URL (optional)</label>
+              <input data-testid="alerts-webhook-input" value={alerts.webhook_url}
+                onChange={(e) => setAlerts({ ...alerts, webhook_url: e.target.value })} placeholder="https://hooks.slack.com/…" className="neu-input w-full rounded-2xl py-3 px-4 text-sm mt-1 font-mono-stitch" />
+            </div>
+          </div>
+          <button data-testid="save-alerts-btn" onClick={saveAlerts} disabled={savingAlerts} className="neu-primary rounded-2xl px-6 py-3 font-semibold mt-4">{savingAlerts ? "Saving…" : "Save alert settings"}</button>
+          <p className="text-xs text-muted-stitch mt-3">Email uses the platform SMTP (Admin → Meetings). Webhook receives a JSON POST with the integration name, type and failure count.</p>
+        </div>
+      )}
 
       <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up">
         <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">

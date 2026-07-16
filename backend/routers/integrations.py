@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from core import *
 from core import _create_message, _notify_mentions, ws_manager, _fernet
+from services.email import send_meeting_email
 from models import *
 
 router = APIRouter()
@@ -177,6 +178,49 @@ async def _record_run(integration_id, owner_id, kind, ok, detail, status_code=No
     old = await db.integration_runs.find({"integration_id": integration_id}, {"_id": 1, "created_at": 1}).sort("created_at", -1).to_list(1000)
     for doc in old[50:]:
         await db.integration_runs.delete_one({"_id": doc["_id"]})
+    if ok:
+        await db.integrations.update_one({"integration_id": integration_id}, {"$set": {"failure_alerted": False}})
+    else:
+        await _maybe_alert_failure(integration_id)
+
+
+async def _maybe_alert_failure(integration_id):
+    cfg = (await db.settings.find_one({"key": "automation_alerts"}) or {}).get("value", {})
+    if not cfg.get("enabled"):
+        return
+    threshold = int(cfg.get("threshold") or 3)
+    if threshold < 1:
+        threshold = 1
+    last = await db.integration_runs.find({"integration_id": integration_id}, {"_id": 0, "ok": 1}).sort("created_at", -1).to_list(threshold)
+    if len(last) < threshold or any(r.get("ok") for r in last):
+        return
+    it = await db.integrations.find_one({"integration_id": integration_id})
+    if not it or it.get("failure_alerted"):
+        return
+    await db.integrations.update_one({"integration_id": integration_id}, {"$set": {"failure_alerted": True}})
+    name = it.get("name", "Integration")
+    itype = it.get("type", "")
+    title = f"Automation failing: {name}"
+    body = f"'{name}' ({itype}) has failed {threshold} times in a row. Check the Automation activity log."
+    admins = await db.users.find({"role": "admin"}, {"_id": 0, "user_id": 1, "email": 1}).to_list(100)
+    for a in admins:
+        await create_notification(a["user_id"], "automation", title, body, "/admin")
+    email_to = (cfg.get("email") or "").strip()
+    if email_to:
+        html = (f"<div style='font-family:sans-serif;max-width:520px'>"
+                f"<h2 style='color:#c0202e'>{title}</h2><p>{body}</p>"
+                f"<p style='color:#888;font-size:13px'>Owner: {it.get('owner_id')}</p></div>")
+        await send_meeting_email(email_to, title, html)
+    webhook = (cfg.get("webhook_url") or "").strip()
+    if webhook:
+        import httpx
+        try:
+            async with httpx.AsyncClient() as client:
+                await client.post(webhook, json={"event": "automation_failure", "integration": name,
+                                                 "type": itype, "consecutive_failures": threshold,
+                                                 "integration_id": integration_id}, timeout=10.0)
+        except Exception:
+            pass
 
 
 @router.get("/integrations/{integration_id}/runs")
