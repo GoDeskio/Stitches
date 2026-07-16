@@ -183,6 +183,9 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - Verified (iteration_26): backend 12/12 pytest + frontend 100%. Fixed a React `useEffect` Promise-return bug in Run/MCP modals (found by testing agent).
 - NOTE: real MCP tool execution requires a real MCP server (untestable in-sandbox — validated graceful fallback only).
 
+## Implemented (2026-06-25, part 9) — Support tab unread badge
+- **Open-requests badge** on the Admin "Support" tab (`support-tab-badge`): red count of open support requests, fetched efficiently (limit=1, reads `open_count`) and refreshed on tab switch so admins spot new AI escalations immediately. Self-verified (endpoint returns open_count; compiles clean).
+
 ## Implemented (2026-06-25, part 8) — admin Support inbox
 - **Support inbox** (Admin → Support tab, `admin-tab-support`): lists AI-escalated `support_requests` with open/resolved/all filters, per-request subject/message/requester, a Reply link (mailto to the requester), and Resolve/Reopen actions. Stat cards for Open/Total; "Load more" pagination.
 - Endpoints: `GET /api/admin/support-requests` (status/limit/skip → open_count/total/has_more) and `POST /api/admin/support-requests/{id}/status` ({resolved} → sets status/resolved_at/resolved_by).

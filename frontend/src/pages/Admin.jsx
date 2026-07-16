@@ -38,6 +38,11 @@ const TABS = [
 
 export default function Admin() {
   const [tab, setTab] = useState("overview");
+  const [openSupport, setOpenSupport] = useState(0);
+  useEffect(() => {
+    api.get("/admin/support-requests", { params: { status: "open", limit: 1 } })
+      .then(({ data }) => setOpenSupport(data.open_count || 0)).catch(() => {});
+  }, [tab]);
   return (
     <PageShell>
       <div className="flex items-start justify-between gap-4 flex-wrap mb-2" data-testid="admin-call-bar">
@@ -49,6 +54,9 @@ export default function Admin() {
           <button key={t.id} data-testid={`admin-tab-${t.id}`} onClick={() => setTab(t.id)}
             className={`flex items-center gap-2 rounded-full py-2.5 px-4 text-sm font-semibold whitespace-nowrap transition-all ${tab === t.id ? "neu-primary" : "text-muted-stitch"}`}>
             <t.icon className="w-4 h-4" /> {t.label}
+            {t.id === "support" && openSupport > 0 && (
+              <span data-testid="support-tab-badge" className="ml-0.5 min-w-[1.25rem] h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-bold flex items-center justify-center">{openSupport > 99 ? "99+" : openSupport}</span>
+            )}
           </button>
         ))}
       </div>
