@@ -68,7 +68,7 @@ INTEGRATION_CATALOG = [
          "fields": [{"key": "provider", "label": "Provider", "type": "text", "placeholder": "OpenAI / Anthropic / Gemini"},
                     {"key": "api_key", "label": "API key", "type": "password"},
                     {"key": "model", "label": "Default model", "type": "text", "placeholder": "gpt-4o"}]}]},
-    {"type": "mcp", "name": "MCP Server", "category": "AI", "actions": ["test"],
+    {"type": "mcp", "name": "MCP Server", "category": "AI", "actions": ["mcp", "test"],
      "description": "Connect a Model Context Protocol server to extend AI tools.",
      "methods": [
         {"id": "token", "label": "Server URL + token",
@@ -111,6 +111,7 @@ async def create_integration(data: IntegrationInput, user: dict = Depends(get_cu
 @router.delete("/integrations/{integration_id}")
 async def delete_integration(integration_id: str, user: dict = Depends(get_current_user)):
     await db.integrations.delete_one({"integration_id": integration_id, "owner_id": user["user_id"]})
+    await db.integration_runs.delete_many({"integration_id": integration_id})
     return {"ok": True}
 
 
@@ -155,9 +156,131 @@ async def run_integration(integration_id: str, data: IntegrationRunInput, user: 
         async with httpx.AsyncClient() as client:
             r = await client.post(url, json=data.payload or {}, headers=headers, auth=auth, timeout=30.0)
     except Exception as e:
+        await _record_run(integration_id, user["user_id"], "run", False, f"Failed to reach N8N: {e}",
+                          request=data.payload or {})
         raise HTTPException(status_code=502, detail=f"Failed to reach N8N: {e}")
+    ok = r.status_code < 400
+    await _record_run(integration_id, user["user_id"], "run", ok, r.text[:2000],
+                      status_code=r.status_code, request=data.payload or {})
     await log_activity(user["user_id"], "integration_run", {"type": "n8n", "id": integration_id})
-    return {"ok": r.status_code < 400, "status_code": r.status_code, "response": r.text[:2000]}
+    return {"ok": ok, "status_code": r.status_code, "response": r.text[:2000]}
+
+
+# ---------------- Run history ----------------
+async def _record_run(integration_id, owner_id, kind, ok, detail, status_code=None, request=None):
+    await db.integration_runs.insert_one({
+        "run_id": f"run_{uuid.uuid4().hex[:12]}", "integration_id": integration_id,
+        "owner_id": owner_id, "kind": kind, "ok": bool(ok),
+        "status_code": status_code, "request": request,
+        "detail": (detail or "")[:2000], "created_at": now_iso()})
+    # keep only the latest 50 per integration
+    old = await db.integration_runs.find({"integration_id": integration_id}, {"_id": 1, "created_at": 1}).sort("created_at", -1).to_list(1000)
+    for doc in old[50:]:
+        await db.integration_runs.delete_one({"_id": doc["_id"]})
+
+
+@router.get("/integrations/{integration_id}/runs")
+async def integration_runs(integration_id: str, user: dict = Depends(get_current_user)):
+    await _get_owned_integration(integration_id, user)
+    items = await db.integration_runs.find({"integration_id": integration_id}, {"_id": 0}).sort("created_at", -1).to_list(20)
+    return items
+
+
+# ---------------- MCP (Model Context Protocol) ----------------
+def _parse_jsonrpc(resp):
+    ct = resp.headers.get("content-type", "")
+    if "text/event-stream" in ct:
+        for line in resp.text.splitlines():
+            line = line.strip()
+            if line.startswith("data:"):
+                try:
+                    return json.loads(line[5:].strip())
+                except Exception:
+                    continue
+        return {}
+    try:
+        return resp.json()
+    except Exception:
+        return {}
+
+
+async def _mcp_connect(cfg):
+    import httpx
+    url = cfg.get("server_url")
+    if not url:
+        raise HTTPException(status_code=400, detail="No MCP server URL configured.")
+    headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+    if cfg.get("token"):
+        headers["Authorization"] = f"Bearer {cfg['token']}"
+    client = httpx.AsyncClient(timeout=20.0)
+    init_body = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                 "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+                            "clientInfo": {"name": "Stitches", "version": "1.0"}}}
+    resp = await client.post(url, json=init_body, headers=headers)
+    sid = resp.headers.get("mcp-session-id") or resp.headers.get("Mcp-Session-Id")
+    if sid:
+        headers["Mcp-Session-Id"] = sid
+    try:
+        await client.post(url, json={"jsonrpc": "2.0", "method": "notifications/initialized"}, headers=headers)
+    except Exception:
+        pass
+    return client, url, headers
+
+
+async def _mcp_rpc(cfg, method, params, rid=2):
+    client, url, headers = await _mcp_connect(cfg)
+    try:
+        resp = await client.post(url, json={"jsonrpc": "2.0", "id": rid, "method": method, "params": params or {}}, headers=headers)
+        data = _parse_jsonrpc(resp)
+    finally:
+        await client.aclose()
+    if data.get("error"):
+        raise HTTPException(status_code=400, detail=data["error"].get("message", "MCP error"))
+    return data.get("result", {})
+
+
+@router.get("/integrations/{integration_id}/mcp/tools")
+async def mcp_list_tools(integration_id: str, user: dict = Depends(get_current_user)):
+    await ensure_feature("integrations")
+    it = await _get_owned_integration(integration_id, user)
+    if it.get("type") != "mcp":
+        raise HTTPException(status_code=400, detail="Not an MCP integration")
+    try:
+        result = await _mcp_rpc(it.get("config", {}), "tools/list", {})
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Could not reach MCP server: {str(e)[:200]}")
+    tools = result.get("tools", []) if isinstance(result, dict) else []
+    return {"tools": [{"name": t.get("name"), "description": t.get("description", ""),
+                       "input_schema": t.get("inputSchema") or t.get("input_schema") or {}} for t in tools]}
+
+
+@router.post("/integrations/{integration_id}/mcp/call")
+async def mcp_call_tool(integration_id: str, data: McpToolCallInput, user: dict = Depends(get_current_user)):
+    await ensure_feature("integrations")
+    it = await _get_owned_integration(integration_id, user)
+    if it.get("type") != "mcp":
+        raise HTTPException(status_code=400, detail="Not an MCP integration")
+    try:
+        result = await _mcp_rpc(it.get("config", {}), "tools/call", {"name": data.name, "arguments": data.arguments or {}})
+        ok = not (isinstance(result, dict) and result.get("isError"))
+        parts = []
+        for c in (result.get("content", []) if isinstance(result, dict) else []):
+            if c.get("type") == "text":
+                parts.append(c.get("text", ""))
+            else:
+                parts.append(json.dumps(c))
+        detail = "\n".join(parts) if parts else json.dumps(result)[:2000]
+    except HTTPException as e:
+        await _record_run(integration_id, user["user_id"], "mcp_call", False, e.detail, request={"tool": data.name, "arguments": data.arguments})
+        raise
+    except Exception as e:
+        await _record_run(integration_id, user["user_id"], "mcp_call", False, str(e)[:2000], request={"tool": data.name, "arguments": data.arguments})
+        raise HTTPException(status_code=502, detail=f"MCP call failed: {str(e)[:200]}")
+    await _record_run(integration_id, user["user_id"], "mcp_call", ok, detail, request={"tool": data.name, "arguments": data.arguments})
+    await log_activity(user["user_id"], "integration_run", {"type": "mcp", "id": integration_id, "tool": data.name})
+    return {"ok": ok, "result": detail}
 
 
 @router.get("/integrations/{integration_id}/files")

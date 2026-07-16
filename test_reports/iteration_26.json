@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration 26: Verified refactor regression (4 split routers: meetings/smtp_config/sfu_config/rtc_config) and NEW P2 features N8N run history + MCP tools listing. Backend 12/12 pytest tests pass; UI Run modal shows history rows after triggering N8N workflow; MCP modal gracefully shows 'No tools' for non-MCP endpoint. Found and FIXED one UI bug: RunModal & McpModal useEffect returned a Promise, causing 'destroy is not a function' pageerror that crashed the modal (and blanked the connected list) on close.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [
+      { "component": "RunModal & McpModal (Integrations.jsx)", "issue": "useEffect(loadRuns, []) and useEffect(loadTools, []) passed a function returning a Promise, triggering React pageerror 'destroy is not a function' on unmount, crashing the modal and unmounting the connected list. FIXED by wrapping calls: useEffect(() => { loadRuns(); }, []).", "selector": "[data-testid=run-modal],[data-testid=mcp-modal]", "priority": "HIGH" }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration26.py",
+    "/app/test_reports/pytest/iteration_26.xml"
+  ],
+  "action_items": [
+    "Verify the two-line useEffect fix in /app/frontend/src/pages/Integrations.jsx (RunModal L217, McpModal L288). Consider adding a global React error boundary around modals so a single crash doesn't unmount the whole page tree.",
+    "Non-blocking: mcp/tools endpoint returns 200 {tools:[]} when hitting a non-MCP endpoint that responds with a non-JSONRPC body — good graceful behavior; consider returning a soft warning field so UI can distinguish 'no tools' vs 'server not MCP' someday."
+  ],
+  "critical_code_review_comments": [
+    "routers/meetings.py imports helpers from routers.smtp_config (build_ics, send_meeting_email) — a router importing another router is a slight layering smell. Consider moving build_ics + send_meeting_email to a shared services/email module.",
+    "routers/rtc_config.py imports _get_livekit_cfg from routers.sfu_config — same cross-router coupling. Extract a services layer to avoid tight coupling between router modules.",
+    "Integrations.jsx: any useEffect that calls an async function should either be `useEffect(() => { fn(); }, [])` or declare fn inside. React already warned about this pattern in console; enforce with eslint-plugin-react-hooks rule react-hooks/exhaustive-deps.",
+    "mcp_call_tool records failures on both HTTPException path and generic Exception path but then re-raises — good; ensure _record_run cap-to-50 pruning uses a proper index on integration_runs.integration_id + created_at (avoids O(N) delete_many on high-run integrations)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration26.py",
+    "/app/frontend/src/pages/Integrations.jsx"
+  ],
+  "success_rate": { "backend": "100% (12/12)", "frontend": "100% (Run + MCP + disconnect flows verified after fix)" },
+  "test_credentials": "demo@stitches.app / Demo@123, admin@stitches.app / Admin@123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Created TEST_iter26_none, TEST_iter26_weekly, TEST_iter26_daily meetings (persist in db for demo user). Created and DISCONNECTED TEST_UI_N8N/TEST_UI_MCP/TEST_UI_N8N2/TEST_UI_MCP2 integrations. Also PUT+DELETE cycled admin SMTP/SFU/RTC and demo user SMTP configs — end state: cleared.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All refactored router endpoints work identically to pre-refactor: /api/me/smtp-config, /api/admin/{smtp,sfu,rtc}-config, /api/rtc/config, /api/meetings (+ /upcoming, /{id}, /{id}/ics, /admin/meetings, /admin/meetings/{id}/end). Weekly recurrence expands to >=2 upcoming occurrences and ICS contains RRULE:FREQ=WEEKLY. N8N /run then GET /runs returns >=1 row (ok=true, status_code=200) and DELETE integration purges history (subsequent /runs -> 404). MCP tools/list against non-MCP https://httpbin.org/status/200 returns 200 {tools:[]} and UI shows mcp-empty gracefully. Fixed React useEffect Promise-return bug in RunModal & McpModal.",
+  "rca of the issue": "RCA — 'destroy is not a function' pageerror: RunModal L217 had `useEffect(loadRuns, [])` where loadRuns is `() => api.get(...).then(...).catch(...)`, i.e. returns a Promise. React expects useEffect callback to return either undefined or a cleanup FUNCTION. When the effect runs, React captures the returned Promise and treats it as a cleanup function; on unmount (modal close) it calls `cleanup()` which is `promise` and then `promise.destroy()` — crashing the component and (without an error boundary) tearing down the parent tree so the connected integrations list disappeared. Reproduction: open /integrations with any n8n integration, click Run, close the modal → the connected list vanishes and console shows PAGEERROR: destroy is not a function. Fix: wrap in arrow function — `useEffect(() => { loadRuns(); }, [])`. Same fix applied to McpModal. Verified: cards remained (4/4) after opening & closing both modals; no pageerror in console."
+}

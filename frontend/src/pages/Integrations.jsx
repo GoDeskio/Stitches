@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   Plug, Cloud, Workflow, Sparkles, Server, X, Check, Trash2, ChevronRight, ArrowLeft,
-  Play, HardDrive, Download, FolderOpen, Zap, Mail, AppWindow, HelpCircle,
+  Play, HardDrive, Download, FolderOpen, Zap, Mail, AppWindow, HelpCircle, Wrench, History,
 } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
@@ -20,6 +20,7 @@ export function IntegrationsManager() {
   const [saving, setSaving] = useState(false);
   const [runTarget, setRunTarget] = useState(null);
   const [filesTarget, setFilesTarget] = useState(null);
+  const [mcpTarget, setMcpTarget] = useState(null);
 
   const load = () => api.get("/integrations").then(({ data }) => setConnected(data));
   useEffect(() => {
@@ -95,6 +96,9 @@ export function IntegrationsManager() {
                     )}
                     {actions.includes("files") && (
                       <button data-testid="integration-files-btn" onClick={() => setFilesTarget(c)} className="neu-btn rounded-xl px-3 py-2 text-sm font-semibold text-primary-stitch flex items-center gap-1.5"><FolderOpen className="w-4 h-4" /> Browse files</button>
+                    )}
+                    {actions.includes("mcp") && (
+                      <button data-testid="integration-mcp-btn" onClick={() => setMcpTarget(c)} className="neu-primary rounded-xl px-3 py-2 text-sm font-semibold flex items-center gap-1.5"><Wrench className="w-4 h-4" /> Tools</button>
                     )}
                     {actions.includes("test") && (
                       <button data-testid="integration-test-btn" onClick={() => test(c)} className="neu-btn rounded-xl px-3 py-2 text-sm font-semibold text-muted-stitch flex items-center gap-1.5"><Zap className="w-4 h-4" /> Test</button>
@@ -189,6 +193,7 @@ export function IntegrationsManager() {
 
       {runTarget && <RunModal integration={runTarget} onClose={() => setRunTarget(null)} />}
       {filesTarget && <FilesModal integration={filesTarget} onClose={() => setFilesTarget(null)} />}
+      {mcpTarget && <McpModal integration={mcpTarget} onClose={() => setMcpTarget(null)} />}
     </>
   );
 }
@@ -206,6 +211,10 @@ function RunModal({ integration, onClose }) {
   const [payload, setPayload] = useState('{\n  "message": "Hello from Stitches"\n}');
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
+  const [runs, setRuns] = useState([]);
+
+  const loadRuns = () => api.get(`/integrations/${integration.integration_id}/runs`).then(({ data }) => setRuns(data)).catch(() => setRuns([]));
+  useEffect(() => { loadRuns(); }, []); // eslint-disable-line
 
   const run = async () => {
     let body = {};
@@ -217,12 +226,12 @@ function RunModal({ integration, onClose }) {
       setResult(data);
       toast[data.ok ? "success" : "error"](data.ok ? "Workflow triggered" : `Failed (${data.status_code})`);
     } catch (e) { toast.error(e.response?.data?.detail || "Failed to trigger"); }
-    finally { setRunning(false); }
+    finally { setRunning(false); loadRuns(); }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.5)" }} onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="neu-raised rounded-3xl p-8 w-full max-w-lg animate-fade-up" data-testid="run-modal">
+      <div onClick={(e) => e.stopPropagation()} className="neu-raised rounded-3xl p-8 w-full max-w-lg animate-fade-up max-h-[90vh] overflow-y-auto" data-testid="run-modal">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-head font-bold text-2xl" style={{ color: "var(--text)" }}>Run {integration.name}</h3>
           <button onClick={onClose} className="text-muted-stitch"><X className="w-5 h-5" /></button>
@@ -237,6 +246,106 @@ function RunModal({ integration, onClose }) {
           <div data-testid="run-result" className="neu-pressed rounded-2xl p-4 mt-4">
             <p className="text-xs uppercase tracking-widest text-muted-stitch mb-1">Response ({result.status_code})</p>
             <pre className="text-xs whitespace-pre-wrap break-words" style={{ color: "var(--text)" }}>{result.response || "(empty)"}</pre>
+          </div>
+        )}
+        <div className="mt-6" data-testid="run-history">
+          <h4 className="text-sm font-semibold text-muted-stitch mb-2 flex items-center gap-2"><History className="w-4 h-4" /> Recent runs</h4>
+          {runs.length === 0 ? (
+            <p className="text-xs text-muted-stitch">No runs yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {runs.map((r) => (
+                <div key={r.run_id} data-testid="run-history-row" className="neu-pressed rounded-xl p-3 flex items-center gap-3">
+                  <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${r.ok ? "bg-green-500" : "bg-red-500"}`} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold truncate" style={{ color: "var(--text)" }}>{r.ok ? "Success" : "Failed"}{r.status_code ? ` · ${r.status_code}` : ""}</p>
+                    <p className="text-[11px] text-muted-stitch truncate">{new Date(r.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function McpModal({ integration, onClose }) {
+  const [tools, setTools] = useState(null);
+  const [error, setError] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [args, setArgs] = useState("{}");
+  const [calling, setCalling] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const loadTools = () => {
+    setTools(null); setError(null);
+    api.get(`/integrations/${integration.integration_id}/mcp/tools`)
+      .then(({ data }) => setTools(data.tools || []))
+      .catch((e) => { setError(e.response?.data?.detail || "Could not list tools"); setTools([]); });
+  };
+  useEffect(() => { loadTools(); }, []); // eslint-disable-line
+
+  const pick = (t) => { setSelected(t); setResult(null); setArgs("{}"); };
+
+  const call = async () => {
+    let parsed = {};
+    try { parsed = args.trim() ? JSON.parse(args) : {}; }
+    catch (e) { toast.error("Arguments must be valid JSON"); return; }
+    setCalling(true); setResult(null);
+    try {
+      const { data } = await api.post(`/integrations/${integration.integration_id}/mcp/call`, { name: selected.name, arguments: parsed });
+      setResult(data);
+      toast[data.ok ? "success" : "error"](data.ok ? "Tool executed" : "Tool returned an error");
+    } catch (e) { toast.error(e.response?.data?.detail || "Tool call failed"); }
+    finally { setCalling(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6" style={{ background: "rgba(0,0,0,0.5)" }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="neu-raised rounded-3xl p-8 w-full max-w-lg animate-fade-up flex flex-col max-h-[88vh]" data-testid="mcp-modal">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-head font-bold text-2xl" style={{ color: "var(--text)" }}>{integration.name} — Tools</h3>
+          <button onClick={onClose} className="text-muted-stitch"><X className="w-5 h-5" /></button>
+        </div>
+        {tools === null ? <Loader /> : error ? (
+          <div className="neu-pressed rounded-2xl p-5 text-sm text-red-400" data-testid="mcp-error">{error}</div>
+        ) : !selected ? (
+          tools.length === 0 ? (
+            <p className="text-sm text-muted-stitch" data-testid="mcp-empty">No tools exposed by this MCP server.</p>
+          ) : (
+            <div className="space-y-2 overflow-y-auto">
+              {tools.map((t) => (
+                <button key={t.name} data-testid="mcp-tool-row" onClick={() => pick(t)}
+                  className="w-full neu-pressed neu-hover rounded-2xl p-4 text-left flex items-start gap-3">
+                  <div className="neu-sm w-9 h-9 rounded-xl flex items-center justify-center shrink-0"><Wrench className="w-4 h-4 text-primary-stitch" /></div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>{t.name}</p>
+                    {t.description && <p className="text-xs text-muted-stitch line-clamp-2">{t.description}</p>}
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-muted-stitch shrink-0" />
+                </button>
+              ))}
+            </div>
+          )
+        ) : (
+          <div className="overflow-y-auto">
+            <button onClick={() => setSelected(null)} className="text-sm text-muted-stitch flex items-center gap-1 mb-3"><ArrowLeft className="w-4 h-4" /> All tools</button>
+            <p className="font-semibold mb-1" style={{ color: "var(--text)" }}>{selected.name}</p>
+            {selected.description && <p className="text-xs text-muted-stitch mb-3">{selected.description}</p>}
+            <label className="text-sm font-semibold text-muted-stitch">Arguments (JSON)</label>
+            <textarea data-testid="mcp-args" value={args} onChange={(e) => setArgs(e.target.value)} rows={5}
+              className="neu-input w-full rounded-2xl py-3 px-5 mt-2 mb-4 font-mono text-sm resize-none" />
+            <button data-testid="mcp-call-btn" onClick={call} disabled={calling} className="neu-primary w-full rounded-2xl py-3.5 font-semibold flex items-center justify-center gap-2">
+              <Play className="w-5 h-5" /> {calling ? "Running…" : "Run tool"}
+            </button>
+            {result && (
+              <div data-testid="mcp-result" className="neu-pressed rounded-2xl p-4 mt-4">
+                <p className="text-xs uppercase tracking-widest text-muted-stitch mb-1">{result.ok ? "Result" : "Error"}</p>
+                <pre className="text-xs whitespace-pre-wrap break-words" style={{ color: "var(--text)" }}>{result.result || "(empty)"}</pre>
+              </div>
+            )}
           </div>
         )}
       </div>

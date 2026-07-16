@@ -5,11 +5,11 @@ from starlette.middleware.cors import CORSMiddleware
 import os
 import asyncio
 
-from routers import auth, users, messaging, projects, assets, integrations, ai, admin, meetings
+from routers import auth, users, messaging, projects, assets, integrations, ai, admin, meetings, rtc_config, sfu_config, smtp_config
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
-for _mod in (auth, users, messaging, projects, assets, integrations, ai, admin, meetings):
+for _mod in (auth, users, messaging, projects, assets, integrations, ai, admin, meetings, rtc_config, sfu_config, smtp_config):
     api_router.include_router(_mod.router)
 
 

@@ -116,6 +116,11 @@ class FileKeyInput(BaseModel):
     key: str
 
 
+class McpToolCallInput(BaseModel):
+    name: str
+    arguments: Dict[str, Any] = {}
+
+
 class AiInput(BaseModel):
     message: str
     model: Optional[str] = "gpt-5.4"
