@@ -89,6 +89,7 @@ async def startup():
     await db.users.create_index("user_id", unique=True)
     await db.user_sessions.create_index("session_token")
     await db.messages.create_index([("channel_id", 1), ("created_at", 1)])
+    await db.integration_runs.create_index([("integration_id", 1), ("created_at", -1)])
     await db.sessions.create_index("jti")
     await db.sessions.create_index("user_id")
     await db.sessions.create_index([("user_id", 1), ("last_seen", -1)])

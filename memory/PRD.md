@@ -171,10 +171,23 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 ## Backlog / Next
 - P1: (DONE 2026-06-25) Recurring meetings + week calendar — see below.
 - Post-deploy: enable LiveKit SFU / coturn TURN; configure SMTP (e.g. Gmail app password) to activate meeting-invite emails.
-- P2: Deeper N8N / MCP workflows once real credentials exist.
+- P2: Deeper N8N / MCP workflows once real credentials exist.  ✅ DONE 2026-06-25 (see below)
 - P3 (deferred): Resend as an alternative email provider (waiting on user's API key).
 - P3: Dropbox one-click OAuth (manual-token connector available now); authenticated Drive download stream.
-- Refactor: split meetings.py (~440 lines, mixes meetings/TURN/SFU/SMTP) into meetings/rtc/sfu/smtp routers before it grows past 700 lines.
+- Refactor: split meetings.py into meetings/rtc/sfu/smtp routers.  ✅ DONE 2026-06-25 (see below)
+
+## Implemented (2026-06-25, part 2) — meetings router refactor + deeper N8N/MCP workflows
+- **Backend refactor**: `routers/meetings.py` (~440 lines) split into 4 focused routers — `meetings.py` (meeting CRUD + `.ics`), `smtp_config.py` (per-user + admin SMTP, `build_ics`, `send_meeting_email`), `sfu_config.py` (LiveKit/`_get_livekit_cfg`), `rtc_config.py` (TURN + `/rtc/config`). All 4 registered in `server.py`. Zero behavior change — full regression verified.
+- **N8N run history**: `POST /api/integrations/{id}/run` now records each run (`integration_runs` collection, capped 50/integration, indexed `(integration_id, created_at)`); `GET /api/integrations/{id}/runs` returns the last 20. Run modal shows a "Recent runs" list with success/fail indicators. Deleting an integration purges its run history.
+- **MCP tools**: MCP integrations expose a "Tools" action → `GET /api/integrations/{id}/mcp/tools` (JSON-RPC `initialize`+`tools/list`, SSE/JSON aware) lists available tools; `POST /api/integrations/{id}/mcp/call` (`tools/call`) invokes a tool with JSON arguments and records the call in history. New `McpModal` UI: browse tools → provide args → run → view result. Graceful handling when the URL isn't a real MCP server (empty tools / error, no crash).
+- Verified (iteration_26): backend 12/12 pytest + frontend 100%. Fixed a React `useEffect` Promise-return bug in Run/MCP modals (found by testing agent).
+- NOTE: real MCP tool execution requires a real MCP server (untestable in-sandbox — validated graceful fallback only).
+
+## Backlog / Next
+- Post-deploy: enable LiveKit SFU / coturn TURN; configure SMTP to activate meeting-invite emails.
+- P3 (deferred): Resend as an alternative email provider (waiting on user's API key).
+- P3: Dropbox one-click OAuth (manual-token connector available now); authenticated Drive download stream.
+- Optional: extract a shared `services/` layer for email + livekit helpers to remove cross-router imports (meetings→smtp_config, rtc_config→sfu_config).
 
 ## Implemented (2026-06-25) — per-user SMTP, clear-credentials, recurring meetings + week calendar
 - **Per-user SMTP sending**: meeting invites are sent from the host's own SMTP account when configured (`send_meeting_email(sender_user_id)` → personal SMTP → falls back to admin SMTP). New user Settings section "Send invites from your own email" (`my-smtp-section`) with save + **Clear credentials**; endpoints `GET/PUT/DELETE /api/me/smtp-config` (password Fernet-encrypted, port parse hardened via `_safe_port`).
