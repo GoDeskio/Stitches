@@ -56,6 +56,8 @@ async def startup():
     await db.users.create_index("email", unique=True)
     await db.users.create_index("user_id", unique=True)
     await db.user_sessions.create_index("session_token")
+    await db.qr_tokens.create_index("token", unique=True)
+    await db.qr_tokens.create_index("expires_at", expireAfterSeconds=0)
     admin_email = os.environ.get("ADMIN_EMAIL")
     admin_password = os.environ.get("ADMIN_PASSWORD")
     existing = await db.users.find_one({"email": admin_email})

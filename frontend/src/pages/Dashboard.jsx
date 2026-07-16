@@ -4,6 +4,7 @@ import { FolderKanban, FolderOpen, Plug, MessagesSquare, Layers, ArrowUpRight, S
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { PageShell, PageHeader, Loader } from "@/components/Stitch";
+import QrLoginCard from "@/components/QrLoginCard";
 
 const STATS = [
   { key: "workspaces", label: "Workspaces", icon: Layers },
@@ -118,6 +119,10 @@ export default function Dashboard() {
             ))}
           </div>
         )}
+      </div>
+
+      <div className="mt-6">
+        <QrLoginCard />
       </div>
     </PageShell>
   );

@@ -1,9 +1,8 @@
 import { useState, useEffect } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
+import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, MessagesSquare, FolderKanban, FolderOpen, Plug,
-  Sparkles, User, Settings, Shield, LogOut, Menu, Sun, Moon, Users, Eye, StickyNote,
+  Sparkles, User, Settings, Shield, LogOut, Menu, X, Sun, Moon, Users, Eye, StickyNote,
   Activity, Download,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
@@ -35,10 +34,14 @@ export default function Layout() {
 
 function LayoutInner() {
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const { user, logout, impersonating, stopImpersonation } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { flags } = useFeatures();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => { setMobileOpen(false); }, [location.pathname]);
 
   useEffect(() => {
     const ping = () => api.post("/presence/ping").catch(() => {});
@@ -64,11 +67,26 @@ function LayoutInner() {
 
   return (
     <div className="stitch-wallpaper min-h-screen flex">
-      <motion.aside
-        animate={{ width: collapsed ? 88 : 280 }}
-        transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
-        className="neu-raised m-4 rounded-[1.75rem] flex flex-col overflow-hidden relative z-10"
-        style={{ height: "calc(100vh - 2rem)" }}
+      {/* Mobile top bar */}
+      <div className="md:hidden fixed top-0 inset-x-0 z-30 h-14 neu-raised flex items-center justify-between px-4" style={{ borderRadius: 0 }} data-testid="mobile-topbar">
+        <button data-testid="mobile-menu-button" onClick={() => setMobileOpen(true)} className="neu-btn rounded-xl p-2 text-muted-stitch">
+          <Menu className="w-5 h-5" />
+        </button>
+        <div className="flex items-center gap-2">
+          <img src="/logo.png" alt="Stitches" className="w-8 h-8 object-contain" />
+          <span className="font-head font-black text-lg tracking-tight" style={{ color: "var(--text)" }}>Stitches</span>
+        </div>
+        <NotificationBell />
+      </div>
+
+      {/* Mobile backdrop */}
+      {mobileOpen && (
+        <div className="md:hidden fixed inset-0 bg-black/60 z-40" onClick={() => setMobileOpen(false)} data-testid="mobile-backdrop" />
+      )}
+
+      <aside
+        className={`neu-raised m-4 rounded-[1.75rem] flex flex-col overflow-hidden fixed md:relative z-50 md:z-10 top-0 left-0 transition-transform duration-300 ${mobileOpen ? "translate-x-0" : "-translate-x-[120%]"} md:translate-x-0`}
+        style={{ height: "calc(100vh - 2rem)", width: collapsed ? 88 : 280, transition: "transform 0.3s ease, width 0.3s ease" }}
         data-testid="sidebar"
       >
         <div className="flex items-center gap-3 p-5">
@@ -79,9 +97,16 @@ function LayoutInner() {
         <button
           data-testid="sidebar-toggle-button"
           onClick={() => setCollapsed((c) => !c)}
-          className="neu-btn mx-5 mb-4 rounded-xl py-2 flex items-center justify-center text-muted-stitch"
+          className="hidden md:flex neu-btn mx-5 mb-4 rounded-xl py-2 items-center justify-center text-muted-stitch"
         >
           <Menu className="w-5 h-5" />
+        </button>
+        <button
+          data-testid="mobile-close-button"
+          onClick={() => setMobileOpen(false)}
+          className="md:hidden neu-btn mx-5 mb-4 rounded-xl py-2 flex items-center justify-center gap-2 text-muted-stitch"
+        >
+          <X className="w-5 h-5" /> <span className="text-sm font-medium">Close</span>
         </button>
 
         <nav className="flex-1 px-4 space-y-2 overflow-y-auto">
@@ -120,9 +145,9 @@ function LayoutInner() {
             )}
           </div>
         </div>
-      </motion.aside>
+      </aside>
 
-      <main className="flex-1 min-w-0 relative z-10 flex flex-col" style={{ height: "100vh" }}>
+      <main className="flex-1 min-w-0 relative z-10 flex flex-col pt-14 md:pt-0" style={{ height: "100vh" }}>
         {impersonating && (
           <div data-testid="impersonation-banner" className="flex items-center justify-between gap-3 px-6 py-2.5 text-sm font-semibold text-white shrink-0" style={{ background: "var(--primary)" }}>
             <span className="flex items-center gap-2"><Eye className="w-4 h-4" /> Viewing as {user?.name} ({user?.email})</span>
@@ -131,7 +156,7 @@ function LayoutInner() {
             </button>
           </div>
         )}
-        <div className="flex items-center justify-end gap-3 px-6 pt-5 shrink-0">
+        <div className="hidden md:flex items-center justify-end gap-3 px-6 pt-5 shrink-0">
           <NotificationBell />
         </div>
         <div className="flex-1 overflow-y-auto">

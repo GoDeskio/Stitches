@@ -103,3 +103,37 @@ async def logout(response: Response):
     return {"ok": True}
 
 
+# ---------------- QR cross-device login ----------------
+@router.post("/auth/qr/generate")
+async def qr_generate(user: dict = Depends(get_current_user)):
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=3)
+    await db.qr_tokens.insert_one({
+        "token": token, "user_id": user["user_id"], "email": user["email"],
+        "claimed": False, "expires_at": expires_at, "created_at": now_iso(),
+    })
+    return {"token": token, "expires_in_seconds": 180}
+
+
+@router.post("/auth/qr/claim")
+async def qr_claim(request: Request, response: Response):
+    body = await request.json()
+    token = (body or {}).get("token")
+    if not token:
+        raise HTTPException(status_code=400, detail="Missing token")
+    now = datetime.now(timezone.utc)
+    doc = await db.qr_tokens.find_one_and_update(
+        {"token": token, "claimed": False, "expires_at": {"$gt": now}},
+        {"$set": {"claimed": True, "claimed_at": now_iso()}},
+    )
+    if not doc:
+        raise HTTPException(status_code=401, detail="This login code is invalid, expired or already used.")
+    dbuser = await db.users.find_one({"user_id": doc["user_id"]})
+    if not dbuser or dbuser.get("is_active") is False:
+        raise HTTPException(status_code=403, detail="Account unavailable")
+    access = create_access_token(dbuser["user_id"], dbuser["email"])
+    set_auth_cookie(response, "access_token", access, 604800)
+    await log_activity(dbuser["user_id"], "qr_login")
+    return {"user": public_user(dbuser), "token": access}
+
+

@@ -8,6 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import AuthCallback from "@/components/AuthCallback";
 import Home from "@/pages/Home";
 import Login from "@/pages/Login";
+import QrClaim from "@/pages/QrClaim";
 import Layout from "@/components/Layout";
 import Dashboard from "@/pages/Dashboard";
 import Messages from "@/pages/Messages";
@@ -47,6 +48,7 @@ function AppRouter() {
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/qr-login/claim" element={<QrClaim />} />
       <Route
         element={
           <Protected>
