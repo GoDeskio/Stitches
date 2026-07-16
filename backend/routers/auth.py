@@ -63,7 +63,7 @@ async def google_session(request: Request, response: Response):
     session_id = body.get("session_id")
     if not session_id:
         raise HTTPException(status_code=400, detail="Missing session_id")
-    resp = requests.get("https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
+    resp = requests.get(os.environ.get("AUTH_SESSION_URL", "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"),
                         headers={"X-Session-ID": session_id}, timeout=30)
     if resp.status_code != 200:
         raise HTTPException(status_code=401, detail="Invalid session")

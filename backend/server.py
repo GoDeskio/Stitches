@@ -36,9 +36,15 @@ async def websocket_endpoint(websocket: WebSocket, channel_id: str, token: str =
         ws_manager.disconnect(channel_id, websocket)
 
 app.include_router(api_router)
+_cors_env = os.environ.get("CORS_ORIGINS", "").strip()
+_frontend = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+if _cors_env and _cors_env != "*":
+    _origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
+else:
+    _origins = [_frontend]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[os.environ.get("FRONTEND_URL", "http://localhost:3000")],
+    allow_origins=_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
