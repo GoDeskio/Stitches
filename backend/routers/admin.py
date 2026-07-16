@@ -199,7 +199,7 @@ async def get_automation_alerts(user: dict = Depends(require_admin)):
 async def set_automation_alerts(request: Request, user: dict = Depends(require_admin)):
     body = await request.json()
     try:
-        threshold = int(body.get("threshold") or 3)
+        threshold = int(body.get("threshold", 3))
     except (TypeError, ValueError):
         threshold = 3
     threshold = max(1, min(threshold, 20))

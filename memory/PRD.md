@@ -194,6 +194,11 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - **Admin "Automation activity" view**: new Admin tab (`admin-tab-automation`) + `GET /api/admin/integration-runs` (admin-only; 403 otherwise) showing every N8N workflow trigger & MCP tool call across the platform, enriched with owner_name / integration_name / type. Stat cards (Total/Succeeded/Failed), filter pills (all/succeeded/failed/N8N runs/MCP calls), and refresh. Turns the per-user run history into platform-wide observability.
 - Verified (iteration_27): backend 9/9 pytest + frontend 100%, zero issues.
 
+## Implemented (2026-06-25, part 4) — automation failure alerts
+- **Consecutive-failure alerts**: when an integration (N8N run or MCP call) fails N times in a row, all admins get an in-app `automation` notification (link → /admin), plus optional **email** (platform SMTP) and **webhook** (JSON POST). Fires once per failure streak (`failure_alerted` flag on the integration; reset on any successful run).
+- **Admin-configurable** in Admin → Automation ("Failure alerts" card, `automation-alerts-card`): enable toggle, threshold (1–20, default 3), alert email, webhook URL. Endpoints `GET/PUT /api/admin/automation-alerts` (admin-only; threshold clamped).
+- Verified (iteration_28): backend 5/5 pytest + frontend 100%, once-per-streak confirmed, zero issues.
+
 ## Implemented (2026-06-25) — per-user SMTP, clear-credentials, recurring meetings + week calendar
 - **Per-user SMTP sending**: meeting invites are sent from the host's own SMTP account when configured (`send_meeting_email(sender_user_id)` → personal SMTP → falls back to admin SMTP). New user Settings section "Send invites from your own email" (`my-smtp-section`) with save + **Clear credentials**; endpoints `GET/PUT/DELETE /api/me/smtp-config` (password Fernet-encrypted, port parse hardened via `_safe_port`).
 - **Explicit "Clear credentials" buttons** in Admin → Meetings for SMTP (`clear-smtp-btn`), SFU/LiveKit (`clear-sfu-btn`) and TURN (`clear-rtc/turn-btn`), wired to `DELETE /api/admin/{smtp,sfu,rtc}-config`.
