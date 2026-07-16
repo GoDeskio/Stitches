@@ -18,7 +18,9 @@ async def public_site_config():
 @router.get("/admin/site-config")
 async def admin_get_site_config(user: dict = Depends(require_admin)):
     ann, support_email, clarity_id = await get_site_config()
-    return {"announcement": ann, "support_email": support_email, "clarity_id": clarity_id}
+    require_verification = await get_require_verification()
+    return {"announcement": ann, "support_email": support_email, "clarity_id": clarity_id,
+            "require_verification": require_verification}
 
 
 @router.put("/admin/site-config")
@@ -38,6 +40,9 @@ async def admin_set_site_config(request: Request, user: dict = Depends(require_a
     if "clarity_id" in body:
         await db.settings.update_one({"key": "clarity"},
                                      {"$set": {"key": "clarity", "value": {"id": (body.get("clarity_id") or "").strip()[:40]}}}, upsert=True)
+    if "require_verification" in body:
+        await db.settings.update_one({"key": "require_email_verification"},
+                                     {"$set": {"key": "require_email_verification", "value": {"enabled": bool(body.get("require_verification"))}}}, upsert=True)
     return {"ok": True}
 
 

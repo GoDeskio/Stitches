@@ -305,6 +305,22 @@ async def get_google_oauth_cfg():
     }
 
 
+async def get_require_verification():
+    doc = await db.settings.find_one({"key": "require_email_verification"})
+    return bool((doc or {}).get("value", {}).get("enabled"))
+
+
+async def ensure_verified(user: dict):
+    if user.get("role") == "admin":
+        return
+    if not await get_require_verification():
+        return
+    u = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0, "email_verified": 1})
+    if u and u.get("email_verified", True) is False:
+        raise HTTPException(status_code=403,
+                            detail="Please verify your email to use this feature. Check your inbox, or use the Resend button in the banner.")
+
+
 async def get_desktop_repo():
     doc = await db.settings.find_one({"key": "desktop_release"})
     val = (doc or {}).get("value", {})

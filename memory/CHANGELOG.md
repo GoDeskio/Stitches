@@ -1,5 +1,10 @@
 # Stitches Changelog
 
+## 2026-06 — Verification soft-gate + SMTP diagnosis
+- Admin-configurable **"Require email verification"** toggle (Site tab, default **OFF**). When ON, unverified non-admin users get 403 on meeting creation (`ensure_verified` in core.py, enforced in `POST /meetings`). Verified via curl: enabled→403 (unverified)/200 (admin), disabled→200.
+- Stored `require_email_verification` setting; exposed via `/admin/site-config` GET/PUT.
+- SMTP diagnosis: configured Gmail SMTP with the provided account password → Gmail returns **`534 Application-specific password required`** (2-Step Verification on). SMTP pipeline works; needs a 16-char **App Password**, not the normal password.
+
 ## 2026-06 — Email verification on signup + email notifications
 - **Signup verification**: register now sets `email_verified=false`, generates a single-use 24h token (`email_verifications`), and emails a verify link. Endpoints: `GET/POST /api/auth/verify-email`, `POST /api/auth/resend-verification`. Google users auto-verified. Non-blocking (login still works); registration succeeds even if the email can't be delivered.
 - **Frontend**: `/verify-email` page (success/error states), an unverified banner in the app Layout with a Resend button, and `email_verified` exposed on the user.

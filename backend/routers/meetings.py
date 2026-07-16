@@ -58,6 +58,7 @@ async def _invite_users(invitee_ids, host, doc, join_url):
 
 @router.post("/meetings")
 async def create_meeting(request: Request, user: dict = Depends(get_current_user)):
+    await ensure_verified(user)
     try:
         body = await request.json()
     except Exception:
