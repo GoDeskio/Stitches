@@ -183,6 +183,11 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - Verified (iteration_26): backend 12/12 pytest + frontend 100%. Fixed a React `useEffect` Promise-return bug in Run/MCP modals (found by testing agent).
 - NOTE: real MCP tool execution requires a real MCP server (untestable in-sandbox — validated graceful fallback only).
 
+## Implemented (2026-06-25, part 8) — admin Support inbox
+- **Support inbox** (Admin → Support tab, `admin-tab-support`): lists AI-escalated `support_requests` with open/resolved/all filters, per-request subject/message/requester, a Reply link (mailto to the requester), and Resolve/Reopen actions. Stat cards for Open/Total; "Load more" pagination.
+- Endpoints: `GET /api/admin/support-requests` (status/limit/skip → open_count/total/has_more) and `POST /api/admin/support-requests/{id}/status` ({resolved} → sets status/resolved_at/resolved_by).
+- Verified (iteration_30): frontend 100% E2E (resolve/reopen/filters/mailto), backend curl-verified. Closes the loop on AI `contact_support` escalations.
+
 ## Implemented (2026-06-25, part 7) — ai.py refactor + integration-runs pagination
 - **AI handler refactor**: extracted the agent prompt + all per-action handlers from `routers/ai.py` (303→117 lines) into `services/agent_actions.py` (dict-dispatched `USER_HANDLERS`/`ADMIN_HANDLERS`, `build_agent_system`, `execute_agent_action`). Behaviour-neutral — verified create_project, contact_support, and informational Q all still work.
 - **Pagination** on `GET /api/admin/integration-runs`: `limit` (≤200) + `skip` params; response adds `filtered_total`, `skip`, `limit`, `has_more`. Admin Automation activity list now uses a "Load more" button (`automation-load-more`, page size 20). Verified page1 has_more=true / page2 has_more=false.
