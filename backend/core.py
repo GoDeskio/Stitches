@@ -189,7 +189,7 @@ def set_auth_cookie(response: Response, key: str, value: str, max_age: int):
 
 DEFAULT_FEATURES = {"chat": True, "projects": True, "assets": True,
                     "integrations": True, "ai_assistant": True, "friends": True}
-DEFAULT_NOTIF_PREFS = {"master": True, "workspace": True, "project": True, "friend": True}
+DEFAULT_NOTIF_PREFS = {"master": True, "workspace": True, "project": True, "friend": True, "security": True}
 DEFAULT_SEO = {"title": "Stitches — Where Ideas are Stitched together",
                "description": "A tactile neumorphic workspace for business & creative teams to chat, collaborate and share.",
                "keywords": "collaboration, workspace, chat, projects, teams, creative",
@@ -240,12 +240,17 @@ async def get_notif_global():
 
 async def create_notification(user_id, ntype, title, body, link=""):
     glob = await get_notif_global()
-    if not glob.get("master", True) or not glob.get(ntype, True):
-        return
     u = await db.users.find_one({"user_id": user_id}, {"_id": 0, "notification_prefs": 1})
     prefs = {**DEFAULT_NOTIF_PREFS, **((u or {}).get("notification_prefs") or {})}
-    if not prefs.get("master", True) or not prefs.get(ntype, True):
-        return
+    if ntype == "security":
+        # security alerts bypass the master mute; only a dedicated toggle can silence them
+        if not glob.get("security", True) or not prefs.get("security", True):
+            return
+    else:
+        if not glob.get("master", True) or not glob.get(ntype, True):
+            return
+        if not prefs.get("master", True) or not prefs.get(ntype, True):
+            return
     await db.notifications.insert_one({
         "notification_id": f"ntf_{uuid.uuid4().hex[:12]}", "user_id": user_id,
         "type": ntype, "title": title, "body": body, "link": link,

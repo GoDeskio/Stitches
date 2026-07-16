@@ -16,7 +16,7 @@ export default function Settings() {
   });
   const [saving, setSaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [notif, setNotif] = useState({ master: true, workspace: true, project: true, friend: true, ...(user?.notification_prefs || {}) });
+  const [notif, setNotif] = useState({ master: true, workspace: true, project: true, friend: true, security: true, ...(user?.notification_prefs || {}) });
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const toggleNotif = (k) => setNotif((n) => ({ ...n, [k]: !n[k] }));
 
@@ -122,6 +122,17 @@ export default function Settings() {
             <NotifToggle label="Workspace invites" checked={notif.workspace} onToggle={() => toggleNotif("workspace")} testid="notif-workspace" disabled={!notif.master} />
             <NotifToggle label="Project invites" checked={notif.project} onToggle={() => toggleNotif("project")} testid="notif-project" disabled={!notif.master} />
             <NotifToggle label="New connections" checked={notif.friend} onToggle={() => toggleNotif("friend")} testid="notif-friend" disabled={!notif.master} />
+            <div className="neu-pressed rounded-2xl p-4 flex items-center justify-between border" style={{ borderColor: "var(--primary)" }}>
+              <div className="min-w-0 pr-3">
+                <span className="font-medium text-sm flex items-center gap-2" style={{ color: "var(--text)" }}><ShieldCheck className="w-4 h-4 text-primary-stitch" /> Security alerts</span>
+                <p className="text-xs text-muted-stitch mt-0.5">New sign-in warnings. Delivered even when other notifications are muted.</p>
+              </div>
+              <button data-testid="notif-security" onClick={() => toggleNotif("security")}
+                className={`w-14 h-8 rounded-full flex items-center px-1 transition-all shrink-0 ${notif.security ? "justify-end" : "justify-start"}`}
+                style={{ background: notif.security ? "var(--primary)" : "var(--neu-dark)" }}>
+                <span className="w-6 h-6 rounded-full bg-white shadow" />
+              </button>
+            </div>
           </Section>
         </div>
       </div>

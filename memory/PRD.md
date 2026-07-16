@@ -137,8 +137,13 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - **"New sign-in" security notification**: when a device that hasn't been seen before (device label + IP) signs in — and it isn't the user's first-ever session — the user gets an in-app `security` notification linking to Settings. Verified created on a second-device login.
 - **Session scaling/cleanup**: added compound index `sessions {user_id:1, last_seen:-1}` and a **TTL index on `revoked_at` (7 days)** so revoked sessions are auto-purged; single-revoke and revoke-all now stamp `revoked_at`.
 
+## Implemented (2026-06-24, part 6) — always-on security alerts
+- **Security alerts bypass the mute**: `create_notification` treats `security` notifications specially — they deliver even when the master (global or per-user) notifications toggle is off, and are only silenced by a dedicated toggle.
+- **Dedicated "Security alerts" toggle** in Settings → Notifications (independent of the master switch, default on, `notif-security`). Added `security` to `DEFAULT_NOTIF_PREFS`.
+- Verified via curl: master OFF + security ON still fires the new-device alert; security OFF suppresses it.
+
 ## Backlog / Next
-- P3 (deferred): **Email reminders via Resend** — playbook ready; waiting on user's Resend API key + verified sender. (Would also power emailed new-device alerts.)
+- P3 (deferred): **Email reminders via Resend** — playbook ready; waiting on user's Resend API key + verified sender. (Would also power emailed new-device/security alerts.)
 - P3: Dropbox one-click OAuth (manual-token connector available now); authenticated Drive download stream.
 
 ## Implemented (2026-06-24, part 3) — perf/polish
