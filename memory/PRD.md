@@ -183,6 +183,10 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - Verified (iteration_26): backend 12/12 pytest + frontend 100%. Fixed a React `useEffect` Promise-return bug in Run/MCP modals (found by testing agent).
 - NOTE: real MCP tool execution requires a real MCP server (untestable in-sandbox — validated graceful fallback only).
 
+## Implemented (2026-06-25, part 12) — Heat Map date-range filter
+- **Date-range filter** on the Admin Heat Map (Last 24h / 7 days / 30 days / All time, `heatmap-range-*`): filters visitors, clicks, views, the path list, the click heatmap and top-elements by `heat_events.created_at`. `range` query param added to `GET /api/admin/heatmap/paths` and `/clicks`. Lets admins compare activity over time and gauge the impact of shipped changes.
+- Self-verified via curl (all ranges) + clean compile.
+
 ## Implemented (2026-06-25, part 11) — real-page heatmap overlay + Clarity deep-link
 - **Public-page reference overlay**: the tracker captures a low-res `html2canvas` screenshot ONCE per public page (allowlist: `/`, `/login`, `/qr-login/claim`; gated by `GET /api/track/reference` + `localStorage`) and uploads via `POST /api/track/reference` (size-capped, path-allowlisted → `heat_refs`). The Admin Heat Map now overlays the click heatmap on the actual page image (`heatmap-ref-img`) for those pages. Private/authenticated pages are intentionally NOT captured (privacy) and show the heat on a neutral frame.
 - **Microsoft Clarity deep-link**: admin-configurable Clarity project ID (Site Note tab → `clarity-id-input`, stored in site-config, default `xnf9nc40tt`); "Open Microsoft Clarity" button (`open-clarity-btn`) in the Heat Map tab links to the Clarity dashboard for richer session replays / scroll maps.

@@ -366,26 +366,39 @@ async def track_events(request: Request):
     return {"ok": True, "stored": len(docs)}
 
 
+def _range_cutoff(rng):
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone.utc)
+    return {"24h": now - timedelta(hours=24), "7d": now - timedelta(days=7),
+            "30d": now - timedelta(days=30)}.get(rng)
+
+
 @router.get("/admin/heatmap/paths")
-async def heatmap_paths(user: dict = Depends(require_admin)):
-    pipeline = [{"$group": {"_id": "$path",
-                            "clicks": {"$sum": {"$cond": [{"$eq": ["$type", "click"]}, 1, 0]}},
-                            "views": {"$sum": {"$cond": [{"$eq": ["$type", "view"]}, 1, 0]}}}},
-                {"$sort": {"clicks": -1, "views": -1}}, {"$limit": 200}]
+async def heatmap_paths(range: str = "all", user: dict = Depends(require_admin)):
+    cutoff = _range_cutoff(range)
+    base = {"created_at": {"$gte": cutoff}} if cutoff else {}
+    pipeline = [{"$match": base}] if base else []
+    pipeline += [{"$group": {"_id": "$path",
+                             "clicks": {"$sum": {"$cond": [{"$eq": ["$type", "click"]}, 1, 0]}},
+                             "views": {"$sum": {"$cond": [{"$eq": ["$type", "view"]}, 1, 0]}}}},
+                 {"$sort": {"clicks": -1, "views": -1}}, {"$limit": 200}]
     rows = await db.heat_events.aggregate(pipeline).to_list(200)
     paths = [{"path": r["_id"], "clicks": r["clicks"], "views": r["views"]} for r in rows if r["_id"]]
-    visitors = len([v for v in await db.heat_events.distinct("visitor_id") if v])
-    total_clicks = await db.heat_events.count_documents({"type": "click"})
-    total_views = await db.heat_events.count_documents({"type": "view"})
+    visitors = len([v for v in await db.heat_events.distinct("visitor_id", base) if v])
+    total_clicks = await db.heat_events.count_documents({**base, "type": "click"})
+    total_views = await db.heat_events.count_documents({**base, "type": "view"})
     return {"paths": paths, "visitors": visitors, "total_clicks": total_clicks, "total_views": total_views}
 
 
 @router.get("/admin/heatmap/clicks")
-async def heatmap_clicks(path: str, user: dict = Depends(require_admin)):
-    pts = await db.heat_events.find({"type": "click", "path": path},
-                                    {"_id": 0, "x": 1, "y": 1, "label": 1}).sort("created_at", -1).to_list(3000)
+async def heatmap_clicks(path: str, range: str = "all", user: dict = Depends(require_admin)):
+    cutoff = _range_cutoff(range)
+    match = {"type": "click", "path": path}
+    if cutoff:
+        match["created_at"] = {"$gte": cutoff}
+    pts = await db.heat_events.find(match, {"_id": 0, "x": 1, "y": 1, "label": 1}).sort("created_at", -1).to_list(3000)
     agg = await db.heat_events.aggregate([
-        {"$match": {"type": "click", "path": path, "label": {"$nin": ["", None]}}},
+        {"$match": {**match, "label": {"$nin": ["", None]}}},
         {"$group": {"_id": "$label", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}}, {"$limit": 15}]).to_list(15)
     top = [{"label": a["_id"], "count": a["count"]} for a in agg]

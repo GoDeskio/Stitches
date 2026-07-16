@@ -464,21 +464,22 @@ function HeatmapTab() {
   const [clicks, setClicks] = useState(null);
   const [refImg, setRefImg] = useState(null);
   const [clarityId, setClarityId] = useState("");
+  const [range, setRange] = useState("all");
 
   useEffect(() => { api.get("/admin/heatmap").then(({ data }) => setGrid(data.grid)).catch(() => setGrid([[0]])); }, []);
   useEffect(() => { api.get("/site-config").then(({ data }) => setClarityId(data.clarity_id || "")).catch(() => {}); }, []);
   useEffect(() => {
-    api.get("/admin/heatmap/paths").then(({ data }) => {
+    api.get("/admin/heatmap/paths", { params: { range } }).then(({ data }) => {
       setPaths(data);
-      if (data.paths && data.paths.length) setSel(data.paths[0].path);
+      setSel((prev) => (prev && data.paths.some((p) => p.path === prev)) ? prev : (data.paths[0]?.path || ""));
     }).catch(() => setPaths({ paths: [], visitors: 0, total_clicks: 0, total_views: 0 }));
-  }, []);
+  }, [range]);
   useEffect(() => {
     if (!sel) { setClicks(null); setRefImg(null); return; }
     setClicks(null); setRefImg(null);
-    api.get("/admin/heatmap/clicks", { params: { path: sel } }).then(({ data }) => setClicks(data)).catch(() => setClicks({ points: [], top_elements: [], count: 0 }));
+    api.get("/admin/heatmap/clicks", { params: { path: sel, range } }).then(({ data }) => setClicks(data)).catch(() => setClicks({ points: [], top_elements: [], count: 0 }));
     api.get("/admin/heatmap/reference", { params: { path: sel } }).then(({ data }) => setRefImg(data.image || null)).catch(() => setRefImg(null));
-  }, [sel]);
+  }, [sel, range]);
 
   if (!grid || !paths) return <Loader />;
   const max = Math.max(1, ...grid.flat());
@@ -498,6 +499,13 @@ function HeatmapTab() {
             <Activity className="w-4 h-4" /> Open Microsoft Clarity
           </a>
         )}
+      </div>
+
+      <div className="neu-pressed rounded-full p-1.5 flex gap-1 w-fit" data-testid="heatmap-range">
+        {[["24h", "Last 24h"], ["7d", "7 days"], ["30d", "30 days"], ["all", "All time"]].map(([id, lbl]) => (
+          <button key={id} data-testid={`heatmap-range-${id}`} onClick={() => setRange(id)}
+            className={`rounded-full py-2 px-4 text-sm font-semibold whitespace-nowrap ${range === id ? "neu-primary" : "text-muted-stitch"}`}>{lbl}</button>
+        ))}
       </div>
 
       <div className="neu-raised rounded-[1.75rem] p-7 animate-fade-up">
