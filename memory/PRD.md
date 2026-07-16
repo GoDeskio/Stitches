@@ -128,9 +128,15 @@ In Google Cloud Console for the OAuth app: (1) enable **Google Drive API**, (2) 
 ### Deploy env vars (set for the target domain)
 backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERGENT_LLM_KEY, FRONTEND_URL, ENCRYPTION_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_DRIVE_REDIRECT_URI, AUTH_SESSION_URL, (optional CORS_ORIGINS). frontend/.env: REACT_APP_BACKEND_URL. On a new domain, update FRONTEND_URL + GOOGLE_DRIVE_REDIRECT_URI and re-register the redirect URI in Google Cloud.
 
+## Implemented (2026-06-24, part 4) — Connected devices / session management
+- **Connected devices panel** (Settings → "Connected devices"): lists a user's active sessions with a friendly device label (browser + OS), IP and last-active time; the current session is badged. Sign out a single device, or **"Sign out all other devices"** (keeps the current device logged in via a freshly issued token).
+- **Auth**: `create_access_token` now embeds `iat` + optional `jti`; login/register/QR-claim record a row in `sessions` (device/UA/IP). `resolve_user_from_token` rejects revoked-session `jti`s and any token issued before a per-user `sessions_valid_after` epoch (revoke-all). Backward compatible with pre-existing jti-less tokens. Indexes on `sessions.jti` / `sessions.user_id`.
+- Verified (iteration_20): 3/3 backend + 100% frontend; full revoke flow confirmed (other devices → 401, current device stays signed in). Google-login sessions are separate (not shown in this JWT panel).
+
 ## Backlog / Next
 - P3 (deferred): **Email reminders via Resend** — playbook ready; waiting on user's Resend API key + verified sender.
-- P3: Dropbox one-click OAuth (already available as a manual-token connector on user + admin dashboards); authenticated Drive download stream.
+- P3: Dropbox one-click OAuth (manual-token connector available now); authenticated Drive download stream.
+- P3: index `sessions {user_id:1, last_seen:-1}` for scale; TTL cleanup of old revoked sessions.
 
 ## Implemented (2026-06-24, part 3) — perf/polish
 - **GitHub release lookup cached** (5-min TTL, in-memory per repo; cache cleared when admin changes the repo) to avoid api.github.com rate limits.
