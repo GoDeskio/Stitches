@@ -26,6 +26,7 @@ import Call from "@/pages/Call";
 import ProjectBoard from "@/pages/ProjectBoard";
 import Settings from "@/pages/Settings";
 import Admin from "@/pages/Admin";
+import Tracker from "@/components/Tracker";
 
 function FullLoader() {
   return (
@@ -98,6 +99,7 @@ export default function App() {
   return (
     <div className="App">
       <BrowserRouter>
+        <Tracker />
         <AppRouter />
         <Toaster position="bottom-right" richColors />
       </BrowserRouter>

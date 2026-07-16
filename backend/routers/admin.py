@@ -333,6 +333,62 @@ async def admin_heatmap(user: dict = Depends(require_admin)):
     return {"grid": grid}
 
 
+# ---------------- Site-wide click / navigation heatmap ----------------
+@router.post("/track")
+async def track_events(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return {"ok": False, "stored": 0}
+    events = (body or {}).get("events") or []
+    visitor = str((body or {}).get("visitor_id") or "")[:64]
+    now = datetime.now(timezone.utc)
+    docs = []
+    for e in events[:60]:
+        t = e.get("type")
+        if t not in ("click", "view"):
+            continue
+        doc = {"type": t, "path": str(e.get("path") or "/")[:200],
+               "visitor_id": visitor, "label": str(e.get("label") or "")[:120],
+               "created_at": now}
+        if t == "click":
+            try:
+                doc["x"] = max(0.0, min(1.0, float(e.get("x"))))
+                doc["y"] = max(0.0, min(1.0, float(e.get("y"))))
+            except (TypeError, ValueError):
+                continue
+        docs.append(doc)
+    if docs:
+        await db.heat_events.insert_many(docs)
+    return {"ok": True, "stored": len(docs)}
+
+
+@router.get("/admin/heatmap/paths")
+async def heatmap_paths(user: dict = Depends(require_admin)):
+    pipeline = [{"$group": {"_id": "$path",
+                            "clicks": {"$sum": {"$cond": [{"$eq": ["$type", "click"]}, 1, 0]}},
+                            "views": {"$sum": {"$cond": [{"$eq": ["$type", "view"]}, 1, 0]}}}},
+                {"$sort": {"clicks": -1, "views": -1}}, {"$limit": 200}]
+    rows = await db.heat_events.aggregate(pipeline).to_list(200)
+    paths = [{"path": r["_id"], "clicks": r["clicks"], "views": r["views"]} for r in rows if r["_id"]]
+    visitors = len([v for v in await db.heat_events.distinct("visitor_id") if v])
+    total_clicks = await db.heat_events.count_documents({"type": "click"})
+    total_views = await db.heat_events.count_documents({"type": "view"})
+    return {"paths": paths, "visitors": visitors, "total_clicks": total_clicks, "total_views": total_views}
+
+
+@router.get("/admin/heatmap/clicks")
+async def heatmap_clicks(path: str, user: dict = Depends(require_admin)):
+    pts = await db.heat_events.find({"type": "click", "path": path},
+                                    {"_id": 0, "x": 1, "y": 1, "label": 1}).sort("created_at", -1).to_list(3000)
+    agg = await db.heat_events.aggregate([
+        {"$match": {"type": "click", "path": path, "label": {"$nin": ["", None]}}},
+        {"$group": {"_id": "$label", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}}, {"$limit": 15}]).to_list(15)
+    top = [{"label": a["_id"], "count": a["count"]} for a in agg]
+    return {"points": pts, "top_elements": top, "count": len(pts)}
+
+
 # ---------------- Admin user management ----------------
 @router.get("/admin/users")
 async def admin_users(user: dict = Depends(require_admin)):

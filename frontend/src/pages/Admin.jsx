@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Users, Layers, FolderKanban, FolderOpen, Plug, MessagesSquare, Shield,
@@ -406,34 +406,153 @@ function MonitoringTab() {
   );
 }
 
+function heatRamp() {
+  const c = document.createElement("canvas");
+  c.width = 256; c.height = 1;
+  const g = c.getContext("2d");
+  const grad = g.createLinearGradient(0, 0, 256, 0);
+  grad.addColorStop(0.0, "#1e3a8a");
+  grad.addColorStop(0.4, "#06b6d4");
+  grad.addColorStop(0.6, "#84cc16");
+  grad.addColorStop(0.8, "#f59e0b");
+  grad.addColorStop(1.0, "#dc2626");
+  g.fillStyle = grad; g.fillRect(0, 0, 256, 1);
+  const data = g.getImageData(0, 0, 256, 1).data;
+  const ramp = [];
+  for (let i = 0; i < 256; i++) ramp.push([data[i * 4], data[i * 4 + 1], data[i * 4 + 2]]);
+  return ramp;
+}
+
+function HeatmapCanvas({ points }) {
+  const ref = useRef(null);
+  const W = 960, H = 540;
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, W, H);
+    if (!points || !points.length) return;
+    ctx.globalCompositeOperation = "lighter";
+    points.forEach((p) => {
+      const x = p.x * W, y = p.y * H, r = 26;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, "rgba(0,0,0,0.20)");
+      g.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = g;
+      ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
+    });
+    ctx.globalCompositeOperation = "source-over";
+    const img = ctx.getImageData(0, 0, W, H);
+    const d = img.data;
+    const ramp = heatRamp();
+    for (let i = 0; i < d.length; i += 4) {
+      const a = d[i + 3];
+      if (a === 0) continue;
+      const c = ramp[Math.min(255, a)];
+      d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2];
+      d[i + 3] = Math.min(235, a * 3);
+    }
+    ctx.putImageData(img, 0, 0);
+  }, [points]);
+  return <canvas ref={ref} width={W} height={H} data-testid="heatmap-canvas" className="w-full rounded-2xl" style={{ background: "var(--neu-dark)", aspectRatio: "16 / 9" }} />;
+}
+
 function HeatmapTab() {
   const [grid, setGrid] = useState(null);
-  useEffect(() => { api.get("/admin/heatmap").then(({ data }) => setGrid(data.grid)); }, []);
-  if (!grid) return <Loader />;
+  const [paths, setPaths] = useState(null);
+  const [sel, setSel] = useState("");
+  const [clicks, setClicks] = useState(null);
+
+  useEffect(() => { api.get("/admin/heatmap").then(({ data }) => setGrid(data.grid)).catch(() => setGrid([[0]])); }, []);
+  useEffect(() => {
+    api.get("/admin/heatmap/paths").then(({ data }) => {
+      setPaths(data);
+      if (data.paths && data.paths.length) setSel(data.paths[0].path);
+    }).catch(() => setPaths({ paths: [], visitors: 0, total_clicks: 0, total_views: 0 }));
+  }, []);
+  useEffect(() => {
+    if (!sel) { setClicks(null); return; }
+    setClicks(null);
+    api.get("/admin/heatmap/clicks", { params: { path: sel } }).then(({ data }) => setClicks(data)).catch(() => setClicks({ points: [], top_elements: [], count: 0 }));
+  }, [sel]);
+
+  if (!grid || !paths) return <Loader />;
   const max = Math.max(1, ...grid.flat());
   const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
   return (
-    <div className="neu-raised rounded-[1.75rem] p-7 animate-fade-up overflow-x-auto">
-      <h3 className="font-head font-bold text-xl mb-1" style={{ color: "var(--text)" }}>Activity Heat Map</h3>
-      <p className="text-sm text-muted-stitch mb-6">User activity intensity by day of week and hour (UTC).</p>
-      <div className="inline-block min-w-full">
-        {grid.map((row, d) => (
-          <div key={d} className="flex items-center gap-1 mb-1">
-            <span className="text-xs text-muted-stitch w-9 shrink-0">{days[d]}</span>
-            {row.map((count, h) => {
-              const intensity = count / max;
-              return (
-                <div key={h} title={`${days[d]} ${h}:00 — ${count} events`}
-                  className="w-5 h-5 rounded-[4px] shrink-0"
-                  style={{ background: count === 0 ? "var(--neu-dark)" : `rgba(220,38,38,${0.25 + intensity * 0.75})` }} />
-              );
-            })}
+    <div className="space-y-6" data-testid="heatmap-tab">
+      <div className="grid grid-cols-3 gap-5">
+        <StatCard label="Unique visitors" value={paths.visitors} />
+        <StatCard label="Total clicks" value={paths.total_clicks} color="#dc2626" />
+        <StatCard label="Page views" value={paths.total_views} />
+      </div>
+
+      <div className="neu-raised rounded-[1.75rem] p-7 animate-fade-up">
+        <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
+          <div>
+            <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Site click heatmap</h3>
+            <p className="text-sm text-muted-stitch">Where visitors and users click across the whole site. Positions are normalised to each page.</p>
           </div>
-        ))}
-        <div className="flex gap-1 mt-1 ml-10">
-          {Array.from({ length: 24 }).map((_, h) => (
-            <span key={h} className="w-5 text-[9px] text-muted-stitch text-center shrink-0">{h % 3 === 0 ? h : ""}</span>
+          <select data-testid="heatmap-path-select" value={sel} onChange={(e) => setSel(e.target.value)}
+            className="neu-input rounded-2xl py-2.5 px-4 text-sm max-w-[16rem]">
+            {paths.paths.length === 0 && <option value="">No data yet</option>}
+            {paths.paths.map((p) => (
+              <option key={p.path} value={p.path}>{p.path} ({p.clicks} clicks)</option>
+            ))}
+          </select>
+        </div>
+        {paths.paths.length === 0 ? (
+          <p className="text-sm text-muted-stitch mt-4" data-testid="heatmap-empty">No activity recorded yet. Browse the site to generate click data — it appears here within a few seconds.</p>
+        ) : !clicks ? (
+          <div className="py-10"><Loader /></div>
+        ) : (
+          <div className="grid lg:grid-cols-3 gap-6 mt-4">
+            <div className="lg:col-span-2">
+              <HeatmapCanvas points={clicks.points} />
+              <p className="text-xs text-muted-stitch mt-2">{clicks.count} click(s) on <span className="font-semibold">{sel}</span> · blue = light, red = hot</p>
+            </div>
+            <div>
+              <p className="text-sm font-semibold mb-3" style={{ color: "var(--text)" }}>Most clicked elements</p>
+              {clicks.top_elements.length === 0 ? (
+                <p className="text-xs text-muted-stitch">No labelled clicks yet.</p>
+              ) : (
+                <div className="space-y-2" data-testid="heatmap-top-elements">
+                  {clicks.top_elements.map((t, i) => (
+                    <div key={i} className="neu-pressed rounded-xl p-3 flex items-center justify-between gap-2">
+                      <span className="text-xs truncate" style={{ color: "var(--text)" }}>{t.label}</span>
+                      <span className="text-xs font-bold text-primary-stitch shrink-0">{t.count}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="neu-raised rounded-[1.75rem] p-7 animate-fade-up overflow-x-auto">
+        <h3 className="font-head font-bold text-xl mb-1" style={{ color: "var(--text)" }}>Activity by time</h3>
+        <p className="text-sm text-muted-stitch mb-6">Event intensity by day of week and hour (UTC).</p>
+        <div className="inline-block min-w-full">
+          {grid.map((row, d) => (
+            <div key={d} className="flex items-center gap-1 mb-1">
+              <span className="text-xs text-muted-stitch w-9 shrink-0">{days[d]}</span>
+              {row.map((count, h) => {
+                const intensity = count / max;
+                return (
+                  <div key={h} title={`${days[d]} ${h}:00 — ${count} events`}
+                    className="w-5 h-5 rounded-[4px] shrink-0"
+                    style={{ background: count === 0 ? "var(--neu-dark)" : `rgba(220,38,38,${0.25 + intensity * 0.75})` }} />
+                );
+              })}
+            </div>
           ))}
+          <div className="flex gap-1 mt-1 ml-10">
+            {Array.from({ length: 24 }).map((_, h) => (
+              <span key={h} className="w-5 text-[9px] text-muted-stitch text-center shrink-0">{h % 3 === 0 ? h : ""}</span>
+            ))}
+          </div>
         </div>
       </div>
     </div>
