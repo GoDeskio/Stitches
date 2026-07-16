@@ -1,5 +1,12 @@
 # Stitches Changelog
 
+## 2026-06 — Full CRM + dedicated Email tab
+- **Email tab split**: email management (setup wizard, delivery analytics, test email, digest) moved into its own admin **Email** tab; Site Note tab keeps announcement/support/clarity/require-verification.
+- **CRM** (`routers/crm.py`, admin "CRM" tab): visitor→lead→user funnel with conversion rates, contacts list (filter by type/stage, search, pagination), lead CRUD, pipeline stages (new/contacted/qualified/proposal/won/lost), notes timeline, `sync-users` (idempotent import of registered users), and a **public `POST /api/leads`** capture endpoint with per-IP rate limiting (5/10min → 429).
+- Frontend: `CrmTab`, `CrmAddLead`, `CrmContactModal` in Admin.jsx.
+- Tested iteration_34: 8/8 backend + all CRM/tab-split frontend flows pass. Rate limit verified (6th submission 429).
+- NOTE (tech debt): Admin.jsx is now ~1970 lines — split into per-tab files recommended before further feature work.
+
 ## 2026-06 — One-click Mailgun DNS checklist
 - `services/mailgun.check_domain` → Mailgun v4 `GET /domains/{domain}`, returns domain state + sending DNS records (SPF/DKIM/tracking) each with valid/missing. Endpoint `GET /api/admin/mailgun/dns`.
 - Admin wizard: **"Check DNS"** button shows domain state (+ all-valid indicator) and a green/red checklist of each required record with name/value. Graceful error surfacing (e.g. 401 invalid key).

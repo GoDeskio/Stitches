@@ -165,6 +165,12 @@ async def capture_lead(request: Request):
     email = (b.get("email") or "").strip().lower()
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="Valid email required")
+    ip = (request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+          or (request.client.host if request.client else "")) or "unknown"
+    recent = await db.crm_contacts.count_documents(
+        {"capture_ip": ip, "created_at": {"$gte": (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()}})
+    if recent >= 5:
+        raise HTTPException(status_code=429, detail="Too many submissions. Please try again later.")
     now = now_iso()
     existing = await db.crm_contacts.find_one({"email": email})
     if existing:
@@ -175,5 +181,5 @@ async def capture_lead(request: Request):
         "company": (b.get("company") or "").strip(), "phone": (b.get("phone") or "").strip(),
         "stage": "new", "source": (b.get("source") or "website").strip()[:60], "value": 0,
         "tags": [], "notes": [{"text": (b.get("message") or "").strip()[:2000], "author": "visitor", "created_at": now}] if b.get("message") else [],
-        "user_id": None, "created_at": now, "updated_at": now})
+        "user_id": None, "capture_ip": ip, "created_at": now, "updated_at": now})
     return {"ok": True}
