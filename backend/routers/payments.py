@@ -1,14 +1,15 @@
 import os
+import re
 import uuid
 import httpx
+from urllib.parse import parse_qsl
 from fastapi import APIRouter, Depends, Request, HTTPException
 from core import db, require_admin, now_iso, log_activity
 
 router = APIRouter()
 
-NMI_API_BASE = os.environ.get("NMI_API_BASE", "https://secure.nmi.com/api/v5").rstrip("/")
+NMI_TRANSACT_URL = os.environ.get("NMI_TRANSACT_URL", "https://secure.nmi.com/api/transact.php")
 NMI_SECRET_KEY = os.environ.get("NMI_SECRET_KEY", "")
-NMI_TOKENIZATION_KEY = os.environ.get("NMI_TOKENIZATION_KEY", "")
 DEFAULT_CURRENCY = os.environ.get("NMI_CURRENCY", "USD")
 
 
@@ -18,24 +19,29 @@ def _public(t):
     return t
 
 
-async def _nmi_post(path: str, body: dict) -> dict:
-    headers = {"Authorization": NMI_SECRET_KEY, "Content-Type": "application/json"}
+async def _nmi_post(payload: dict) -> dict:
+    payload = {"security_key": NMI_SECRET_KEY, **payload}
     async with httpx.AsyncClient(timeout=30) as http:
-        resp = await http.post(f"{NMI_API_BASE}/{path.lstrip('/')}", json=body, headers=headers)
-    try:
-        return resp.json()
-    except Exception:
-        return {"response": "3", "response_text": f"Gateway HTTP {resp.status_code}: {resp.text[:200]}"}
+        resp = await http.post(NMI_TRANSACT_URL, data=payload)
+    return dict(parse_qsl(resp.text))
+
+
+def _norm_exp(raw: str) -> str:
+    # Accept MM/YY, MMYY, MM/YYYY -> return MMYY
+    digits = re.sub(r"\D", "", raw or "")
+    if len(digits) == 6:  # MMYYYY
+        digits = digits[:2] + digits[4:]
+    return digits
 
 
 @router.get("/admin/payments/config")
 async def payments_config(user: dict = Depends(require_admin)):
     return {
-        "configured": bool(NMI_SECRET_KEY and NMI_TOKENIZATION_KEY),
-        "tokenization_key": NMI_TOKENIZATION_KEY,
-        "sandbox": "sandbox" in NMI_TOKENIZATION_KEY.lower() or NMI_SECRET_KEY.startswith("v4_secret"),
+        "configured": bool(NMI_SECRET_KEY),
+        "sandbox": "sandbox.nmi.com" in NMI_TRANSACT_URL,
         "currency": DEFAULT_CURRENCY,
         "provider": "nmi",
+        "mode": "direct_post",
     }
 
 
@@ -63,9 +69,11 @@ async def payments_charge(request: Request, user: dict = Depends(require_admin))
     if not NMI_SECRET_KEY:
         raise HTTPException(status_code=400, detail="Payment gateway is not configured")
     b = await request.json()
-    token = (b.get("payment_token") or "").strip()
-    if not token:
-        raise HTTPException(status_code=400, detail="Missing payment token")
+    ccnumber = re.sub(r"\s+", "", str(b.get("ccnumber") or ""))
+    ccexp = _norm_exp(str(b.get("ccexp") or ""))
+    cvv = re.sub(r"\D", "", str(b.get("cvv") or ""))
+    if not ccnumber or len(ccexp) != 4:
+        raise HTTPException(status_code=400, detail="Enter a valid card number and expiry (MM/YY)")
     try:
         amount = round(float(b.get("amount") or 0), 2)
     except Exception:
@@ -73,28 +81,38 @@ async def payments_charge(request: Request, user: dict = Depends(require_admin))
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be greater than 0")
 
-    body = {
-        "amount": amount,
-        "currency": DEFAULT_CURRENCY,
-        "payment_details": {"payment_token": token},
+    order_id = f"ord_{uuid.uuid4().hex[:10]}"
+    payload = {
+        "type": "sale",
+        "amount": f"{amount:.2f}",
+        "ccnumber": ccnumber,
+        "ccexp": ccexp,
+        "orderid": order_id,
     }
+    if cvv:
+        payload["cvv"] = cvv
+    if b.get("description"):
+        payload["order_description"] = str(b["description"]).strip()[:250]
+
     try:
-        res = await _nmi_post("payments/sale", body)
+        res = await _nmi_post(payload)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Gateway error: {e}")
 
-    success = str(res.get("response")) == "1"
+    success = res.get("response") == "1"
     doc = {
         "tx_id": f"tx_{uuid.uuid4().hex[:12]}",
         "type": "sale",
+        "order_id": order_id,
         "amount": amount,
         "currency": DEFAULT_CURRENCY,
+        "card_last4": ccnumber[-4:],
         "email": (b.get("email") or "").strip(),
         "description": (b.get("description") or "").strip(),
         "status": "success" if success else "failed",
-        "nmi_transaction_id": str(res.get("id") or res.get("transactionid") or ""),
-        "auth_code": str(res.get("auth_code") or res.get("authcode") or ""),
-        "response_text": res.get("response_text") or res.get("responsetext") or "",
+        "nmi_transaction_id": res.get("transactionid", ""),
+        "auth_code": res.get("authcode", ""),
+        "response_text": res.get("responsetext", ""),
         "created_by": user.get("email"),
         "created_at": now_iso(),
     }
@@ -119,24 +137,25 @@ async def payments_refund(tx_id: str, user: dict = Depends(require_admin)):
         raise HTTPException(status_code=400, detail="Missing gateway transaction id")
 
     amount = float(tx.get("amount") or 0)
-    # Try refund (settled); fall back to void (unsettled) if refund is rejected.
-    res = await _nmi_post(f"payments/{nmi_id}/refund", {"amount": f"{amount:.2f}"})
+    # Refund works on settled transactions; void works on unsettled ones. Try refund, fall back to void.
+    res = await _nmi_post({"type": "refund", "transactionid": nmi_id, "amount": f"{amount:.2f}"})
     op = "refund"
-    if str(res.get("response")) != "1":
-        res = await _nmi_post(f"payments/{nmi_id}/void", {})
+    if res.get("response") != "1":
+        res = await _nmi_post({"type": "void", "transactionid": nmi_id})
         op = "void"
-    success = str(res.get("response")) == "1"
+    success = res.get("response") == "1"
 
     doc = {
         "tx_id": f"tx_{uuid.uuid4().hex[:12]}",
         "type": op,
+        "order_id": tx.get("order_id"),
         "amount": amount,
         "currency": tx.get("currency", DEFAULT_CURRENCY),
         "email": tx.get("email", ""),
         "description": f"{op} of {tx_id}",
         "status": "success" if success else "failed",
-        "nmi_transaction_id": str(res.get("id") or nmi_id),
-        "response_text": res.get("response_text") or res.get("responsetext") or "",
+        "nmi_transaction_id": res.get("transactionid", nmi_id),
+        "response_text": res.get("responsetext", ""),
         "created_by": user.get("email"),
         "created_at": now_iso(),
     }

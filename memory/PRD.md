@@ -282,5 +282,5 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - CRM forecast UI (Value inputs, weighted forecast, won/lost chart) verified stable.
 
 ### P1 backlog / next
-- **[BLOCKED-on-user] NMI credentials invalid**: provided sandbox keys are rejected by NMI (public "API key not found"; private "Authenticated user is invalid"). Awaiting valid Tokenization (public) + API (private) keys attached to an active user, and confirmation of the gateway domain (Payment Component only targets secure.nmi.com; a reseller gateway needs classic Collect.js/Direct Post instead). Integration auto-activates once valid keys are in .env.
+- **NMI Payments WORKING (sandbox)**: classic Direct Post via `sandbox.nmi.com/api/transact.php` + security key `NMI_SECRET_KEY`. Charge/refund/void verified end-to-end. For a public checkout, upgrade to Collect.js tokenization (public key) for PCI SAQ A.
 - Decide what to charge for (subscriptions vs one-time) — user undecided; current tab is a generic "take a payment" admin tool.
