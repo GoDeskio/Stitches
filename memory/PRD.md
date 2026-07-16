@@ -142,6 +142,13 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - **Dedicated "Security alerts" toggle** in Settings → Notifications (independent of the master switch, default on, `notif-security`). Added `security` to `DEFAULT_NOTIF_PREFS`.
 - Verified via curl: master OFF + security ON still fires the new-device alert; security OFF suppresses it.
 
+## Implemented (2026-06-24, part 7) — Audio/Video conferencing + security-bell polish
+- **WebRTC conferencing** (peer-to-peer mesh, signaling over the app's own WebSocket, public STUN — no external service/keys): `/meetings` page (start instant meeting / join by code, opens the room in a new window) + Dashboard quick action; `/call/:roomId` full-window room with camera+mic **permission prompts**, participant grid with real names, and controls: **mute mic, toggle camera, screen share (getDisplayMedia + replaceTrack), end call, copy invite**. Backend: `CallManager` + `WS /api/ws/call/{room_id}` (welcome/peer-joined/signal-relay/peer-left) and REST `POST /api/meetings`, `GET /api/meetings/{id}`.
+- **Admin Meetings tab**: start a meeting, monitor live rooms (live participant badge), and force-**end** any meeting. `GET /api/admin/meetings`, `POST /api/admin/meetings/{id}/end` (admin-only).
+- **Security notifications distinct in the bell**: red shield icon + "All / Security" filter tabs; security items get a red accent.
+- Verified (iteration_21): 100% frontend + backend REST/WS; two-client WebRTC media exchange confirmed working in-sandbox. Zero bugs.
+- NOTE: P2P mesh uses public STUN only (no TURN) — very restrictive corporate NATs may fail to connect media; add a TURN server for guaranteed connectivity at scale.
+
 ## Backlog / Next
 - P3 (deferred): **Email reminders via Resend** — playbook ready; waiting on user's Resend API key + verified sender. (Would also power emailed new-device/security alerts.)
 - P3: Dropbox one-click OAuth (manual-token connector available now); authenticated Drive download stream.

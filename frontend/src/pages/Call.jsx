@@ -20,6 +20,7 @@ export default function Call() {
   const cameraTrackRef = useRef(null);
   const wsRef = useRef(null);
   const pcsRef = useRef({}); // peerId -> RTCPeerConnection
+  const peerNamesRef = useRef({}); // peerId -> name
   const myIdRef = useRef(null);
 
   const setRemoteStream = (peerId, name, stream) => {
@@ -93,11 +94,11 @@ export default function Call() {
         const msg = JSON.parse(evt.data);
         if (msg.type === "welcome") {
           myIdRef.current = msg.peer_id;
-          msg.peers.forEach((p) => createPeer(p.peer_id, p.name, true));
+          msg.peers.forEach((p) => { peerNamesRef.current[p.peer_id] = p.name; createPeer(p.peer_id, p.name, true); });
         } else if (msg.type === "peer-joined") {
-          // existing peers wait for the newcomer's offer
+          peerNamesRef.current[msg.peer_id] = msg.name;
         } else if (msg.type === "signal") {
-          await handleSignal(msg.from, "Guest", msg.data);
+          await handleSignal(msg.from, peerNamesRef.current[msg.from] || "Guest", msg.data);
         } else if (msg.type === "peer-left") {
           const pc = pcsRef.current[msg.peer_id];
           if (pc) { pc.close(); delete pcsRef.current[msg.peer_id]; }
