@@ -6,6 +6,7 @@ import { useAuth } from "@/context/AuthContext";
 import { PageShell, PageHeader, Loader } from "@/components/Stitch";
 import MeetingLaunchButtons from "@/components/MeetingLaunchButtons";
 import QrLoginCard from "@/components/QrLoginCard";
+import WeekCalendar from "@/components/WeekCalendar";
 
 const STATS = [
   { key: "workspaces", label: "Workspaces", icon: Layers },
@@ -125,6 +126,8 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      <WeekCalendar />
 
       <div className="mt-6">
         <QrLoginCard />

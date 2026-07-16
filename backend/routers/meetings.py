@@ -8,16 +8,37 @@ from core import call_manager, _create_message, _fernet
 router = APIRouter()
 
 
+def _expand_occurrences(base_iso, recurrence, window_start, window_end, limit=60):
+    from datetime import datetime, timedelta
+    try:
+        base = datetime.fromisoformat(base_iso)
+    except Exception:
+        return []
+    if recurrence not in ("daily", "weekly"):
+        return [base] if (window_start <= base <= window_end) else []
+    step = timedelta(days=1) if recurrence == "daily" else timedelta(days=7)
+    occ = base
+    while occ < window_start:
+        occ += step
+    out = []
+    while occ <= window_end and len(out) < limit:
+        out.append(occ)
+        occ += step
+    return out
+
+
 async def _invite_users(invitee_ids, host, doc, join_url):
     from datetime import datetime, timezone, timedelta
     when_txt = ""
     ics = None
+    rec = doc.get("recurrence") or "none"
+    rec_txt = " (repeats daily)" if rec == "daily" else (" (repeats weekly)" if rec == "weekly" else "")
     sa = doc.get("scheduled_at")
     if sa:
         try:
             start = datetime.fromisoformat(sa)
-            when_txt = f" on {start.strftime('%b %d, %Y at %H:%M UTC')}"
-            ics = build_ics(start, start + timedelta(hours=1), doc["name"], f"Join: {join_url}", host.get("email", "stitches"), doc["room_id"])
+            when_txt = f" on {start.strftime('%b %d, %Y at %H:%M UTC')}{rec_txt}"
+            ics = build_ics(start, start + timedelta(hours=1), doc["name"], f"Join: {join_url}", host.get("email", "stitches"), doc["room_id"], recurrence=rec)
         except Exception:
             pass
     for uid in invitee_ids:
@@ -47,6 +68,9 @@ async def create_meeting(request: Request, user: dict = Depends(get_current_user
     channel_id = body.get("channel_id")
     invitee_ids = body.get("invitee_ids") or []
     description = body.get("description") or ""
+    recurrence = body.get("recurrence") or "none"
+    if recurrence not in ("none", "daily", "weekly"):
+        recurrence = "none"
     scheduled_at = body.get("scheduled_at")
     if scheduled_at:
         try:
@@ -59,7 +83,7 @@ async def create_meeting(request: Request, user: dict = Depends(get_current_user
            "name": body.get("name") or f"{user.get('name', 'Stitches')}'s meeting",
            "host_id": user["user_id"], "host_name": user.get("name"),
            "channel_id": channel_id, "invitees": invitee_ids, "description": description,
-           "scheduled_at": scheduled_at, "active": True, "created_at": now_iso()}
+           "scheduled_at": scheduled_at, "recurrence": recurrence, "active": True, "created_at": now_iso()}
     await db.meetings.insert_one(doc)
     await log_activity(user["user_id"], "meeting_create", {"room_id": room_id})
     base = os.environ.get("FRONTEND_URL", "").rstrip("/")
@@ -84,12 +108,24 @@ async def create_meeting(request: Request, user: dict = Depends(get_current_user
 @router.get("/meetings/upcoming")
 async def upcoming_meetings(user: dict = Depends(get_current_user)):
     from datetime import datetime, timezone, timedelta
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=1)).replace(tzinfo=None).isoformat()
-    items = await db.meetings.find(
-        {"scheduled_at": {"$ne": None, "$gte": cutoff},
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    window_start = now - timedelta(hours=1)
+    window_end = now + timedelta(days=30)
+    docs = await db.meetings.find(
+        {"scheduled_at": {"$ne": None},
          "$or": [{"host_id": user["user_id"]}, {"invitees": user["user_id"]}]},
-        {"_id": 0}).sort("scheduled_at", 1).to_list(50)
-    return items
+        {"_id": 0}).to_list(200)
+    items = []
+    for m in docs:
+        rec = m.get("recurrence") or "none"
+        for occ in _expand_occurrences(m["scheduled_at"], rec, window_start, window_end):
+            item = dict(m)
+            item["scheduled_at"] = occ.isoformat()
+            item["recurrence"] = rec
+            item.pop("reminded_occurrences", None)
+            items.append(item)
+    items.sort(key=lambda x: x["scheduled_at"])
+    return items[:50]
 
 
 @router.get("/meetings/{room_id}")
@@ -207,12 +243,18 @@ def _fmt_ics(dt):
     return dt.strftime("%Y%m%dT%H%M%SZ")
 
 
-def build_ics(start, end, summary, description, organizer, uid):
+def build_ics(start, end, summary, description, organizer, uid, recurrence="none"):
     from datetime import datetime, timezone
     stamp = datetime.now(timezone.utc)
+    rrule = ""
+    if recurrence == "daily":
+        rrule = "RRULE:FREQ=DAILY\r\n"
+    elif recurrence == "weekly":
+        rrule = "RRULE:FREQ=WEEKLY\r\n"
     return ("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Stitches//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:REQUEST\r\n"
             "BEGIN:VEVENT\r\n"
             f"UID:{uid}@stitches\r\nDTSTAMP:{_fmt_ics(stamp)}\r\nDTSTART:{_fmt_ics(start)}\r\nDTEND:{_fmt_ics(end)}\r\n"
+            f"{rrule}"
             f"SUMMARY:{summary}\r\nDESCRIPTION:{description}\r\nORGANIZER;CN={organizer}:mailto:{organizer}\r\n"
             "STATUS:CONFIRMED\r\nSEQUENCE:0\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")
 
@@ -345,7 +387,7 @@ async def meeting_ics(room_id: str, user: dict = Depends(get_current_user)):
     join = f"{base}/call/{room_id}"
     sa = m.get("scheduled_at")
     start = datetime.fromisoformat(sa) if sa else datetime.now(timezone.utc).replace(tzinfo=None)
-    ics = build_ics(start, start + timedelta(hours=1), m.get("name", "Stitches meeting"), f"Join: {join}", m.get("host_name", "stitches"), room_id)
+    ics = build_ics(start, start + timedelta(hours=1), m.get("name", "Stitches meeting"), f"Join: {join}", m.get("host_name", "stitches"), room_id, recurrence=m.get("recurrence") or "none")
     return Response(content=ics, media_type="text/calendar",
                     headers={"Content-Disposition": f"attachment; filename=stitches-{room_id}.ics"})
 

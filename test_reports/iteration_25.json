@@ -1,0 +1,24 @@
+{
+  "summary": "Iteration 25 (Stitches) — validated per-user SMTP config CRUD, admin clear endpoints (SMTP/SFU/RTC), recurring meetings (weekly expansion & none), plus frontend flows: dashboard 'This week' widget, Meetings recurrence selector/badge, Settings my-smtp save+clear, Admin Meetings tab clear-credential buttons. All backend and frontend checks passed.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": { "ui_bugs": [], "integration_issues": [], "design_issues": [] },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration25.py",
+    "/app/test_reports/pytest/iteration_25.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "meetings.py is ~430 lines and mixes meetings CRUD, TURN, SFU/LiveKit and SMTP settings. Consider splitting into meetings.py, rtc_config.py, sfu_config.py and smtp_config.py routers for maintainability (>700-line risk as features grow).",
+    "PUT /api/me/smtp-config casts int(body.get('port') or 587) with no try/except; sending non-numeric port would 500. Wrap in try/except or use Pydantic model.",
+    "_expand_occurrences returns up to 60 occurrences and upcoming_meetings caps items[:50] after sort. For workspaces with many recurring meetings this can hide near-term meetings behind far-future weekly ones from other rooms. Consider per-meeting cap first, then global sort/slice.",
+    "GET /api/admin/smtp-config and /api/admin/sfu-config fall back to env vars (SMTP_HOST, LIVEKIT_URL) after DELETE, so the 'cleared' UI can still show env-provided values. Tests accept both, but the UX may be confusing — consider making DELETE clear the env fallback in the response too.",
+    "WeekCalendar appends 'Z' to scheduled_at when constructing Date but backend already stores naive UTC — this convention is consistent but brittle; consider returning ISO 8601 with Z from the API."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration25.py"],
+  "success_rate": { "backend": "100% (8/8)", "frontend": "100% (all flows verified)" },
+  "test_credentials": "demo@stitches.app / Demo@123, admin@stitches.app / Admin@123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Created several TEST_ prefixed meetings during backend & UI tests (TEST_weekly_meet, TEST_once_meet, TEST_UI_weekly). Also PUT then DELETE on demo user's SMTP and admin SMTP/SFU/RTC configs — end state: demo user's SMTP cleared, admin SMTP/SFU/TURN cleared. Test meetings persist in DB but are prefixed TEST_ for easy cleanup.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend endpoints /api/me/smtp-config (GET/PUT/DELETE), /api/admin/{smtp,sfu,rtc}-config DELETE, and /api/meetings with recurrence in {none,daily,weekly} all confirmed working via pytest. UI: dashboard week-calendar-widget renders 7 day cells with meeting chips; /meetings modal has recurrence-none/daily/weekly and creates meetings that appear with data-testid=recurrence-badge (weekly meeting produced 10 expanded rows in Upcoming). Settings /settings my-smtp-section save+clear works; Admin /admin -> Meetings tab clear-turn-btn/clear-sfu-btn/clear-smtp-btn show success toast without errors. Note: after DELETE admin configs, GET falls back to env-var defaults when set; my tests accept either empty string or the env default."
+}

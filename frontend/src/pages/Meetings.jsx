@@ -79,10 +79,15 @@ export default function Meetings() {
       ) : (
         <div className="space-y-3" data-testid="upcoming-list">
           {upcoming.map((m) => (
-            <div key={m.room_id} data-testid="upcoming-row" className="neu-raised rounded-2xl p-4 flex items-center gap-4 flex-wrap">
+            <div key={m.room_id + m.scheduled_at} data-testid="upcoming-row" className="neu-raised rounded-2xl p-4 flex items-center gap-4 flex-wrap">
               <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center shrink-0"><Video className="w-5 h-5 text-primary-stitch" /></div>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>{m.name}</p>
+                <p className="text-sm font-semibold truncate flex items-center gap-2" style={{ color: "var(--text)" }}>
+                  {m.name}
+                  {m.recurrence && m.recurrence !== "none" && (
+                    <span data-testid="recurrence-badge" className="text-[11px] font-bold px-2 py-0.5 rounded-full text-white capitalize" style={{ background: "var(--primary)" }}>{m.recurrence}</span>
+                  )}
+                </p>
                 <p className="text-xs text-muted-stitch">{new Date(m.scheduled_at + "Z").toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} · {(m.invitees || []).length + 1} invited</p>
               </div>
               <button data-testid="add-calendar-btn" onClick={() => addToCalendar(m.room_id)} className="neu-btn rounded-xl px-3 py-2 text-sm font-semibold text-primary-stitch flex items-center gap-1.5">
@@ -102,6 +107,7 @@ export default function Meetings() {
 function ScheduleModal({ me, onClose, onDone, openRoom }) {
   const [name, setName] = useState("");
   const [when, setWhen] = useState("");
+  const [recurrence, setRecurrence] = useState("none");
   const [people, setPeople] = useState([]);
   const [selected, setSelected] = useState([]);
   const [q, setQ] = useState("");
@@ -118,7 +124,7 @@ function ScheduleModal({ me, onClose, onDone, openRoom }) {
     setBusy(true);
     try {
       const payload = { name: name || undefined, invitee_ids: selected };
-      if (schedule) payload.scheduled_at = new Date(when).toISOString();
+      if (schedule) { payload.scheduled_at = new Date(when).toISOString(); payload.recurrence = recurrence; }
       const { data } = await api.post("/meetings", payload);
       toast.success(schedule ? "Meeting scheduled — invites sent" : "Meeting started — invites sent");
       onDone();
@@ -136,6 +142,13 @@ function ScheduleModal({ me, onClose, onDone, openRoom }) {
         <input data-testid="meeting-name-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Meeting name (optional)" className="neu-input w-full rounded-2xl py-3 px-4 mb-3 text-sm" />
         <label className="text-xs font-semibold text-muted-stitch">Date & time (leave empty to start now)</label>
         <input data-testid="meeting-time-input" type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} className="neu-input w-full rounded-2xl py-3 px-4 mb-3 mt-1 text-sm" />
+        <label className="text-xs font-semibold text-muted-stitch">Repeat</label>
+        <div className="neu-pressed rounded-full p-1.5 flex mt-1 mb-3">
+          {[["none", "Once"], ["daily", "Daily"], ["weekly", "Weekly"]].map(([val, lbl]) => (
+            <button key={val} data-testid={`recurrence-${val}`} onClick={() => setRecurrence(val)}
+              className={`flex-1 rounded-full py-2 text-sm font-semibold ${recurrence === val ? "neu-primary" : "text-muted-stitch"}`}>{lbl}</button>
+          ))}
+        </div>
         <div className="neu-pressed rounded-2xl p-2 mb-2 flex items-center gap-2">
           <Search className="w-4 h-4 text-muted-stitch ml-2" />
           <input data-testid="invitee-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search users & friends…" className="bg-transparent flex-1 py-1.5 text-sm outline-none" style={{ color: "var(--text)" }} />

@@ -590,6 +590,18 @@ function MeetingsTab() {
       const { data } = await api.get("/admin/smtp-config"); setSmtp(data);
     } catch (e) { toast.error("Save failed"); } finally { setSavingSmtp(false); }
   };
+  const clearTurn = async () => {
+    try { await api.delete("/admin/rtc-config"); const { data } = await api.get("/admin/rtc-config"); setTurn(data); toast.success("TURN credentials cleared"); }
+    catch (e) { toast.error("Failed to clear"); }
+  };
+  const clearSfu = async () => {
+    try { await api.delete("/admin/sfu-config"); const { data } = await api.get("/admin/sfu-config"); setSfu(data); toast.success("SFU credentials cleared"); }
+    catch (e) { toast.error("Failed to clear"); }
+  };
+  const clearSmtp = async () => {
+    try { await api.delete("/admin/smtp-config"); const { data } = await api.get("/admin/smtp-config"); setSmtp(data); toast.success("Email credentials cleared"); }
+    catch (e) { toast.error("Failed to clear"); }
+  };
 
   if (!items || !turn || !sfu || !smtp) return <Loader />;
   return (
@@ -613,6 +625,7 @@ function MeetingsTab() {
           <input data-testid="turn-credential-input" type="password" value={turn.credential || ""} onChange={(e) => setTurn({ ...turn, credential: e.target.value })} placeholder={turn.has_credential ? "•••••• (saved)" : "credential"} className="neu-input rounded-2xl py-3 px-4 text-sm" />
         </div>
         <button data-testid="save-turn-btn" onClick={saveTurn} disabled={savingTurn} className="neu-primary rounded-2xl px-6 py-3 font-semibold mt-4">{savingTurn ? "Saving…" : "Save TURN server"}</button>
+        <button data-testid="clear-turn-btn" onClick={clearTurn} className="neu-btn rounded-2xl px-6 py-3 font-semibold mt-4 ml-3 text-red-500">Clear credentials</button>
       </div>
 
       <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="sfu-config-card">
@@ -631,6 +644,7 @@ function MeetingsTab() {
           <input data-testid="sfu-secret-input" type="password" value={sfu.api_secret || ""} onChange={(e) => setSfu({ ...sfu, api_secret: e.target.value })} placeholder={sfu.has_secret ? "•••••• (saved)" : "API secret"} className="neu-input rounded-2xl py-3 px-4 text-sm" />
         </div>
         <button data-testid="save-sfu-btn" onClick={saveSfu} disabled={savingSfu} className="neu-primary rounded-2xl px-6 py-3 font-semibold mt-4">{savingSfu ? "Saving…" : "Save SFU settings"}</button>
+        <button data-testid="clear-sfu-btn" onClick={clearSfu} className="neu-btn rounded-2xl px-6 py-3 font-semibold mt-4 ml-3 text-red-500">Clear credentials</button>
       </div>
 
       <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="smtp-config-card">
@@ -651,6 +665,7 @@ function MeetingsTab() {
           <input data-testid="smtp-from-input" value={smtp.from_address} onChange={(e) => setSmtp({ ...smtp, from_address: e.target.value })} placeholder="from address (e.g. you@gmail.com)" className="neu-input rounded-2xl py-3 px-4 text-sm sm:col-span-2" />
         </div>
         <button data-testid="save-smtp-btn" onClick={saveSmtp} disabled={savingSmtp} className="neu-primary rounded-2xl px-6 py-3 font-semibold mt-4">{savingSmtp ? "Saving…" : "Save email settings"}</button>
+        <button data-testid="clear-smtp-btn" onClick={clearSmtp} className="neu-btn rounded-2xl px-6 py-3 font-semibold mt-4 ml-3 text-red-500">Clear credentials</button>
       </div>
 
       <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up">

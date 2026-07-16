@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Save, Sun, Moon, Minus, Plus, User, Building2, FolderKanban, Palette, Bell, Upload, Trash2, Smartphone, Monitor, LogOut, ShieldCheck } from "lucide-react";
+import { Save, Sun, Moon, Minus, Plus, User, Building2, FolderKanban, Palette, Bell, Upload, Trash2, Smartphone, Monitor, LogOut, ShieldCheck, Mail } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -140,7 +140,64 @@ export default function Settings() {
       <div className="mt-6">
         <DevicesSection />
       </div>
+
+      <div className="mt-6">
+        <MySmtpSection />
+      </div>
     </PageShell>
+  );
+}
+
+function MySmtpSection() {
+  const [smtp, setSmtp] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const load = () => api.get("/me/smtp-config").then(({ data }) => setSmtp(data))
+    .catch(() => setSmtp({ enabled: false, host: "", port: 587, username: "", from_address: "", has_password: false }));
+  useEffect(() => { load(); }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.put("/me/smtp-config", { enabled: smtp.enabled, host: smtp.host, port: smtp.port, username: smtp.username, from_address: smtp.from_address, password: smtp.password || "" });
+      toast.success(smtp.enabled ? "Invites will now be sent from your email" : "Email settings saved");
+      load();
+    } catch (e) { toast.error("Save failed"); } finally { setSaving(false); }
+  };
+  const clear = async () => {
+    try { await api.delete("/me/smtp-config"); toast.success("Your email credentials were cleared"); load(); }
+    catch (e) { toast.error("Failed to clear"); }
+  };
+
+  if (!smtp) return null;
+  return (
+    <div className="neu-raised rounded-[1.75rem] p-7 animate-fade-up" data-testid="my-smtp-section">
+      <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center"><Mail className="w-5 h-5 text-primary-stitch" /></div>
+          <div>
+            <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Send invites from your own email</h3>
+            <p className="text-sm text-muted-stitch">Optional. When enabled, meeting invites you send use your SMTP account instead of the platform default.</p>
+          </div>
+        </div>
+        <button data-testid="my-smtp-enabled-toggle" onClick={() => setSmtp({ ...smtp, enabled: !smtp.enabled })}
+          className={`w-14 h-8 rounded-full flex items-center px-1 transition-all shrink-0 ${smtp.enabled ? "justify-end" : "justify-start"}`}
+          style={{ background: smtp.enabled ? "var(--primary)" : "var(--neu-dark)" }}>
+          <span className="w-6 h-6 rounded-full bg-white shadow" />
+        </button>
+      </div>
+      <div className="grid sm:grid-cols-2 gap-3 mt-4">
+        <input data-testid="my-smtp-host-input" value={smtp.host} onChange={(e) => setSmtp({ ...smtp, host: e.target.value })} placeholder="smtp.gmail.com" className="neu-input rounded-2xl py-3 px-4 text-sm" />
+        <input data-testid="my-smtp-port-input" type="number" value={smtp.port} onChange={(e) => setSmtp({ ...smtp, port: e.target.value })} placeholder="587" className="neu-input rounded-2xl py-3 px-4 text-sm" />
+        <input data-testid="my-smtp-username-input" value={smtp.username} onChange={(e) => setSmtp({ ...smtp, username: e.target.value })} placeholder="you@gmail.com" className="neu-input rounded-2xl py-3 px-4 text-sm" />
+        <input data-testid="my-smtp-password-input" type="password" value={smtp.password || ""} onChange={(e) => setSmtp({ ...smtp, password: e.target.value })} placeholder={smtp.has_password ? "•••••• (saved)" : "app password"} className="neu-input rounded-2xl py-3 px-4 text-sm" />
+        <input data-testid="my-smtp-from-input" value={smtp.from_address} onChange={(e) => setSmtp({ ...smtp, from_address: e.target.value })} placeholder="from address (e.g. you@gmail.com)" className="neu-input rounded-2xl py-3 px-4 text-sm sm:col-span-2" />
+      </div>
+      <div className="mt-4 flex items-center gap-3">
+        <button data-testid="save-my-smtp-btn" onClick={save} disabled={saving} className="neu-primary rounded-2xl px-6 py-3 font-semibold">{saving ? "Saving…" : "Save my email"}</button>
+        <button data-testid="clear-my-smtp-btn" onClick={clear} className="neu-btn rounded-2xl px-6 py-3 font-semibold text-red-500">Clear credentials</button>
+      </div>
+      <p className="text-xs text-muted-stitch mt-3">Tip: for Gmail/Outlook create an app password in your account security settings and use it here.</p>
+    </div>
   );
 }
 

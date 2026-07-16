@@ -316,15 +316,35 @@ async def scan_due_reminders():
 async def scan_meeting_reminders():
     from datetime import datetime, timezone, timedelta
     now = datetime.now(timezone.utc).replace(tzinfo=None)
-    horizon = (now + timedelta(minutes=30)).isoformat()
-    cur = db.meetings.find({"scheduled_at": {"$ne": None, "$gte": now.isoformat(), "$lte": horizon},
-                            "meeting_reminded": {"$ne": True}})
+    horizon = now + timedelta(minutes=30)
+    cur = db.meetings.find({"scheduled_at": {"$ne": None}})
     async for m in cur:
+        try:
+            base = datetime.fromisoformat(m["scheduled_at"])
+        except Exception:
+            continue
+        rec = m.get("recurrence") or "none"
+        occ = None
+        if rec in ("daily", "weekly"):
+            step = timedelta(days=1) if rec == "daily" else timedelta(days=7)
+            o = base
+            while o < now:
+                o += step
+            if now <= o <= horizon:
+                occ = o
+        else:
+            if now <= base <= horizon:
+                occ = base
+        if not occ:
+            continue
+        occ_key = occ.isoformat()
+        if occ_key in (m.get("reminded_occurrences") or []):
+            continue
         for uid in set([m.get("host_id")] + (m.get("invitees") or [])):
             if uid:
                 await create_notification(uid, "meeting", "Meeting starting soon",
                                           f"'{m.get('name')}' starts soon. Tap to join.", f"/call/{m['room_id']}")
-        await db.meetings.update_one({"room_id": m["room_id"]}, {"$set": {"meeting_reminded": True}})
+        await db.meetings.update_one({"room_id": m["room_id"]}, {"$push": {"reminded_occurrences": occ_key}})
 
 
 # ---------------- Storage ----------------
