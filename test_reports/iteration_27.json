@@ -1,0 +1,22 @@
+{
+  "summary": "Iteration 27: Regression after services refactor (backend/services/email.py + livekit.py) + NEW admin Automation activity (backend endpoint + frontend tab) all passing. Backend 9/9 pytest pass. Frontend Automation tab renders stat cards, all 5 filter pills, run rows (with integration name + owner) and empty state, refresh works. No pageerrors.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": { "ui_bugs": [], "integration_issues": [], "design_issues": [] },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration27.py",
+    "/app/test_reports/pytest/iteration_27.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "services/email.py and services/livekit.py properly extract shared helpers — refactor is clean; routers meetings/smtp_config/sfu_config/rtc_config no longer import from each other.",
+    "admin/integration-runs correctly gates on require_admin (403 for demo user verified), enriches with owner_name/integration_name/integration_type, supports kind and ok filters. Only pulls latest 150 runs — consider adding pagination/skip once run volume grows.",
+    "Frontend AutomationTab.jsx exposes all requested data-testids and handles empty state; no state leaks observed on filter switching."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration27.py"],
+  "success_rate": { "backend": "100% (9/9)", "frontend": "100%" },
+  "test_credentials": "admin@stitches.app / Admin@123, demo@stitches.app / Demo@123",
+  "seed_data_creation": "Test created + deleted TEST_iter27_n8n integration (with 1 run) and TEST_iter27_ui integration (with 1 failed run against httpbin) — both DELETED. TEST_iter27_weekly meeting was created and left in db (host=demo).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Services refactor is behavior-neutral. All refactored endpoints (/api/me/smtp-config, /api/admin/{smtp,sfu,rtc}-config, /api/rtc/config, /api/meetings + /upcoming + /{id}/ics with RRULE:FREQ=WEEKLY) return 200 with correct data. New GET /api/admin/integration-runs returns {runs,total,ok_count,fail_count}; enriched runs include owner_name/integration_name/integration_type; filters ?kind=run|mcp_call and ?ok=true|false work; non-admin gets 403. Frontend Admin > Automation tab renders all elements correctly."
+}

@@ -188,6 +188,34 @@ async def admin_monitoring(user: dict = Depends(require_admin)):
             "feed": feed}
 
 
+@router.get("/admin/integration-runs")
+async def admin_integration_runs(kind: str = None, ok: str = None, owner_id: str = None,
+                                 user: dict = Depends(require_admin)):
+    q = {}
+    if kind:
+        q["kind"] = kind
+    if owner_id:
+        q["owner_id"] = owner_id
+    if ok in ("true", "false"):
+        q["ok"] = (ok == "true")
+    runs = await db.integration_runs.find(q, {"_id": 0}).sort("created_at", -1).to_list(150)
+    uids = list({r.get("owner_id") for r in runs if r.get("owner_id")})
+    iids = list({r.get("integration_id") for r in runs if r.get("integration_id")})
+    users = await db.users.find({"user_id": {"$in": uids}}, {"_id": 0, "user_id": 1, "name": 1, "email": 1}).to_list(500)
+    ints = await db.integrations.find({"integration_id": {"$in": iids}}, {"_id": 0, "integration_id": 1, "name": 1, "type": 1}).to_list(500)
+    umap = {u["user_id"]: u for u in users}
+    imap = {i["integration_id"]: i for i in ints}
+    for r in runs:
+        u = umap.get(r.get("owner_id"))
+        i = imap.get(r.get("integration_id"))
+        r["owner_name"] = u["name"] if u else "Unknown"
+        r["integration_name"] = i["name"] if i else "(deleted)"
+        r["integration_type"] = i["type"] if i else ""
+    total = await db.integration_runs.count_documents({})
+    ok_count = await db.integration_runs.count_documents({"ok": True})
+    return {"runs": runs, "total": total, "ok_count": ok_count, "fail_count": total - ok_count}
+
+
 @router.get("/admin/heatmap")
 async def admin_heatmap(user: dict = Depends(require_admin)):
     grid = [[0] * 24 for _ in range(7)]

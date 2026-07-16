@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Response
 from core import *
 from core import call_manager, _create_message
-from routers.smtp_config import build_ics, send_meeting_email
+from services.email import build_ics, send_meeting_email
 
 router = APIRouter()
 

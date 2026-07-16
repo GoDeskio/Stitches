@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Users, Layers, FolderKanban, FolderOpen, Plug, MessagesSquare, Shield,
   ToggleRight, Search, Activity, Grid3x3, LayoutDashboard, KeyRound, LogIn, BadgeCheck, Bell,
-  Ban, UserCheck, Download, Video, Plus, PhoneOff, Users as UsersIcon,
+  Ban, UserCheck, Download, Video, Plus, PhoneOff, Users as UsersIcon, Workflow,
 } from "lucide-react";
 import { toast } from "sonner";
 import api, { API } from "@/lib/api";
@@ -30,6 +30,7 @@ const TABS = [
   { id: "monitoring", label: "Monitoring", icon: Activity },
   { id: "heatmap", label: "Heat Map", icon: Grid3x3 },
   { id: "integrations", label: "Integrations", icon: Plug },
+  { id: "automation", label: "Automation", icon: Workflow },
   { id: "meetings", label: "Meetings", icon: Video },
 ];
 
@@ -57,6 +58,7 @@ export default function Admin() {
       {tab === "monitoring" && <MonitoringTab />}
       {tab === "heatmap" && <HeatmapTab />}
       {tab === "integrations" && <IntegrationsTab />}
+      {tab === "automation" && <AutomationTab />}
       {tab === "meetings" && <MeetingsTab />}
     </PageShell>
   );
@@ -529,6 +531,76 @@ function IntegrationsTab() {
         </div>
       )}
       </div>
+    </div>
+  );
+}
+
+
+function AutomationTab() {
+  const [data, setData] = useState(null);
+  const [filter, setFilter] = useState("all"); // all | ok | fail | run | mcp_call
+  const load = () => {
+    const params = {};
+    if (filter === "ok") params.ok = "true";
+    else if (filter === "fail") params.ok = "false";
+    else if (filter === "run" || filter === "mcp_call") params.kind = filter;
+    api.get("/admin/integration-runs", { params }).then(({ data }) => setData(data)).catch(() => setData({ runs: [], total: 0, ok_count: 0, fail_count: 0 }));
+  };
+  useEffect(() => { load(); }, [filter]); // eslint-disable-line
+
+  if (!data) return <Loader />;
+  const FILTERS = [["all", "All"], ["ok", "Succeeded"], ["fail", "Failed"], ["run", "N8N runs"], ["mcp_call", "MCP calls"]];
+  return (
+    <div className="space-y-6" data-testid="automation-tab">
+      <div className="grid grid-cols-3 gap-5">
+        <StatCard label="Total runs" value={data.total} />
+        <StatCard label="Succeeded" value={data.ok_count} color="#16a34a" />
+        <StatCard label="Failed" value={data.fail_count} color="#dc2626" />
+      </div>
+
+      <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up">
+        <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
+          <div>
+            <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Automation activity</h3>
+            <p className="text-sm text-muted-stitch">Every N8N workflow trigger and MCP tool call across the platform.</p>
+          </div>
+          <button data-testid="automation-refresh" onClick={load} className="neu-btn rounded-xl px-4 py-2 text-sm font-semibold text-primary-stitch">Refresh</button>
+        </div>
+        <div className="neu-pressed rounded-full p-1.5 flex gap-1 mb-5 overflow-x-auto">
+          {FILTERS.map(([id, lbl]) => (
+            <button key={id} data-testid={`automation-filter-${id}`} onClick={() => setFilter(id)}
+              className={`rounded-full py-2 px-4 text-sm font-semibold whitespace-nowrap ${filter === id ? "neu-primary" : "text-muted-stitch"}`}>{lbl}</button>
+          ))}
+        </div>
+        {data.runs.length === 0 ? (
+          <p className="text-sm text-muted-stitch" data-testid="automation-empty">No automation runs recorded yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {data.runs.map((r) => (
+              <div key={r.run_id} data-testid="automation-run-row" className="neu-pressed rounded-2xl p-4 flex items-center gap-4">
+                <span className={`w-2.5 h-2.5 rounded-full shrink-0`} style={{ background: r.ok ? "#16a34a" : "#dc2626" }} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>
+                    {r.integration_name} <span className="text-muted-stitch font-normal">· {r.kind === "mcp_call" ? "MCP tool" : "N8N run"}</span>
+                    {r.status_code ? <span className="text-muted-stitch font-normal"> · {r.status_code}</span> : null}
+                  </p>
+                  <p className="text-xs text-muted-stitch truncate">{r.owner_name} · {new Date(r.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
+                </div>
+                <span className={`text-xs px-3 py-1 rounded-full neu-sm font-semibold ${r.ok ? "text-green-500" : "text-red-500"}`}>{r.ok ? "OK" : "Failed"}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StatCard({ label, value, color }) {
+  return (
+    <div className="neu-raised rounded-[1.5rem] p-6 animate-fade-up">
+      <p className="font-head font-black text-4xl" style={{ color: color || "var(--text)" }}>{value}</p>
+      <p className="text-sm text-muted-stitch mt-1">{label}</p>
     </div>
   );
 }

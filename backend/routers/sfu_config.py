@@ -1,26 +1,9 @@
 from fastapi import APIRouter
 from core import *
 from core import _fernet
+from services.livekit import get_livekit_cfg
 
 router = APIRouter()
-
-
-# ---------------- Self-hosted SFU (LiveKit) ----------------
-async def _get_livekit_cfg():
-    doc = await db.settings.find_one({"key": "livekit"})
-    val = (doc or {}).get("value", {})
-    secret = ""
-    if val.get("api_secret_enc"):
-        try:
-            secret = _fernet.decrypt(val["api_secret_enc"].encode()).decode()
-        except Exception:
-            secret = ""
-    return {
-        "enabled": bool(val.get("enabled")) if val else (os.environ.get("LIVEKIT_ENABLED", "false").lower() == "true"),
-        "url": val.get("url") or os.environ.get("LIVEKIT_URL", ""),
-        "api_key": val.get("api_key") or os.environ.get("LIVEKIT_API_KEY", ""),
-        "api_secret": secret or os.environ.get("LIVEKIT_API_SECRET", ""),
-    }
 
 
 @router.post("/rtc/sfu-token")
@@ -29,7 +12,7 @@ async def sfu_token(request: Request, user: dict = Depends(get_current_user)):
     room = (body or {}).get("room_id")
     if not room:
         raise HTTPException(status_code=400, detail="Missing room_id")
-    lk = await _get_livekit_cfg()
+    lk = await get_livekit_cfg()
     if not (lk["enabled"] and lk["url"] and lk["api_key"] and lk["api_secret"]):
         raise HTTPException(status_code=400, detail="SFU is not enabled")
     from livekit import api as lkapi
@@ -43,7 +26,7 @@ async def sfu_token(request: Request, user: dict = Depends(get_current_user)):
 
 @router.get("/admin/sfu-config")
 async def admin_get_sfu(user: dict = Depends(require_admin)):
-    lk = await _get_livekit_cfg()
+    lk = await get_livekit_cfg()
     return {"enabled": lk["enabled"], "url": lk["url"], "api_key": lk["api_key"], "has_secret": bool(lk["api_secret"])}
 
 

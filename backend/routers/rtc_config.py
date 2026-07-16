@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from core import *
-from routers.sfu_config import _get_livekit_cfg
+from services.livekit import get_livekit_cfg
 
 router = APIRouter()
 
@@ -30,7 +30,7 @@ def _build_ice(turn):
 
 @router.get("/rtc/config")
 async def rtc_config(user: dict = Depends(get_current_user)):
-    lk = await _get_livekit_cfg()
+    lk = await get_livekit_cfg()
     sfu_on = lk["enabled"] and bool(lk["url"] and lk["api_key"] and lk["api_secret"])
     return {"iceServers": _build_ice(await _get_turn_cfg()), "sfu": {"enabled": sfu_on, "url": lk["url"] if sfu_on else ""}}
 
