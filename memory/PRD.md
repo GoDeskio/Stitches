@@ -183,6 +183,13 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - Verified (iteration_26): backend 12/12 pytest + frontend 100%. Fixed a React `useEffect` Promise-return bug in Run/MCP modals (found by testing agent).
 - NOTE: real MCP tool execution requires a real MCP server (untestable in-sandbox — validated graceful fallback only).
 
+## Implemented (2026-06-25, part 10) — site-wide click heatmap + Microsoft Clarity
+- **Invisible site-wide tracker** (`components/Tracker.jsx`, mounted in `App.js`): records page views + clicks (normalized x/y + closest element label/testid) for both visitors and users across the whole site, batched and posted to public `POST /api/track` (flush every 5s / 20 clicks / page-hide via sendBeacon). No visual output on any user-facing page — collection only.
+- **Admin Heat Map visualization** (admin-only): stat cards (unique visitors / total clicks / page views), a per-path canvas **click heatmap** (2-pass colorized blue→red, `heatmap-canvas`), path selector, "most clicked elements" list, plus the existing activity-by-time grid. Endpoints: `POST /api/track` (public), `GET /api/admin/heatmap/paths`, `GET /api/admin/heatmap/clicks?path=`. `heat_events` has a 30-day TTL + `(type,path,created_at)` index.
+- Requirement met: heatmap **functions/visualization exist only in the Admin dashboard**; the user dashboard has none.
+- **Microsoft Clarity** analytics script added to `public/index.html` head (project id `xnf9nc40tt`).
+- Verified (iteration_31): backend 7/7 pytest + frontend 100%, confirmed no heatmap UI on user pages. Test data cleaned.
+
 ## Implemented (2026-06-25, part 9) — Support tab unread badge
 - **Open-requests badge** on the Admin "Support" tab (`support-tab-badge`): red count of open support requests, fetched efficiently (limit=1, reads `open_count`) and refreshed on tab switch so admins spot new AI escalations immediately. Self-verified (endpoint returns open_count; compiles clean).
 
