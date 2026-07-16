@@ -457,6 +457,23 @@ function HeatmapCanvas({ points }) {
   return <canvas ref={ref} width={W} height={H} data-testid="heatmap-canvas" className="absolute inset-0 w-full h-full" />;
 }
 
+function Sparkline({ data }) {
+  const w = 560, h = 60, pad = 4;
+  const max = Math.max(1, ...data.map((d) => d.clicks));
+  const step = (w - 2 * pad) / Math.max(1, data.length - 1);
+  const pts = data.map((d, i) => `${pad + i * step},${h - pad - (d.clicks / max) * (h - 2 * pad)}`).join(" ");
+  const area = `${pad},${h - pad} ${pts} ${pad + (data.length - 1) * step},${h - pad}`;
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="w-full" style={{ height: 60 }} data-testid="heatmap-sparkline">
+      <polygon points={area} fill="var(--primary)" opacity="0.14" />
+      <polyline points={pts} fill="none" stroke="var(--primary)" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+      {data.map((d, i) => (
+        <circle key={i} cx={pad + i * step} cy={h - pad - (d.clicks / max) * (h - 2 * pad)} r="2" fill="var(--primary)" />
+      ))}
+    </svg>
+  );
+}
+
 function HeatmapTab() {
   const [grid, setGrid] = useState(null);
   const [paths, setPaths] = useState(null);
@@ -465,8 +482,10 @@ function HeatmapTab() {
   const [refImg, setRefImg] = useState(null);
   const [clarityId, setClarityId] = useState("");
   const [range, setRange] = useState("all");
+  const [trend, setTrend] = useState(null);
 
   useEffect(() => { api.get("/admin/heatmap").then(({ data }) => setGrid(data.grid)).catch(() => setGrid([[0]])); }, []);
+  useEffect(() => { api.get("/admin/heatmap/trend").then(({ data }) => setTrend(data)).catch(() => setTrend(null)); }, []);
   useEffect(() => { api.get("/site-config").then(({ data }) => setClarityId(data.clarity_id || "")).catch(() => {}); }, []);
   useEffect(() => {
     api.get("/admin/heatmap/paths", { params: { range } }).then(({ data }) => {
@@ -500,6 +519,20 @@ function HeatmapTab() {
           </a>
         )}
       </div>
+
+      {trend && (
+        <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="heatmap-trend-card">
+          <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+            <h3 className="font-head font-bold text-lg" style={{ color: "var(--text)" }}>Clicks — last 14 days</h3>
+            <span className="text-sm text-muted-stitch">{trend.total} total</span>
+          </div>
+          <Sparkline data={trend.days} />
+          <div className="flex justify-between mt-1">
+            <span className="text-[10px] text-muted-stitch">{trend.days[0]?.d}</span>
+            <span className="text-[10px] text-muted-stitch">{trend.days[trend.days.length - 1]?.d}</span>
+          </div>
+        </div>
+      )}
 
       <div className="neu-pressed rounded-full p-1.5 flex gap-1 w-fit" data-testid="heatmap-range">
         {[["24h", "Last 24h"], ["7d", "7 days"], ["30d", "30 days"], ["all", "All time"]].map(([id, lbl]) => (

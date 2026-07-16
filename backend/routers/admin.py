@@ -373,6 +373,19 @@ def _range_cutoff(rng):
             "30d": now - timedelta(days=30)}.get(rng)
 
 
+@router.get("/admin/heatmap/trend")
+async def heatmap_trend(user: dict = Depends(require_admin)):
+    from datetime import datetime, timezone, timedelta
+    start = (datetime.now(timezone.utc) - timedelta(days=13)).replace(hour=0, minute=0, second=0, microsecond=0)
+    agg = await db.heat_events.aggregate([
+        {"$match": {"type": "click", "created_at": {"$gte": start}}},
+        {"$group": {"_id": {"$dateToString": {"format": "%m-%d", "date": "$created_at"}}, "clicks": {"$sum": 1}}},
+    ]).to_list(100)
+    m = {a["_id"]: a["clicks"] for a in agg}
+    out = [{"d": (start + timedelta(days=i)).strftime("%m-%d"), "clicks": m.get((start + timedelta(days=i)).strftime("%m-%d"), 0)} for i in range(14)]
+    return {"days": out, "total": sum(x["clicks"] for x in out)}
+
+
 @router.get("/admin/heatmap/paths")
 async def heatmap_paths(range: str = "all", user: dict = Depends(require_admin)):
     cutoff = _range_cutoff(range)
