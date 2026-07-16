@@ -6,6 +6,7 @@ from core import db, require_admin, now_iso
 router = APIRouter()
 
 STAGES = ["new", "contacted", "qualified", "proposal", "won", "lost"]
+STAGE_WEIGHTS = {"new": 0.1, "contacted": 0.25, "qualified": 0.5, "proposal": 0.7, "won": 1.0, "lost": 0.0}
 
 
 def _public(c):
@@ -50,6 +51,40 @@ async def crm_board(user: dict = Depends(require_admin)):
         rows = await db.crm_contacts.find({"type": "lead", "stage": s}).sort("updated_at", -1).limit(50).to_list(50)
         board[s] = [_public(c) for c in rows]
     return {"board": board, "stages": STAGES}
+
+
+@router.get("/admin/crm/forecast")
+async def crm_forecast(user: dict = Depends(require_admin)):
+    # value totals per open stage + weighted forecast
+    per_stage = {}
+    weighted = 0.0
+    open_total = 0.0
+    won_total = 0.0
+    for s in STAGES:
+        agg = await db.crm_contacts.aggregate([
+            {"$match": {"type": "lead", "stage": s}},
+            {"$group": {"_id": None, "sum": {"$sum": "$value"}, "count": {"$sum": 1}}},
+        ]).to_list(1)
+        total = (agg[0]["sum"] if agg else 0) or 0
+        count = (agg[0]["count"] if agg else 0) or 0
+        per_stage[s] = {"total": round(total, 2), "count": count}
+        if s == "won":
+            won_total += total
+        elif s != "lost":
+            open_total += total
+            weighted += total * STAGE_WEIGHTS.get(s, 0)
+
+    # won/lost over the last 8 weeks (by updated_at)
+    now = datetime.now(timezone.utc)
+    weeks = []
+    for i in range(7, -1, -1):
+        start = (now - timedelta(days=now.weekday() + 7 * i)).replace(hour=0, minute=0, second=0, microsecond=0)
+        end = start + timedelta(days=7)
+        won = await db.crm_contacts.count_documents({"type": "lead", "stage": "won", "updated_at": {"$gte": start.isoformat(), "$lt": end.isoformat()}})
+        lost = await db.crm_contacts.count_documents({"type": "lead", "stage": "lost", "updated_at": {"$gte": start.isoformat(), "$lt": end.isoformat()}})
+        weeks.append({"label": start.strftime("%b %d"), "won": won, "lost": lost})
+    return {"per_stage": per_stage, "weighted_forecast": round(weighted, 2),
+            "open_pipeline": round(open_total, 2), "won_total": round(won_total, 2), "weeks": weeks}
 
 
 @router.get("/admin/crm/contacts")

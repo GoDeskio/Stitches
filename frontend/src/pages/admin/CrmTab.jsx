@@ -4,6 +4,8 @@ import api from "@/lib/api";
 import { Loader } from "@/components/Stitch";
 import { Contact2 } from "lucide-react";
 
+const fmtMoney = (n) => "$" + (Number(n) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 });
+
 export function CrmTab() {
   const [stats, setStats] = useState(null);
   const [data, setData] = useState(null);
@@ -17,17 +19,19 @@ export function CrmTab() {
   const [view, setView] = useState("list");
   const [board, setBoard] = useState(null);
   const [dragId, setDragId] = useState(null);
+  const [forecast, setForecast] = useState(null);
 
   const loadStats = () => api.get("/admin/crm/stats").then(({ data }) => setStats(data)).catch(() => {});
   const loadList = () => api.get("/admin/crm/contacts", { params: { type: type || undefined, stage: stage || undefined, q: q || undefined, page } })
     .then(({ data }) => setData(data)).catch(() => {});
   const loadBoard = () => api.get("/admin/crm/board").then(({ data }) => setBoard(data)).catch(() => {});
-  useEffect(() => { loadStats(); }, []);
-  useEffect(() => { if (view === "list") loadList(); else loadBoard(); }, [type, stage, q, page, view]);
+  const loadForecast = () => api.get("/admin/crm/forecast").then(({ data }) => setForecast(data)).catch(() => {});
+  useEffect(() => { loadStats(); loadForecast(); }, []);
+  useEffect(() => { if (view === "list") loadList(); else { loadBoard(); loadForecast(); } }, [type, stage, q, page, view]);
 
   const moveStage = async (contactId, toStage) => {
     setDragId(null);
-    try { await api.put(`/admin/crm/contacts/${contactId}`, { stage: toStage }); loadBoard(); loadStats(); }
+    try { await api.put(`/admin/crm/contacts/${contactId}`, { stage: toStage }); loadBoard(); loadStats(); loadForecast(); }
     catch (e) { toast.error("Move failed"); }
   };
 
@@ -58,6 +62,32 @@ export function CrmTab() {
         ))}
       </div>
 
+      {forecast && (
+        <div className="grid lg:grid-cols-3 gap-4">
+          <div data-testid="crm-forecast" className="neu-raised rounded-[1.5rem] p-5 animate-fade-up">
+            <p className="text-xs text-muted-stitch">Weighted forecast</p>
+            <p className="text-3xl font-head font-bold mt-1 text-primary-stitch">{fmtMoney(forecast.weighted_forecast)}</p>
+            <p className="text-xs text-muted-stitch mt-1">Open pipeline {fmtMoney(forecast.open_pipeline)} · Won {fmtMoney(forecast.won_total)}</p>
+          </div>
+          <div className="neu-raised rounded-[1.5rem] p-5 lg:col-span-2 animate-fade-up">
+            <p className="text-xs text-muted-stitch mb-3">Won vs lost · last 8 weeks</p>
+            <div className="flex items-end gap-2 h-24" data-testid="crm-wonlost-chart">
+              {forecast.weeks.map((w, i) => {
+                const max = Math.max(1, ...forecast.weeks.flatMap((x) => [x.won, x.lost]));
+                return (
+                  <div key={i} className="flex-1 flex flex-col items-center gap-1" title={`${w.label}: ${w.won} won / ${w.lost} lost`}>
+                    <div className="w-full flex items-end justify-center gap-0.5 h-20">
+                      <div className="w-1/2 rounded-t" style={{ height: `${(w.won / max) * 100}%`, background: "#16a34a", minHeight: w.won ? 3 : 0 }} />
+                      <div className="w-1/2 rounded-t" style={{ height: `${(w.lost / max) * 100}%`, background: "#ef4444", minHeight: w.lost ? 3 : 0 }} />
+                    </div>
+                    <span className="text-[10px] text-muted-stitch">{w.label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
       <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up">
         <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
           <div className="flex items-center gap-3">
@@ -103,7 +133,7 @@ export function CrmTab() {
                   className="shrink-0 w-56 neu-pressed rounded-2xl p-3">
                   <div className="flex items-center justify-between mb-2 px-1">
                     <span className="text-xs font-bold uppercase" style={{ color: stageColor[s] }}>{s}</span>
-                    <span className="text-xs text-muted-stitch">{board.board[s].length}</span>
+                    <span className="text-xs text-muted-stitch">{board.board[s].length}{forecast && forecast.per_stage[s] && forecast.per_stage[s].total ? ` · ${fmtMoney(forecast.per_stage[s].total)}` : ""}</span>
                   </div>
                   <div className="space-y-2 min-h-[40px]">
                     {board.board[s].map((c) => (
@@ -113,6 +143,7 @@ export function CrmTab() {
                         className="neu-raised rounded-xl p-3 cursor-grab active:cursor-grabbing hover:opacity-90 transition-opacity">
                         <p className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>{c.name || c.email}</p>
                         <p className="text-xs text-muted-stitch truncate">{c.company || c.email}</p>
+                        {c.value ? <p className="text-xs font-semibold text-primary-stitch mt-1">{fmtMoney(c.value)}</p> : null}
                       </div>
                     ))}
                   </div>
@@ -156,12 +187,12 @@ export function CrmTab() {
 const CRM_STAGES = ["new", "contacted", "qualified", "proposal", "won", "lost"];
 
 function CrmAddLead({ onClose, onSaved }) {
-  const [f, setF] = useState({ name: "", email: "", company: "", phone: "", source: "manual" });
+  const [f, setF] = useState({ name: "", email: "", company: "", phone: "", source: "manual", value: "" });
   const [saving, setSaving] = useState(false);
   const save = async () => {
     if (!f.email.trim()) { toast.error("Email required"); return; }
     setSaving(true);
-    try { await api.post("/admin/crm/contacts", f); toast.success("Lead added"); onSaved(); }
+    try { await api.post("/admin/crm/contacts", { ...f, value: parseFloat(f.value) || 0 }); toast.success("Lead added"); onSaved(); }
     catch (e) { toast.error(e?.response?.data?.detail || "Failed"); } finally { setSaving(false); }
   };
   return (
@@ -173,6 +204,7 @@ function CrmAddLead({ onClose, onSaved }) {
           <input data-testid="crm-add-email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} placeholder="Email *" className="neu-input w-full rounded-2xl py-3 px-4 text-sm" />
           <input data-testid="crm-add-company" value={f.company} onChange={(e) => setF({ ...f, company: e.target.value })} placeholder="Company" className="neu-input w-full rounded-2xl py-3 px-4 text-sm" />
           <input data-testid="crm-add-phone" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} placeholder="Phone" className="neu-input w-full rounded-2xl py-3 px-4 text-sm" />
+          <input data-testid="crm-add-value" type="number" value={f.value} onChange={(e) => setF({ ...f, value: e.target.value })} placeholder="Deal value ($)" className="neu-input w-full rounded-2xl py-3 px-4 text-sm" />
         </div>
         <div className="flex gap-3 mt-5">
           <button data-testid="crm-add-save" onClick={save} disabled={saving} className="neu-primary rounded-2xl px-6 py-3 font-semibold flex-1">{saving ? "Saving…" : "Add lead"}</button>
@@ -186,8 +218,13 @@ function CrmAddLead({ onClose, onSaved }) {
 function CrmContactModal({ contact, onClose, onChanged }) {
   const [c, setC] = useState(contact);
   const [note, setNote] = useState("");
+  const [val, setVal] = useState(contact.value || 0);
   const saveStage = async (stage) => {
     try { const { data } = await api.put(`/admin/crm/contacts/${c.contact_id}`, { stage }); setC(data); onChanged(); toast.success(`Moved to ${stage}`); }
+    catch (e) { toast.error("Failed"); }
+  };
+  const saveValue = async () => {
+    try { const { data } = await api.put(`/admin/crm/contacts/${c.contact_id}`, { value: parseFloat(val) || 0 }); setC(data); onChanged(); toast.success("Value updated"); }
     catch (e) { toast.error("Failed"); }
   };
   const addNote = async () => {
@@ -217,6 +254,12 @@ function CrmContactModal({ contact, onClose, onChanged }) {
             <button key={s} data-testid={`crm-stage-${s}`} onClick={() => saveStage(s)}
               className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-all ${c.stage === s ? "neu-primary" : "neu-pressed text-muted-stitch"}`}>{s}</button>
           ))}
+        </div>
+
+        <p className="text-xs font-semibold text-muted-stitch mt-5 mb-2">Deal value</p>
+        <div className="flex gap-2">
+          <input data-testid="crm-value-input" type="number" value={val} onChange={(e) => setVal(e.target.value)} className="neu-input flex-1 rounded-2xl py-2.5 px-4 text-sm" placeholder="0" />
+          <button data-testid="crm-value-save" onClick={saveValue} className="neu-primary rounded-2xl px-4 py-2.5 text-sm font-semibold">Save $</button>
         </div>
 
         <p className="text-xs font-semibold text-muted-stitch mt-5 mb-2">Notes & activity</p>
