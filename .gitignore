@@ -87,3 +87,4 @@ desktop/node_modules/electron/dist/electron
 credentials.json
 *.key
 .credentials
+frontend/node_modules/.cache/default-development/0.pack
