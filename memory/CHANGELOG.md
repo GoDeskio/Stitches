@@ -102,3 +102,10 @@
 - Switched to **classic Direct Post API** (`routers/payments.py` → `NMI_TRANSACT_URL=https://sandbox.nmi.com/api/transact.php`, `NMI_SECRET_KEY=KvX958...`). Frontend `PaymentsTab.jsx` now uses secure card inputs (number/expiry/CVV) posting to the backend (removed the `@nmipayments` Payment Component since it only targets secure.nmi.com and can't reach a sandbox account).
 - Verified end-to-end (curl + UI): sale → `response=1 SUCCESS`, refund→void fallback works, stats/transactions update, card last-4 shown, refunded sales excluded from Collected. UI toast "Charged $X · <txn id>".
 - NOTE (production): Direct Post sends the PAN to our server (PCI SAQ D). For a public/customer-facing checkout, upgrade to Collect.js tokenization (needs a public "Tokenization" key) for SAQ A — flagged in the UI. `@nmipayments/*` packages remain installed for a future Collect.js/hosted-component swap.
+
+## Implemented (2026-06-16) — Pricing plans + public checkout → CRM
+- **Admin → Plans tab** (`src/pages/admin/PlansTab.jsx`): full CRUD for pricing plans (name, description, price, interval month/year/once, features, "Popular"/highlighted, CTA text, sort order, active toggle). Backend `GET/POST/PUT/DELETE /api/admin/plans`.
+- **Public /pricing page** (`src/pages/Pricing.jsx`, route in App.js; "Pricing" button added to landing Home.jsx): renders active plans from public `GET /api/plans`; free plans route to /login, paid plans open a checkout modal → `POST /api/checkout/plan` (rate-limited by IP, amount taken server-side from the plan).
+- **Checkout → CRM**: successful purchases charge via NMI Direct Post (sandbox) and upsert `crm_contacts` as **stage=won, value=plan price, source=pricing** (`_crm_mark_won`), and log a `payment_transactions` row with plan_id/name. So paying customers appear in the CRM pipeline/forecast automatically.
+- Added `dup_seconds:"0"` to NMI sale payloads (charge + checkout) to avoid 2-min duplicate-transaction rejections on retries.
+- Verified: backend curl (CRUD + checkout + CRM won) and frontend testing_agent iteration_35 (all flows pass, no regressions). Current plans: Free $0 / Pro $10/mo / Team $25/mo (admin-editable).

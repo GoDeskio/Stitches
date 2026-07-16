@@ -89,6 +89,7 @@ async def payments_charge(request: Request, user: dict = Depends(require_admin))
         "ccnumber": ccnumber,
         "ccexp": ccexp,
         "orderid": order_id,
+        "dup_seconds": "0",
     }
     if cvv:
         payload["cvv"] = cvv
@@ -295,7 +296,7 @@ async def checkout_plan(request: Request):
 
     order_id = f"sub_{uuid.uuid4().hex[:10]}"
     payload = {"type": "sale", "amount": f"{amount:.2f}", "ccnumber": ccnumber, "ccexp": ccexp,
-               "orderid": order_id, "order_description": f"{plan.get('name')} plan"}
+               "orderid": order_id, "order_description": f"{plan.get('name')} plan", "dup_seconds": "0"}
     if cvv:
         payload["cvv"] = cvv
     try:
