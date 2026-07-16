@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FolderKanban, FolderOpen, Plug, MessagesSquare, Layers, ArrowUpRight, Sparkles, CheckSquare, Circle } from "lucide-react";
+import { FolderKanban, FolderOpen, Plug, MessagesSquare, Layers, ArrowUpRight, Sparkles, CheckSquare, Circle, Video } from "lucide-react";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { PageShell, PageHeader, Loader } from "@/components/Stitch";
@@ -78,6 +78,7 @@ export default function Dashboard() {
           <h2 className="font-head font-bold text-2xl mb-5" style={{ color: "var(--text)" }}>Quick Actions</h2>
           <div className="space-y-3 flex-1">
             <QuickAction icon={MessagesSquare} label="Open Messages" onClick={() => navigate("/messages")} />
+            <QuickAction icon={Video} label="Start a Meeting" onClick={() => navigate("/meetings")} />
             <QuickAction icon={FolderKanban} label="New Project" onClick={() => navigate("/projects")} />
             <QuickAction icon={FolderOpen} label="Upload Asset" onClick={() => navigate("/assets")} />
             <QuickAction icon={Plug} label="Add Integration" onClick={() => navigate("/integrations")} />

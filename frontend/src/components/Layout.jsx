@@ -3,7 +3,7 @@ import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, MessagesSquare, FolderKanban, FolderOpen, Plug,
   Sparkles, User, Settings, Shield, LogOut, Menu, X, Sun, Moon, Users, Eye, StickyNote,
-  Activity, Download,
+  Activity, Download, Video,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -19,6 +19,7 @@ const NAV = [
   { to: "/assets", label: "Assets", icon: FolderOpen, flag: "assets" },
   { to: "/integrations", label: "Integrations", icon: Plug, flag: "integrations" },
   { to: "/assistant", label: "AI Assistant", icon: Sparkles, flag: "ai_assistant" },
+  { to: "/meetings", label: "Meetings", icon: Video, flag: null },
   { to: "/notes", label: "Notes", icon: StickyNote, flag: null },
   { to: "/people", label: "People", icon: Users, flag: "friends" },
   { to: "/activity", label: "Activity", icon: Activity, flag: null },

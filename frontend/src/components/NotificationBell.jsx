@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bell, Check, UserPlus, FolderKanban, Layers, Users } from "lucide-react";
+import { Bell, Check, UserPlus, FolderKanban, Layers, Users, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 
-const ICONS = { workspace: Layers, project: FolderKanban, friend: Users };
+const ICONS = { workspace: Layers, project: FolderKanban, friend: Users, security: ShieldAlert };
 
 export default function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState([]);
   const [unread, setUnread] = useState(0);
+  const [filter, setFilter] = useState("all");
   const navigate = useNavigate();
   const lastIds = useRef(null);
 
@@ -60,22 +61,37 @@ export default function NotificationBell() {
               <h4 className="font-head font-bold text-lg" style={{ color: "var(--text)" }}>Notifications</h4>
               {unread > 0 && <button onClick={markAll} className="text-xs text-primary-stitch font-semibold flex items-center gap-1"><Check className="w-3 h-3" /> Mark all read</button>}
             </div>
+            <div className="neu-pressed rounded-full p-1 flex mb-3">
+              <button data-testid="notif-filter-all" onClick={() => setFilter("all")}
+                className={`flex-1 rounded-full py-1.5 text-xs font-bold uppercase tracking-wider ${filter === "all" ? "neu-primary" : "text-muted-stitch"}`}>All</button>
+              <button data-testid="notif-filter-security" onClick={() => setFilter("security")}
+                className={`flex-1 rounded-full py-1.5 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1 ${filter === "security" ? "neu-primary" : "text-muted-stitch"}`}>
+                <ShieldAlert className="w-3.5 h-3.5" /> Security
+              </button>
+            </div>
             <div className="space-y-2 max-h-96 overflow-y-auto">
-              {items.length === 0 && <p className="text-sm text-muted-stitch py-6 text-center">You're all caught up.</p>}
-              {items.map((n) => {
-                const Icon = ICONS[n.type] || UserPlus;
-                return (
-                  <button key={n.notification_id} onClick={() => openItem(n)}
-                    className={`w-full text-left rounded-2xl p-3 flex gap-3 ${n.read ? "neu-hover" : "neu-pressed"}`}>
-                    <div className="neu-sm w-9 h-9 rounded-xl flex items-center justify-center shrink-0"><Icon className="w-4 h-4 text-primary-stitch" /></div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>{n.title}</p>
-                      <p className="text-xs text-muted-stitch line-clamp-2">{n.body}</p>
-                    </div>
-                    {!n.read && <span className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: "var(--primary)" }} />}
-                  </button>
-                );
-              })}
+              {(() => {
+                const shown = filter === "security" ? items.filter((n) => n.type === "security") : items;
+                if (shown.length === 0) return <p className="text-sm text-muted-stitch py-6 text-center">{filter === "security" ? "No security alerts." : "You're all caught up."}</p>;
+                return shown.map((n) => {
+                  const Icon = ICONS[n.type] || UserPlus;
+                  const isSec = n.type === "security";
+                  return (
+                    <button key={n.notification_id} data-testid={isSec ? "notif-security-item" : "notif-item"} onClick={() => openItem(n)}
+                      className={`w-full text-left rounded-2xl p-3 flex gap-3 ${n.read ? "neu-hover" : "neu-pressed"}`}
+                      style={isSec ? { borderLeft: "3px solid #dc2626" } : {}}>
+                      <div className="neu-sm w-9 h-9 rounded-xl flex items-center justify-center shrink-0">
+                        <Icon className="w-4 h-4" style={{ color: isSec ? "#dc2626" : "var(--primary)" }} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>{n.title}</p>
+                        <p className="text-xs text-muted-stitch line-clamp-2">{n.body}</p>
+                      </div>
+                      {!n.read && <span className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: isSec ? "#dc2626" : "var(--primary)" }} />}
+                    </button>
+                  );
+                });
+              })()}
             </div>
           </div>
         </>

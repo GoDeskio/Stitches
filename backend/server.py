@@ -1,16 +1,44 @@
 from core import *
-from core import _create_message, resolve_user_from_token, ws_manager, public_user
+from core import _create_message, resolve_user_from_token, ws_manager, public_user, call_manager
 from fastapi import FastAPI, APIRouter, WebSocket, WebSocketDisconnect, Query
 from starlette.middleware.cors import CORSMiddleware
 import os
 import asyncio
 
-from routers import auth, users, messaging, projects, assets, integrations, ai, admin
+from routers import auth, users, messaging, projects, assets, integrations, ai, admin, meetings
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
-for _mod in (auth, users, messaging, projects, assets, integrations, ai, admin):
+for _mod in (auth, users, messaging, projects, assets, integrations, ai, admin, meetings):
     api_router.include_router(_mod.router)
+
+
+@app.websocket("/api/ws/call/{room_id}")
+async def call_websocket(websocket: WebSocket, room_id: str, token: str = Query(None), name: str = Query(None)):
+    user = await resolve_user_from_token(token) if token else None
+    if not user:
+        await websocket.close(code=1008)
+        return
+    peer_id = uuid.uuid4().hex[:10]
+    display = name or user.get("name") or "Guest"
+    await call_manager.connect(room_id, peer_id, display, user["user_id"], websocket)
+    await websocket.send_json({"type": "welcome", "peer_id": peer_id, "peers": call_manager.peers(room_id, exclude=peer_id)})
+    await call_manager.broadcast(room_id, {"type": "peer-joined", "peer_id": peer_id, "name": display}, exclude=peer_id)
+    try:
+        while True:
+            msg = await websocket.receive_json()
+            t = msg.get("type")
+            if t == "signal":
+                await call_manager.send(room_id, msg.get("to"), {"type": "signal", "from": peer_id, "data": msg.get("data")})
+            elif t == "leave":
+                break
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        call_manager.disconnect(room_id, peer_id)
+        await call_manager.broadcast(room_id, {"type": "peer-left", "peer_id": peer_id})
 
 
 @app.websocket("/api/ws/{channel_id}")

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Users, Layers, FolderKanban, FolderOpen, Plug, MessagesSquare, Shield,
   ToggleRight, Search, Activity, Grid3x3, LayoutDashboard, KeyRound, LogIn, BadgeCheck, Bell,
-  Ban, UserCheck, Download,
+  Ban, UserCheck, Download, Video, Plus, PhoneOff, Users as UsersIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import api, { API } from "@/lib/api";
@@ -29,6 +29,7 @@ const TABS = [
   { id: "monitoring", label: "Monitoring", icon: Activity },
   { id: "heatmap", label: "Heat Map", icon: Grid3x3 },
   { id: "integrations", label: "Integrations", icon: Plug },
+  { id: "meetings", label: "Meetings", icon: Video },
 ];
 
 export default function Admin() {
@@ -52,6 +53,7 @@ export default function Admin() {
       {tab === "monitoring" && <MonitoringTab />}
       {tab === "heatmap" && <HeatmapTab />}
       {tab === "integrations" && <IntegrationsTab />}
+      {tab === "meetings" && <MeetingsTab />}
     </PageShell>
   );
 }
@@ -522,6 +524,71 @@ function IntegrationsTab() {
           ))}
         </div>
       )}
+      </div>
+    </div>
+  );
+}
+
+
+function MeetingsTab() {
+  const navigate = useNavigate();
+  const [items, setItems] = useState(null);
+  const [creating, setCreating] = useState(false);
+  const load = () => api.get("/admin/meetings").then(({ data }) => setItems(data)).catch(() => setItems([]));
+  useEffect(() => { load(); const t = setInterval(load, 10000); return () => clearInterval(t); }, []);
+
+  const start = async () => {
+    setCreating(true);
+    try {
+      const { data } = await api.post("/meetings", {});
+      window.open(`/call/${data.room_id}`, "_blank", "width=1200,height=820");
+      toast.success("Meeting started");
+      load();
+    } catch (e) { toast.error("Could not start meeting"); } finally { setCreating(false); }
+  };
+  const end = async (roomId) => {
+    try { await api.post(`/admin/meetings/${roomId}/end`); toast.success("Meeting ended"); load(); }
+    catch (e) { toast.error("Failed to end meeting"); }
+  };
+
+  if (!items) return <Loader />;
+  return (
+    <div className="space-y-6">
+      <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up flex items-center justify-between gap-4 flex-wrap" data-testid="admin-meetings-card">
+        <div>
+          <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Meetings</h3>
+          <p className="text-sm text-muted-stitch">Start a call or monitor and end active meetings across the platform.</p>
+        </div>
+        <button data-testid="admin-start-meeting" onClick={start} disabled={creating} className="neu-primary rounded-2xl px-5 py-3 font-semibold flex items-center gap-2">
+          <Plus className="w-5 h-5" /> {creating ? "Starting…" : "New meeting"}
+        </button>
+      </div>
+
+      <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up">
+        {items.length === 0 ? (
+          <p className="text-sm text-muted-stitch">No meetings yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {items.map((m) => (
+              <div key={m.room_id} data-testid="admin-meeting-row" className="neu-pressed rounded-2xl p-4 flex items-center gap-4">
+                <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center shrink-0"><Video className="w-5 h-5 text-primary-stitch" /></div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold truncate flex items-center gap-2" style={{ color: "var(--text)" }}>
+                    {m.name}
+                    {m.live && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full text-white flex items-center gap-1" style={{ background: "#16a34a" }}><UsersIcon className="w-3 h-3" /> {m.participants} live</span>}
+                  </p>
+                  <p className="text-xs text-muted-stitch truncate">{m.room_id} · host {m.host_name}</p>
+                </div>
+                <button onClick={() => navigate(`/call/${m.room_id}`)} className="neu-btn rounded-xl px-3 py-2 text-sm font-semibold text-primary-stitch">Join</button>
+                {m.live && (
+                  <button data-testid="admin-end-meeting" onClick={() => end(m.room_id)} className="neu-btn rounded-xl px-3 py-2 text-sm font-semibold text-red-500 flex items-center gap-1.5">
+                    <PhoneOff className="w-4 h-4" /> End
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

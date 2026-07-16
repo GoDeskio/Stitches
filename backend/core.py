@@ -387,6 +387,49 @@ class WSManager:
 
 ws_manager = WSManager()
 
+
+# ---------------- Call (WebRTC) signaling manager ----------------
+class CallManager:
+    def __init__(self):
+        self.rooms: Dict[str, Dict[str, dict]] = {}
+
+    async def connect(self, room_id, peer_id, name, user_id, ws):
+        await ws.accept()
+        self.rooms.setdefault(room_id, {})[peer_id] = {"ws": ws, "name": name, "user_id": user_id}
+
+    def peers(self, room_id, exclude=None):
+        return [{"peer_id": pid, "name": m["name"]} for pid, m in self.rooms.get(room_id, {}).items() if pid != exclude]
+
+    def count(self, room_id):
+        return len(self.rooms.get(room_id, {}))
+
+    def disconnect(self, room_id, peer_id):
+        r = self.rooms.get(room_id)
+        if r and peer_id in r:
+            del r[peer_id]
+        if r is not None and not r:
+            self.rooms.pop(room_id, None)
+
+    async def send(self, room_id, peer_id, data):
+        m = self.rooms.get(room_id, {}).get(peer_id)
+        if m:
+            try:
+                await m["ws"].send_json(data)
+            except Exception:
+                pass
+
+    async def broadcast(self, room_id, data, exclude=None):
+        for pid, m in list(self.rooms.get(room_id, {}).items()):
+            if pid == exclude:
+                continue
+            try:
+                await m["ws"].send_json(data)
+            except Exception:
+                pass
+
+
+call_manager = CallManager()
+
 from models import *  # re-export models for routers
 
 

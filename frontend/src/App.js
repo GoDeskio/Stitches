@@ -21,6 +21,8 @@ import People from "@/pages/People";
 import Notes from "@/pages/Notes";
 import Activity from "@/pages/Activity";
 import Downloads from "@/pages/Downloads";
+import Meetings from "@/pages/Meetings";
+import Call from "@/pages/Call";
 import ProjectBoard from "@/pages/ProjectBoard";
 import Settings from "@/pages/Settings";
 import Admin from "@/pages/Admin";
@@ -49,6 +51,7 @@ function AppRouter() {
       <Route path="/" element={<Home />} />
       <Route path="/login" element={<Login />} />
       <Route path="/qr-login/claim" element={<QrClaim />} />
+      <Route path="/call/:roomId" element={<Protected><Call /></Protected>} />
       <Route
         element={
           <Protected>
@@ -68,6 +71,7 @@ function AppRouter() {
         <Route path="/notes" element={<Notes />} />
         <Route path="/activity" element={<Activity />} />
         <Route path="/downloads" element={<Downloads />} />
+        <Route path="/meetings" element={<Meetings />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/admin" element={<Admin />} />
       </Route>
