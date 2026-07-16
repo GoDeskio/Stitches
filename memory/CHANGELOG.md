@@ -1,5 +1,13 @@
 # Stitches Changelog
 
+## 2026-06 — Mailgun email provider (admin + per-user)
+- New **Mailgun** send path (`services/mailgun.py`): HTTP API via httpx, US/EU region, HTML + .ics attachments, API key stored **encrypted** (Fernet). Config lives in DB (dashboard-entered, no .env).
+- Provider abstraction (`services/email.py`): added `mailgun` to the order (`mailgun→gmail_sa→gmail→smtp`, Resend fallback off). Per-user sends now try personal Mailgun → personal SMTP first.
+- Endpoints (`routers/gmail_oauth.py`): `GET/PUT/DELETE /api/admin/mailgun-config`, `GET/PUT/DELETE /api/me/mailgun-config`; `email-provider` status includes mailgun; provider PUT accepts `mailgun`.
+- **Admin dashboard**: Mailgun is the first option in the Email Setup wizard (domain/region/API key/sender + Save).
+- **User dashboard** (Settings): new "My Mailgun (optional)" section mirroring the per-user SMTP one.
+- Verified: config persists (encrypted), provider switches to mailgun, both UIs render. Live delivery pending a real Mailgun API key + verified/sandbox domain.
+
 ## 2026-06 — Email health badge
 - Every send now records last result to `settings.email_last_send` (ok/detail/to/at) via a `send_email_detailed` wrapper. Endpoint `GET /api/admin/email-health`.
 - Admin header shows an **email health badge** (green "Email working" / red "Email failing" / gray "No emails sent yet") with a tooltip of the last detail + timestamp; auto-refreshes every 30s. Verified via curl + screenshot (currently red due to the SMTP app-password issue).

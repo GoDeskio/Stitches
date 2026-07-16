@@ -128,9 +128,18 @@ async def _send_email_impl(to_email, subject, html, ics=None, sender_user_id=Non
     # returns (ok: bool, detail: str)
     from services.gmail import (gmail_connected, send_via_gmail,
                                 service_account_connected, send_via_service_account)
+    from services.mailgun import (mailgun_admin_configured, get_mailgun_admin, send_via_mailgun,
+                                   get_mailgun_user, _user_mailgun_complete)
 
-    # 1) a user sending their own invite via personal SMTP takes priority
+    # 1) a user sending their own invite via personal config takes priority
     if sender_user_id:
+        um = await get_mailgun_user(sender_user_id, reveal=True)
+        if _user_mailgun_complete(um):
+            try:
+                await send_via_mailgun(um, to_email, subject, html, ics)
+                return True, "Sent via your personal Mailgun"
+            except Exception as e:
+                return False, f"Personal Mailgun failed: {e}"
         us = await get_user_smtp(sender_user_id)
         if _smtp_complete(us):
             try:
@@ -142,11 +151,19 @@ async def _send_email_impl(to_email, subject, html, ics=None, sender_user_id=Non
     cfg = await get_email_provider_cfg()
     sender = cfg["sender"]
     primary = cfg["provider"]
-    order = [primary] + [p for p in ("gmail_sa", "gmail", "smtp") if p != primary]
+    order = [primary] + [p for p in ("mailgun", "gmail_sa", "gmail", "smtp") if p != primary]
     last = "No email provider configured (set one up in the admin Email setup)"
 
     for p in order:
-        if p == "gmail_sa":
+        if p == "mailgun":
+            if await mailgun_admin_configured():
+                try:
+                    mg = await get_mailgun_admin(reveal=True)
+                    await send_via_mailgun(mg, to_email, subject, html, ics, sender=sender or mg.get("sender"))
+                    return True, "Sent via Mailgun"
+                except Exception as e:
+                    last = f"Mailgun failed: {e}"
+        elif p == "gmail_sa":
             if await service_account_connected():
                 try:
                     await send_via_service_account(to_email, subject, html, ics, sender=sender)

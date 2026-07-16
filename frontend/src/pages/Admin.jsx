@@ -976,12 +976,15 @@ function EmailSetupWizard() {
   const [savingSmtp, setSavingSmtp] = useState(false);
   const [saJson, setSaJson] = useState("");
   const [savingSa, setSavingSa] = useState(false);
+  const [mg, setMg] = useState(null);
+  const [savingMg, setSavingMg] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
 
   const load = () => {
     api.get("/admin/email-provider").then(({ data }) => setCfg(data)).catch(() => {});
     api.get("/admin/smtp-config").then(({ data }) => setSmtp(data)).catch(() => setSmtp({ enabled: false, host: "", port: 587, username: "", from_address: "", has_password: false }));
+    api.get("/admin/mailgun-config").then(({ data }) => setMg({ ...data, api_key: "" })).catch(() => setMg({ domain: "", region: "US", sender: "", api_key: "", has_api_key: false }));
   };
   useEffect(() => {
     load();
@@ -1019,6 +1022,15 @@ function EmailSetupWizard() {
     } catch (e) { toast.error("Save failed"); } finally { setSavingSmtp(false); }
   };
 
+  const saveMg = async () => {
+    setSavingMg(true);
+    try {
+      await api.put("/admin/mailgun-config", { enabled: true, domain: mg.domain, region: mg.region, sender: mg.sender, api_key: mg.api_key || "" });
+      toast.success("Mailgun saved");
+      load();
+    } catch (e) { toast.error("Save failed"); } finally { setSavingMg(false); }
+  };
+
   const saveSa = async () => {
     if (!saJson.trim()) { toast.error("Paste the service account JSON first"); return; }
     setSavingSa(true);
@@ -1043,9 +1055,10 @@ function EmailSetupWizard() {
     } catch (e) { toast.error("Request failed"); } finally { setTesting(false); }
   };
 
-  if (!cfg || !smtp) return null;
+  if (!cfg || !smtp || !mg) return null;
   const g = cfg.gmail || {};
   const sa = cfg.gmail_sa || {};
+  const mgStatus = cfg.mailgun || {};
   const providerBtn = (id, label, sub) => (
     <button data-testid={`email-provider-${id}`} onClick={() => setCfg({ ...cfg, provider: id })}
       className={`flex-1 text-left rounded-2xl p-4 transition-all ${cfg.provider === id ? "neu-primary" : "neu-pressed"}`}>
@@ -1066,13 +1079,29 @@ function EmailSetupWizard() {
 
       <p className="text-xs font-semibold text-muted-stitch mt-4 mb-2">Step 1 — Choose a provider</p>
       <div className="flex gap-3 flex-wrap">
-        {providerBtn("gmail_sa", "Gmail (service account)", "Send via a Google service account + domain-wide delegation.")}
+        {providerBtn("mailgun", "Mailgun", "API-based. Sends to anyone with a verified domain. Recommended.")}
+        {providerBtn("gmail_sa", "Gmail (service account)", "Google service account + domain-wide delegation.")}
         {providerBtn("gmail", "Gmail (OAuth)", "Connect a Google account with one click.")}
         {providerBtn("smtp", "SMTP", "Any mailbox: Gmail app-password, Outlook, or your own server.")}
       </div>
 
       <p className="text-xs font-semibold text-muted-stitch mt-6 mb-2">Step 2 — Configure</p>
-      {cfg.provider === "gmail_sa" ? (
+      {cfg.provider === "mailgun" ? (
+        <div className="neu-pressed rounded-2xl p-4" data-testid="mailgun-config">
+          {mgStatus.configured && <p className="text-sm mb-3" style={{ color: "var(--text)" }}>✓ Mailgun configured for <span className="font-semibold" data-testid="mailgun-domain">{mgStatus.domain}</span> ({mgStatus.region})</p>}
+          <div className="grid sm:grid-cols-2 gap-3">
+            <input data-testid="mailgun-domain-input" value={mg.domain} onChange={(e) => setMg({ ...mg, domain: e.target.value })} placeholder="mg.yourdomain.com" className="neu-input rounded-2xl py-3 px-4 text-sm" />
+            <select data-testid="mailgun-region" value={mg.region} onChange={(e) => setMg({ ...mg, region: e.target.value })} className="neu-input rounded-2xl py-3 px-4 text-sm">
+              <option value="US">US (api.mailgun.net)</option>
+              <option value="EU">EU (api.eu.mailgun.net)</option>
+            </select>
+            <input data-testid="mailgun-apikey" type="password" value={mg.api_key} onChange={(e) => setMg({ ...mg, api_key: e.target.value })} placeholder={mg.has_api_key ? "•••••• (saved)" : "Mailgun API key"} className="neu-input rounded-2xl py-3 px-4 text-sm" />
+            <input data-testid="mailgun-sender" value={mg.sender} onChange={(e) => setMg({ ...mg, sender: e.target.value })} placeholder="noreply@mg.yourdomain.com" className="neu-input rounded-2xl py-3 px-4 text-sm" />
+          </div>
+          <button data-testid="save-mailgun-btn" onClick={saveMg} disabled={savingMg} className="neu-primary rounded-2xl px-6 py-3 font-semibold mt-4">{savingMg ? "Saving…" : "Save Mailgun"}</button>
+          <p className="text-xs text-muted-stitch mt-3">Get these from Mailgun → Sending → Domains → Domain settings → Sending API keys. Sandbox domains only send to authorized recipients.</p>
+        </div>
+      ) : cfg.provider === "gmail_sa" ? (
         <div className="neu-pressed rounded-2xl p-4" data-testid="gmail-sa-config">
           {sa.connected ? (
             <div className="flex items-center justify-between gap-3 flex-wrap mb-3">

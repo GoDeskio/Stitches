@@ -5,6 +5,9 @@ from core import db, require_admin, resolve_user_from_token, create_access_token
 from services.gmail import (get_gmail_status, gmail_authorize_url, gmail_exchange_code,
                             disconnect_gmail, save_service_account, get_service_account_status,
                             disconnect_service_account)
+from services.mailgun import (get_mailgun_admin, save_mailgun_admin, disconnect_mailgun_admin,
+                              get_mailgun_user, save_mailgun_user, clear_mailgun_user)
+from core import get_current_user
 from services.email import get_email_provider_cfg, get_smtp_cfg, get_email_health
 
 router = APIRouter()
@@ -15,9 +18,12 @@ async def admin_get_email_provider(user: dict = Depends(require_admin)):
     cfg = await get_email_provider_cfg()
     gmail = await get_gmail_status()
     sa = await get_service_account_status()
+    mg = await get_mailgun_admin()
     smtp = await get_smtp_cfg()
     return {"provider": cfg["provider"], "sender": cfg["sender"], "resend_fallback": cfg["resend_fallback"],
             "gmail": gmail, "gmail_sa": sa,
+            "mailgun": {"configured": bool(mg["domain"] and mg["has_api_key"]), "domain": mg["domain"],
+                        "region": mg["region"], "sender": mg["sender"], "has_api_key": mg["has_api_key"]},
             "smtp": {"configured": bool(smtp["host"] and smtp["username"] and smtp["password"]),
                      "enabled": smtp["enabled"], "from_address": smtp["from_address"]},
             "resend_available": bool(os.environ.get("RESEND_API_KEY") and os.environ.get("SENDER_EMAIL"))}
@@ -28,7 +34,7 @@ async def admin_set_email_provider(request: Request, user: dict = Depends(requir
     body = await request.json()
     existing = await db.settings.find_one({"key": "email_provider"})
     val = (existing or {}).get("value", {})
-    if body.get("provider") in ("gmail", "gmail_sa", "smtp"):
+    if body.get("provider") in ("mailgun", "gmail", "gmail_sa", "smtp"):
         val["provider"] = body["provider"]
     if "sender" in body:
         val["sender"] = (body.get("sender") or "").strip()[:200]
@@ -36,6 +42,42 @@ async def admin_set_email_provider(request: Request, user: dict = Depends(requir
         val["resend_fallback"] = bool(body.get("resend_fallback"))
     await db.settings.update_one({"key": "email_provider"}, {"$set": {"key": "email_provider", "value": val}}, upsert=True)
     return await get_email_provider_cfg()
+
+
+@router.get("/admin/mailgun-config")
+async def admin_get_mailgun(user: dict = Depends(require_admin)):
+    return await get_mailgun_admin()
+
+
+@router.put("/admin/mailgun-config")
+async def admin_set_mailgun(request: Request, user: dict = Depends(require_admin)):
+    body = await request.json()
+    await save_mailgun_admin(body)
+    return {"ok": True}
+
+
+@router.delete("/admin/mailgun-config")
+async def admin_clear_mailgun(user: dict = Depends(require_admin)):
+    await disconnect_mailgun_admin()
+    return {"ok": True}
+
+
+@router.get("/me/mailgun-config")
+async def get_my_mailgun(user: dict = Depends(get_current_user)):
+    return await get_mailgun_user(user["user_id"])
+
+
+@router.put("/me/mailgun-config")
+async def set_my_mailgun(request: Request, user: dict = Depends(get_current_user)):
+    body = await request.json()
+    await save_mailgun_user(user["user_id"], body)
+    return {"ok": True}
+
+
+@router.delete("/me/mailgun-config")
+async def clear_my_mailgun(user: dict = Depends(get_current_user)):
+    await clear_mailgun_user(user["user_id"])
+    return {"ok": True}
 
 
 @router.put("/admin/gmail/service-account")

@@ -145,7 +145,59 @@ export default function Settings() {
       <div className="mt-6">
         <MySmtpSection />
       </div>
+      <div className="mt-6">
+        <MyMailgunSection />
+      </div>
     </PageShell>
+  );
+}
+
+function MyMailgunSection() {
+  const [mg, setMg] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const load = () => api.get("/me/mailgun-config").then(({ data }) => setMg({ ...data, api_key: "" }))
+    .catch(() => setMg({ enabled: false, domain: "", region: "US", sender: "", api_key: "", has_api_key: false }));
+  useEffect(() => { load(); }, []);
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.put("/me/mailgun-config", { enabled: mg.enabled, domain: mg.domain, region: mg.region, sender: mg.sender, api_key: mg.api_key || "" });
+      toast.success(mg.enabled ? "Invites will now be sent via your Mailgun" : "Mailgun settings saved");
+      load();
+    } catch (e) { toast.error("Save failed"); } finally { setSaving(false); }
+  };
+  const clear = async () => {
+    try { await api.delete("/me/mailgun-config"); toast.success("Your Mailgun credentials were cleared"); load(); }
+    catch (e) { toast.error("Failed to clear"); }
+  };
+  if (!mg) return null;
+  return (
+    <div className="neu-raised rounded-[1.75rem] p-7 animate-fade-up" data-testid="my-mailgun-section">
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <div>
+          <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>My Mailgun (optional)</h3>
+          <p className="text-sm text-muted-stitch">When enabled, invites you send use your Mailgun account instead of the platform default.</p>
+        </div>
+        <button data-testid="my-mailgun-enabled-toggle" onClick={() => setMg({ ...mg, enabled: !mg.enabled })}
+          className={`w-14 h-8 rounded-full flex items-center px-1 transition-all shrink-0 ${mg.enabled ? "justify-end" : "justify-start"}`}
+          style={{ background: mg.enabled ? "var(--primary)" : "var(--neu-dark)" }}>
+          <span className="w-6 h-6 rounded-full bg-white shadow" />
+        </button>
+      </div>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <input data-testid="my-mailgun-domain" value={mg.domain} onChange={(e) => setMg({ ...mg, domain: e.target.value })} placeholder="mg.yourdomain.com" className="neu-input rounded-2xl py-3 px-4 text-sm" />
+        <select data-testid="my-mailgun-region" value={mg.region} onChange={(e) => setMg({ ...mg, region: e.target.value })} className="neu-input rounded-2xl py-3 px-4 text-sm">
+          <option value="US">US (api.mailgun.net)</option>
+          <option value="EU">EU (api.eu.mailgun.net)</option>
+        </select>
+        <input data-testid="my-mailgun-apikey" type="password" value={mg.api_key} onChange={(e) => setMg({ ...mg, api_key: e.target.value })} placeholder={mg.has_api_key ? "•••••• (saved)" : "Mailgun API key"} className="neu-input rounded-2xl py-3 px-4 text-sm" />
+        <input data-testid="my-mailgun-sender" value={mg.sender} onChange={(e) => setMg({ ...mg, sender: e.target.value })} placeholder="from address" className="neu-input rounded-2xl py-3 px-4 text-sm" />
+      </div>
+      <div className="flex items-center gap-3 mt-4 flex-wrap">
+        <button data-testid="save-my-mailgun-btn" onClick={save} disabled={saving} className="neu-primary rounded-2xl px-6 py-3 font-semibold">{saving ? "Saving…" : "Save my Mailgun"}</button>
+        <button data-testid="clear-my-mailgun-btn" onClick={clear} className="neu-btn rounded-2xl px-6 py-3 font-semibold text-red-500">Clear credentials</button>
+      </div>
+    </div>
   );
 }
 
