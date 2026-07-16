@@ -131,3 +131,10 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 ## Backlog / Next
 - P3: email reminders via Resend (needs Resend API key); Dropbox one-click OAuth; authenticated Drive download stream.
 - P3: pagination for messages/users/tasks lists (deployment WARN); delete-avatar; wire Downloads buttons to CI releases; tidy stale pre-refactor tests.
+
+## Implemented (2026-06-24) — Mobile client (PWA) + QR cross-device login
+- **Installable PWA**: added `public/manifest.json` (standalone, start_url /dashboard, crimson theme), `public/service-worker.js` (app-shell cache, bypasses /api & /ws), SW registration + apple/mobile meta in `index.html`, and generated app icons (`icon-192/512`, `maskable-512`, `apple-touch-icon`). Installs to home screen/dock on phone & desktop with a custom Stitches voodoo-doll icon.
+- **Responsive Layout** (`Layout.jsx`): mobile top bar (`mobile-topbar`) + hamburger (`mobile-menu-button`) opens a slide-in nav drawer with backdrop + close button; desktop unchanged. Same full feature set on every device.
+- **Downloads page** rebuilt with per-device install QR codes (`mobile-qr-android`, `mobile-qr-ios`, `desktop-qr`) + step-by-step add-to-home-screen instructions, alongside the existing Electron desktop client build section.
+- **QR cross-device login**: backend `POST /api/auth/qr/generate` (auth, 3-min single-use token via `qr_tokens` TTL index) + `POST /api/auth/qr/claim` (unauth, atomic find_one_and_update, issues JWT + cookie). Dashboard shows a "Log in on your phone" QR card (`QrLoginCard.jsx`, auto-refresh); scanning opens `/qr-login/claim?token=...` (`QrClaim.jsx`) which auto-signs-in the device and redirects to the dashboard. Continuity via shared backend + existing WebSockets.
+- Deps: `qrcode.react`. Verified (iteration_18): 5/5 backend + 100% frontend, zero bugs.
