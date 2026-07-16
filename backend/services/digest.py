@@ -58,14 +58,28 @@ async def _collect(frequency: str, full: bool = False):
     ok_runs = await db.integration_runs.count_documents({**iso_match, "ok": True})
     rate = round(ok_runs * 100 / total_runs) if total_runs else 100
 
+    # upcoming meetings — next 7 days (scheduled_at stored as naive UTC iso)
+    now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    horizon = (now_naive + timedelta(days=7)).isoformat()
+    meetings = await db.meetings.find(
+        {"active": True, "scheduled_at": {"$gte": now_naive.isoformat(), "$lte": horizon}},
+        {"_id": 0, "name": 1, "scheduled_at": 1, "host_name": 1}).sort("scheduled_at", 1).to_list(15)
+
     return {"days": days, "full": full, "signups": signups, "open_count": open_count, "open_reqs": open_reqs,
             "top_paths": top_paths, "total_runs": total_runs, "ok_runs": ok_runs,
-            "fail_runs": total_runs - ok_runs, "success_rate": rate}
+            "fail_runs": total_runs - ok_runs, "success_rate": rate, "meetings": meetings}
 
 
 def _fmt_date(iso):
     try:
         return datetime.fromisoformat(iso).strftime("%b %d")
+    except Exception:
+        return ""
+
+
+def _fmt_dt(iso):
+    try:
+        return datetime.fromisoformat(iso).strftime("%b %d, %H:%M UTC")
     except Exception:
         return ""
 
@@ -107,6 +121,16 @@ def build_digest_html(frequency: str, data: dict):
     rows.append(card("Automation health",
                      f"<p style='margin:0;font-size:13px;color:#333'>{data['ok_runs']}/{data['total_runs']} runs succeeded "
                      f"(<b>{data['success_rate']}%</b>) · {data['fail_runs']} failures</p>"))
+
+    # Upcoming meetings (next 7 days)
+    mtgs = data.get("meetings") or []
+    if mtgs:
+        items = "".join(f"<li style='margin:2px 0'>{(m.get('name') or 'Meeting')} "
+                        f"<span style='color:#999'>· {_fmt_dt(m.get('scheduled_at',''))}"
+                        f"{(' · host ' + m['host_name']) if m.get('host_name') else ''}</span></li>" for m in mtgs)
+        rows.append(card(f"Upcoming meetings ({len(mtgs)})", f"<ul style='margin:0;padding-left:18px;font-size:13px;color:#333'>{items}</ul>"))
+    else:
+        rows.append(card("Upcoming meetings", "<p style='margin:0;font-size:13px;color:#999'>No meetings scheduled in the next 7 days.</p>"))
 
     body = "".join(rows)
     return (f"<div style='font-family:-apple-system,Segoe UI,sans-serif;max-width:600px;margin:0 auto;background:#f6f6f6;padding:24px'>"
