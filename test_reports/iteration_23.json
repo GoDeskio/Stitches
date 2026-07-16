@@ -1,0 +1,27 @@
+{
+  "summary": "Iteration 23: Conferencing ring + SFU scaffolding. Backend pytest 5/5 pass (rtc/config sfu default OFF, sfu-token 400 when disabled, admin sfu-config round-trip enable→verify→disable+cleanup, admin gating, channel Meet creates meeting + posts URL message + notifies workspace members). Frontend browser tests: (1) P2P Call regression PASS — Call.jsx mode-gating renders loader briefly then call-room with all 9 required data-testids visible (video-grid, toggle-mic/cam, share-screen, raise-hand, people/chat, end-call, copy-invite); chat panel opens/closes; end-call navigates to /meetings. (2) Channel Meet auto-post now renders join URL as clickable <a href=/call/room_...> (linkify fixed — was minor issue in iter 22). (3) Alice (2nd session) receives meeting notifications: bell dropdown shows 'Demo User started a meeting — Join the #general call now.' items; unread badge visible. (4) Admin SFU card round-trip works — toggle on + save shows 'SFU settings saved' toast, GET /rtc/config returns sfu.enabled=true & url; toggle off + clear values → sfu.enabled=false confirmed. TURN card still present. SFU cleaned up post-test (P2P remains default).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_sfu_and_ring.py",
+    "/app/test_reports/pytest/iteration_23_sfu.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Call.jsx uses undefined→'p2p'|sfu-config as tri-state via useState(undefined) — works but consider explicit 'loading' string for readability.",
+    "meetings.py create_meeting: uses os.environ.get('FRONTEND_URL','') which returns '' if unset, producing message text like ' /call/xxx' (space then relative path). Currently linkified anchor still resolves because MentionText picks up '/call/xxx' or full URL — confirmed via UI (5 clickable anchors rendered). Setting FRONTEND_URL in env would make the links absolute.",
+    "NotificationBell renders items with onClick navigation rather than <a href>. Acceptable, but a real <a> would be preferable for middle-click / accessibility."
+  ],
+  "updated_files": ["/app/backend/tests/test_sfu_and_ring.py"],
+  "success_rate": { "backend": "100% (5/5 pytest)", "frontend": "100% (all requested flows)" },
+  "test_credentials": "admin@stitches.app/Admin@123, demo@stitches.app/Demo@123, alice@stitches.app/Alice@123",
+  "seed_data_creation": "Created ~3 meetings via POST /api/meetings and channel-meet-btn (demo host) during regression; SFU config toggled ON then reset to OFF+empty at test-end.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "SFU disabled by default (P2P active). Bell testid is 'notif-bell' (not 'notification-bell'). Message linkify (MentionText) auto-wraps URLs in <a target=_blank> — verified. Backend test at /app/backend/tests/test_sfu_and_ring.py — run with REACT_APP_BACKEND_URL env and -o addopts='' to bypass pytest-xdist parallel config in backend/pytest.ini.",
+  "rca of the issue": "No blocking issues. All acceptance criteria pass; SFU config left disabled after test."
+}

@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bell, Check, UserPlus, FolderKanban, Layers, Users, ShieldAlert } from "lucide-react";
+import { Bell, Check, UserPlus, FolderKanban, Layers, Users, ShieldAlert, Video } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 
-const ICONS = { workspace: Layers, project: FolderKanban, friend: Users, security: ShieldAlert };
+const ICONS = { workspace: Layers, project: FolderKanban, friend: Users, security: ShieldAlert, meeting: Video };
 
 export default function NotificationBell() {
   const [open, setOpen] = useState(false);
@@ -19,7 +19,13 @@ export default function NotificationBell() {
       const { data } = await api.get("/notifications");
       if (lastIds.current !== null) {
         const newOnes = data.notifications.filter((n) => !lastIds.current.has(n.notification_id) && !n.read);
-        newOnes.forEach((n) => toast(n.title, { description: n.body }));
+        newOnes.forEach((n) => {
+          if (n.type === "meeting" && n.link) {
+            toast(n.title, { description: n.body, duration: 15000, action: { label: "Join", onClick: () => navigate(n.link) } });
+          } else {
+            toast(n.title, { description: n.body });
+          }
+        });
       }
       lastIds.current = new Set(data.notifications.map((n) => n.notification_id));
       setItems(data.notifications);

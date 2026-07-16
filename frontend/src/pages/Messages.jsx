@@ -145,12 +145,10 @@ export default function Messages() {
   const startChannelMeeting = async () => {
     if (!activeCh) return;
     try {
-      const { data } = await api.post("/meetings", { name: `${activeCh.name} meeting` });
-      const link = `${window.location.origin}/call/${data.room_id}`;
-      await api.post("/messages", { channel_id: activeCh.channel_id, text: `Started a video meeting — join here: ${link}`, mentions: [] });
+      const { data } = await api.post("/meetings", { name: `${activeCh.name} meeting`, channel_id: activeCh.channel_id });
       window.open(`/call/${data.room_id}`, "_blank", "width=1200,height=820");
       refreshLatest(activeCh.channel_id);
-      toast.success("Meeting started — invite posted to the channel");
+      toast.success("Meeting started — the channel has been notified");
     } catch (err) { toast.error("Could not start meeting"); }
   };
 

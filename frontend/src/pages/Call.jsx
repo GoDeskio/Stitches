@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
-import { Mic, MicOff, Video, VideoOff, MonitorUp, PhoneOff, Copy, Users, Hand, MessageSquare, Send, X } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, MonitorUp, PhoneOff, Copy, Users, Hand, MessageSquare, Send, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import api, { API } from "@/lib/api";
+import SfuCall from "@/pages/SfuCall";
 
 const ICE = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:global.stun.twilio.com:3478" }];
 
@@ -22,6 +23,7 @@ export default function Call() {
   const [unread, setUnread] = useState(0);
   const [selfHand, setSelfHand] = useState(false);
   const [hands, setHands] = useState({}); // peerId -> bool
+  const [mode, setMode] = useState(undefined); // undefined=loading | 'p2p' | sfu-config obj
 
   const iceRef = useRef(ICE);
   const panelRef = useRef(null);
@@ -34,6 +36,18 @@ export default function Call() {
   const myIdRef = useRef(null);
 
   useEffect(() => { panelRef.current = panel; if (panel === "chat") setUnread(0); }, [panel]);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const { data } = await api.get("/rtc/config");
+        if (data?.iceServers?.length) iceRef.current = data.iceServers;
+        if (alive) setMode(data?.sfu?.enabled ? { sfu: true, url: data.sfu.url } : "p2p");
+      } catch (e) { if (alive) setMode("p2p"); }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   const setRemoteStream = (peerId, name, stream) => {
     setRemotes((prev) => ({ ...prev, [peerId]: { name, stream } }));
@@ -82,11 +96,11 @@ export default function Call() {
   }, [createPeer]);
 
   useEffect(() => {
+    if (mode !== "p2p") return;
     let cancelled = false;
     const token = localStorage.getItem("stitches_token");
 
     (async () => {
-      try { const { data } = await api.get("/rtc/config"); if (data?.iceServers?.length) iceRef.current = data.iceServers; } catch (e) {}
       try {
         localStreamRef.current = await navigator.mediaDevices.getUserMedia({ video: !audioOnly, audio: true });
       } catch (e) {
@@ -130,8 +144,8 @@ export default function Call() {
     })();
 
     return () => { cancelled = true; cleanup(); };
-    // eslint-disable-line
-  }, [roomId]); // eslint-disable-line
+    // eslint-disable-next-line
+  }, [roomId, mode]);
 
   const cleanup = () => {
     try { wsRef.current?.send(JSON.stringify({ type: "leave" })); } catch (e) {}
@@ -202,6 +216,17 @@ export default function Call() {
   const remoteList = Object.entries(remotes);
   const total = remoteList.length + 1;
   const cols = total <= 1 ? 1 : total <= 4 ? 2 : 3;
+
+  if (mode === undefined) {
+    return (
+      <div className="stitch-wallpaper min-h-screen flex items-center justify-center gap-3" style={{ color: "var(--text)" }} data-testid="call-loading">
+        <Loader2 className="w-6 h-6 animate-spin text-primary-stitch" /> Preparing meeting…
+      </div>
+    );
+  }
+  if (mode !== "p2p") {
+    return <SfuCall roomId={roomId} serverUrl={mode.url} audioOnly={audioOnly} />;
+  }
 
   return (
     <div className="stitch-wallpaper min-h-screen flex flex-col" data-testid="call-room">

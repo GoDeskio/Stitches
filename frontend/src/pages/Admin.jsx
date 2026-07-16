@@ -540,10 +540,13 @@ function MeetingsTab() {
   const [creating, setCreating] = useState(false);
   const [turn, setTurn] = useState(null);
   const [savingTurn, setSavingTurn] = useState(false);
+  const [sfu, setSfu] = useState(null);
+  const [savingSfu, setSavingSfu] = useState(false);
   const load = () => api.get("/admin/meetings").then(({ data }) => setItems(data)).catch(() => setItems([]));
   useEffect(() => {
     load(); const t = setInterval(load, 10000);
     api.get("/admin/rtc-config").then(({ data }) => setTurn(data)).catch(() => setTurn({ urls: "", username: "", has_credential: false }));
+    api.get("/admin/sfu-config").then(({ data }) => setSfu(data)).catch(() => setSfu({ enabled: false, url: "", api_key: "", has_secret: false }));
     return () => clearInterval(t);
   }, []);
 
@@ -568,8 +571,16 @@ function MeetingsTab() {
       const { data } = await api.get("/admin/rtc-config"); setTurn(data);
     } catch (e) { toast.error("Save failed"); } finally { setSavingTurn(false); }
   };
+  const saveSfu = async () => {
+    setSavingSfu(true);
+    try {
+      await api.put("/admin/sfu-config", { enabled: sfu.enabled, url: sfu.url, api_key: sfu.api_key, api_secret: sfu.api_secret || "" });
+      toast.success(sfu.enabled ? "SFU enabled — new calls will route through LiveKit" : "SFU settings saved");
+      const { data } = await api.get("/admin/sfu-config"); setSfu(data);
+    } catch (e) { toast.error("Save failed"); } finally { setSavingSfu(false); }
+  };
 
-  if (!items || !turn) return <Loader />;
+  if (!items || !turn || !sfu) return <Loader />;
   return (
     <div className="space-y-6">
       <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up flex items-center justify-between gap-4 flex-wrap" data-testid="admin-meetings-card">
@@ -591,6 +602,24 @@ function MeetingsTab() {
           <input data-testid="turn-credential-input" type="password" value={turn.credential || ""} onChange={(e) => setTurn({ ...turn, credential: e.target.value })} placeholder={turn.has_credential ? "•••••• (saved)" : "credential"} className="neu-input rounded-2xl py-3 px-4 text-sm" />
         </div>
         <button data-testid="save-turn-btn" onClick={saveTurn} disabled={savingTurn} className="neu-primary rounded-2xl px-6 py-3 font-semibold mt-4">{savingTurn ? "Saving…" : "Save TURN server"}</button>
+      </div>
+
+      <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="sfu-config-card">
+        <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
+          <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Large group calls — self-hosted SFU (LiveKit)</h3>
+          <button data-testid="sfu-enabled-toggle" onClick={() => setSfu({ ...sfu, enabled: !sfu.enabled })}
+            className={`w-14 h-8 rounded-full flex items-center px-1 transition-all shrink-0 ${sfu.enabled ? "justify-end" : "justify-start"}`}
+            style={{ background: sfu.enabled ? "var(--primary)" : "var(--neu-dark)" }}>
+            <span className="w-6 h-6 rounded-full bg-white shadow" />
+          </button>
+        </div>
+        <p className="text-sm text-muted-stitch mb-4">For big meetings, route calls through your own <span className="font-mono-stitch">LiveKit</span> media server instead of peer-to-peer. Requires a deployed LiveKit server with open UDP ports — leave OFF to use the built-in P2P calls (default).</p>
+        <div className="grid sm:grid-cols-3 gap-3">
+          <input data-testid="sfu-url-input" value={sfu.url} onChange={(e) => setSfu({ ...sfu, url: e.target.value })} placeholder="wss://livekit.your-host.com" className="neu-input rounded-2xl py-3 px-4 font-mono-stitch text-sm" />
+          <input data-testid="sfu-key-input" value={sfu.api_key} onChange={(e) => setSfu({ ...sfu, api_key: e.target.value })} placeholder="API key" className="neu-input rounded-2xl py-3 px-4 text-sm" />
+          <input data-testid="sfu-secret-input" type="password" value={sfu.api_secret || ""} onChange={(e) => setSfu({ ...sfu, api_secret: e.target.value })} placeholder={sfu.has_secret ? "•••••• (saved)" : "API secret"} className="neu-input rounded-2xl py-3 px-4 text-sm" />
+        </div>
+        <button data-testid="save-sfu-btn" onClick={saveSfu} disabled={savingSfu} className="neu-primary rounded-2xl px-6 py-3 font-semibold mt-4">{savingSfu ? "Saving…" : "Save SFU settings"}</button>
       </div>
 
       <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up">
