@@ -1,0 +1,34 @@
+{
+  "summary": "Tested task due-soon reminders + regression after startup/CORS/auth changes. Backend 16/16 pytest passed. Frontend NotificationBell smoke passed - shows unread badge (7) and 'Task due soon' notifications referencing TEST_ReminderTask linking to /dashboard.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_reminders_regression.py",
+    "/app/test_reports/pytest/reminders_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "scan_due_reminders() correctly filters status!=done, non-empty assignee, due_date<=horizon, and !reminded. Idempotent via 'reminded' flag - verified.",
+    "update_task resets 'reminded' only when due_date or assignee_id are in the update payload - verified via test.",
+    "Reminder loop runs every 1800s via asyncio.create_task in startup; wrapped with try/except - fine.",
+    "CORS reads CORS_ORIGINS env with FRONTEND_URL fallback (allow_credentials=True) - preserved.",
+    "AUTH_SESSION_URL is now env-configurable in routers/auth.py with sensible default."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_reminders_regression.py"
+  ],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "100% (smoke)"},
+  "test_credentials": "admin@stitches.app/Admin@123, alice@stitches.app/Alice@123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Created TEST_ReminderProject + TEST_ReminderTask (assignee=alice, due=today). Auto-cleaned in fixture teardown.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Reminders feature + startup/CORS/auth changes verified end-to-end. New pytest file: /app/backend/tests/test_reminders_regression.py covers 4 seed logins, /auth/me, protected routes with/without token, google authorize URL, admin disable/reinstate flow, scan-reminders (admin-only 200 + non-admin 403), notification created with type=task_due title='Task due soon' body referencing task link='/dashboard', no duplicate on 2nd scan, reminded flag resets on PUT /api/tasks/{id} due_date/assignee change. NotificationBell UI renders and displays task_due notifications with unread badge count.",
+  "rca of the issue": "N/A - no issues found"
+}
