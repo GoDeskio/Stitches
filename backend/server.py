@@ -7,11 +7,12 @@ import asyncio
 
 from routers import auth, users, messaging, projects, assets, integrations, ai, admin, meetings, rtc_config, sfu_config, smtp_config
 from routers import gmail_oauth
+from routers import crm
 from services.digest import scan_digest
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
-for _mod in (auth, users, messaging, projects, assets, integrations, ai, admin, meetings, rtc_config, sfu_config, smtp_config, gmail_oauth):
+for _mod in (auth, users, messaging, projects, assets, integrations, ai, admin, meetings, rtc_config, sfu_config, smtp_config, gmail_oauth, crm):
     api_router.include_router(_mod.router)
 
 

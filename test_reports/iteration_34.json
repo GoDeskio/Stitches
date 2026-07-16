@@ -1,0 +1,29 @@
+{
+  "summary": "Iteration 34 — tested CRM backend + Email/Site Note tab split. Backend: 8/8 pytest passed (public /api/leads capture + duplicate + invalid-email 400; admin-guard 401 on /api/admin/crm/*; idempotent sync-users; stats shape; contacts list filters+pagination; full lifecycle create/duplicate/update/notes/get/delete). Frontend: admin dashboard renders new CRM and Email tabs alongside Overview/Users/Site Note. CRM funnel cards, sync users (21 rows), + Add lead modal, search, stage change (qualified), add note, and delete all worked end-to-end. Email tab shows email-setup-wizard (moved out of Site Note). Site Note tab still contains announcement/support/clarity/require-verification cards and saves successfully (toast 'Site settings saved' shown). No regressions detected.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin > CRM funnel cards", "issues": ["Cards use animate-fade-up with staggered animationDelay (0-150ms); first three cards briefly report is_visible=false to Playwright during initial fade-in. Not user-visible but could cause flaky UI tests. Consider setting initial opacity via CSS state that resolves synchronously or reduce delay."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration34_crm.py",
+    "/app/test_reports/pytest/iter34.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routers/crm.py stats: fallback `visitors = heat_events.count_documents({})` when no sessions in last 30d over-counts (returns raw event count instead of unique visitors). Acceptable for cold-start but note.",
+    "sync-users updates `type=user` even for pre-existing lead contacts on second run, which correctly promotes converted leads — good; test confirms idempotent 'added' count.",
+    "Admin.jsx is now 1973 lines — well over the 700-line guideline. Should split into subcomponents/files (CrmTab, EmailTab, SiteNoteTab, UsersTab etc. into separate files) for maintainability. Non-blocking.",
+    "Public /api/leads has no rate limiting — spam risk. Consider a simple per-IP throttle before shipping the public lead form."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration34_crm.py"],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% (all CRM + tab-split flows verified)"},
+  "test_credentials": "admin@stitches.app / Admin@123 (from /app/memory/test_credentials.md).",
+  "seed_data_creation": "Created transient CRM contacts with unique uuid-emails (leads, dup, crm_ lifecycle) all cleaned up by lifecycle test. Sync-users produced 21 type=user contacts in db.crm_contacts (from real user table).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration 34 tests live at /app/backend/tests/test_iteration34_crm.py (reads REACT_APP_BACKEND_URL from /app/frontend/.env). CRM stages: new/contacted/qualified/proposal/won/lost. Sync-users promotes existing lead-emails to type=user rather than duplicating — idempotency test asserts second call adds 0. Admin.jsx has become large (1973 lines); split-into-modules is recommended before further feature work."
+}
