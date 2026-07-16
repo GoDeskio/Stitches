@@ -169,10 +169,19 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - Verified (iteration_24): backend 4/4 pytest + frontend 100%. **NOTE: actual email DELIVERY needs real SMTP creds — not exercised in tests; the send path skips gracefully when SMTP is unset.**
 
 ## Backlog / Next
+- P1: (DONE 2026-06-25) Recurring meetings + week calendar — see below.
 - Post-deploy: enable LiveKit SFU / coturn TURN; configure SMTP (e.g. Gmail app password) to activate meeting-invite emails.
-- Polish: per-user SMTP sending; "Clear credentials" buttons for SMTP/SFU/TURN.
+- P2: Deeper N8N / MCP workflows once real credentials exist.
 - P3 (deferred): Resend as an alternative email provider (waiting on user's API key).
 - P3: Dropbox one-click OAuth (manual-token connector available now); authenticated Drive download stream.
+- Refactor: split meetings.py (~440 lines, mixes meetings/TURN/SFU/SMTP) into meetings/rtc/sfu/smtp routers before it grows past 700 lines.
+
+## Implemented (2026-06-25) — per-user SMTP, clear-credentials, recurring meetings + week calendar
+- **Per-user SMTP sending**: meeting invites are sent from the host's own SMTP account when configured (`send_meeting_email(sender_user_id)` → personal SMTP → falls back to admin SMTP). New user Settings section "Send invites from your own email" (`my-smtp-section`) with save + **Clear credentials**; endpoints `GET/PUT/DELETE /api/me/smtp-config` (password Fernet-encrypted, port parse hardened via `_safe_port`).
+- **Explicit "Clear credentials" buttons** in Admin → Meetings for SMTP (`clear-smtp-btn`), SFU/LiveKit (`clear-sfu-btn`) and TURN (`clear-rtc/turn-btn`), wired to `DELETE /api/admin/{smtp,sfu,rtc}-config`.
+- **Recurring meetings**: create meeting accepts `recurrence` in {none,daily,weekly}; `/api/meetings/upcoming` expands recurring meetings into occurrences over the next 30 days (`_expand_occurrences`); reminder loop (`scan_meeting_reminders`) is recurrence-aware via a per-occurrence `reminded_occurrences` list; `.ics` includes `RRULE`. Schedule modal has a Repeat selector; Upcoming rows show a recurrence badge.
+- **"This week" dashboard calendar** (`WeekCalendar.jsx`, `week-calendar-widget`): Mon–Sun grid, today highlighted, meeting chips click through to the room.
+- Verified (iteration_25): backend 8/8 pytest + all frontend flows 100%, zero bugs. NOTE: actual email DELIVERY still needs real SMTP creds (send path skips gracefully); LiveKit SFU media path remains gated OFF (config save/clear only).
 
 ## Implemented (2026-06-24, part 3) — perf/polish
 - **GitHub release lookup cached** (5-min TTL, in-memory per repo; cache cleared when admin changes the repo) to avoid api.github.com rate limits.

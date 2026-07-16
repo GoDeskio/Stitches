@@ -259,6 +259,13 @@ def build_ics(start, end, summary, description, organizer, uid, recurrence="none
             "STATUS:CONFIRMED\r\nSEQUENCE:0\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")
 
 
+def _safe_port(v, default=587):
+    try:
+        return int(v or default)
+    except (TypeError, ValueError):
+        return default
+
+
 async def _get_smtp_cfg():
     doc = await db.settings.find_one({"key": "smtp"})
     val = (doc or {}).get("value", {})
@@ -347,7 +354,7 @@ async def set_my_smtp(request: Request, user: dict = Depends(get_current_user)):
     pw = body.get("password", "")
     enc = _fernet.encrypt(pw.encode()).decode() if pw else prev.get("password_enc", "")
     val = {"enabled": bool(body.get("enabled")), "host": (body.get("host") or "").strip(),
-           "port": int(body.get("port") or 587), "username": (body.get("username") or "").strip(),
+           "port": _safe_port(body.get("port")), "username": (body.get("username") or "").strip(),
            "from_address": (body.get("from_address") or "").strip(), "password_enc": enc}
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"smtp": val}})
     return {"ok": True}
@@ -407,7 +414,7 @@ async def admin_set_smtp(request: Request, user: dict = Depends(require_admin)):
     pw = body.get("password", "")
     enc = _fernet.encrypt(pw.encode()).decode() if pw else prev.get("password_enc", "")
     val = {"enabled": bool(body.get("enabled")), "host": (body.get("host") or "").strip(),
-           "port": int(body.get("port") or 587), "username": (body.get("username") or "").strip(),
+           "port": _safe_port(body.get("port")), "username": (body.get("username") or "").strip(),
            "from_address": (body.get("from_address") or "").strip(), "password_enc": enc}
     await db.settings.update_one({"key": "smtp"}, {"$set": {"key": "smtp", "value": val}}, upsert=True)
     return {"ok": True}
