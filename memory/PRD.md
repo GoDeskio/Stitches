@@ -183,6 +183,14 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - Verified (iteration_26): backend 12/12 pytest + frontend 100%. Fixed a React `useEffect` Promise-return bug in Run/MCP modals (found by testing agent).
 - NOTE: real MCP tool execution requires a real MCP server (untestable in-sandbox — validated graceful fallback only).
 
+## Implemented (2026-06-25, part 6) — admin-editable announcement, support email, AI support escalation
+- **Admin-editable Home note**: the landing-page glass card is now a managed site announcement. Admin → **Site Note** tab (`admin-tab-sitenote`) edits title/message/signature and toggles it on/off. Public `GET /api/site-config`; admin `GET/PUT /api/admin/site-config`. Home shows it only when enabled; dismissal versioned by `updated_at` so editing re-shows it.
+- **Configurable support email** (`support-email-input`) used for AI escalations.
+- **AI support escalation**: new `contact_support` action — when Stitch can't help / user reports a bug / asks for a human, it forwards to support (in-app `support` notification to admins + email via SMTP) and stores a `support_requests` doc.
+- **Bug fix**: AI JSON envelope parser clobbered the real command with a nested `params.message`; now requires the `action` key.
+- Verified (iteration_29): backend 7/7 pytest + frontend 100%, zero issues.
+
+
 ## Backlog / Next
 - Post-deploy: enable LiveKit SFU / coturn TURN; configure SMTP to activate meeting-invite emails.
 - P3 (deferred): Resend as an alternative email provider (waiting on user's API key).

@@ -598,7 +598,7 @@ function SiteNoteTab() {
               <p className="text-sm text-muted-stitch">The glass card shown to visitors on the landing page. Toggle it on or off any time.</p>
             </div>
           </div>
-          <button data-testid="announcement-enabled-toggle" onClick={() => setAnn("enabled", !a.enabled)}
+          <button data-testid="announcement-enabled-toggle" aria-pressed={a.enabled} data-state={a.enabled ? "on" : "off"} onClick={() => setAnn("enabled", !a.enabled)}
             className={`w-14 h-8 rounded-full flex items-center px-1 transition-all shrink-0 ${a.enabled ? "justify-end" : "justify-start"}`}
             style={{ background: a.enabled ? "var(--primary)" : "var(--neu-dark)" }}>
             <span className="w-6 h-6 rounded-full bg-white shadow" />
