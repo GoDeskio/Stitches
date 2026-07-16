@@ -12,6 +12,53 @@ async def admin_get_notif_global(user: dict = Depends(require_admin)):
     return await get_notif_global()
 
 
+# ---------------- Desktop release (downloads) ----------------
+_PLATFORM_EXT = {"windows": (".exe",), "macos": (".dmg",), "linux": (".appimage",)}
+
+
+@router.get("/downloads/release")
+async def downloads_release(user: dict = Depends(get_current_user)):
+    repo = await get_desktop_repo()
+    result = {"repo": repo, "has_release": False, "tag": None,
+              "releases_url": (f"https://github.com/{repo}/releases" if repo else ""),
+              "assets": {"windows": None, "macos": None, "linux": None}}
+    if not repo:
+        return result
+    import httpx
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(f"https://api.github.com/repos/{repo}/releases/latest",
+                                 headers={"Accept": "application/vnd.github+json"}, timeout=12.0)
+        if r.status_code == 200:
+            rel = r.json()
+            result["tag"] = rel.get("tag_name")
+            result["releases_url"] = rel.get("html_url") or result["releases_url"]
+            for a in rel.get("assets", []):
+                name = (a.get("name") or "").lower()
+                url = a.get("browser_download_url")
+                for plat, exts in _PLATFORM_EXT.items():
+                    if any(name.endswith(e) for e in exts) and not result["assets"][plat]:
+                        result["assets"][plat] = url
+            result["has_release"] = any(result["assets"].values())
+    except Exception:
+        pass
+    return result
+
+
+@router.get("/admin/downloads-config")
+async def get_downloads_config(user: dict = Depends(require_admin)):
+    return {"repo": await get_desktop_repo()}
+
+
+@router.put("/admin/downloads-config")
+async def set_downloads_config(request: Request, user: dict = Depends(require_admin)):
+    body = await request.json()
+    repo = (body or {}).get("repo", "").strip().strip("/")
+    await db.settings.update_one({"key": "desktop_release"},
+                                 {"$set": {"key": "desktop_release", "value": {"repo": repo}}}, upsert=True)
+    return {"ok": True, "repo": repo}
+
+
 @router.put("/admin/notifications-global")
 async def admin_set_notif_global(data: NotifGlobalInput, user: dict = Depends(require_admin)):
     g = await get_notif_global()

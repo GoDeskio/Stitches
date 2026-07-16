@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Save, Sun, Moon, Minus, Plus, User, Building2, FolderKanban, Palette, Bell, Upload } from "lucide-react";
+import { Save, Sun, Moon, Minus, Plus, User, Building2, FolderKanban, Palette, Bell, Upload, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -34,6 +34,15 @@ export default function Settings() {
     } catch (err) { toast.error("Upload failed"); } finally { setUploadingAvatar(false); }
   };
 
+  const removeAvatar = async () => {
+    try {
+      const { data } = await api.delete("/users/me/avatar");
+      setForm((f) => ({ ...f, avatar: "" }));
+      updateUser(data);
+      toast.success("Profile photo removed");
+    } catch (err) { toast.error("Failed to remove photo"); }
+  };
+
   const save = async () => {
     setSaving(true);
     try {
@@ -60,6 +69,11 @@ export default function Settings() {
                 <Upload className="w-4 h-4" /> {uploadingAvatar ? "Uploading…" : "Upload photo"}
                 <input data-testid="avatar-file-input" type="file" accept="image/*" className="hidden" onChange={uploadAvatar} disabled={uploadingAvatar} />
               </label>
+              {form.avatar && (
+                <button data-testid="avatar-remove-btn" onClick={removeAvatar} className="neu-btn rounded-xl px-4 py-2.5 text-sm font-semibold text-muted-stitch inline-flex items-center gap-2 ml-2">
+                  <Trash2 className="w-4 h-4" /> Remove
+                </button>
+              )}
               <p className="text-xs text-muted-stitch mt-1.5">PNG, JPG or WebP. Stored securely.</p>
             </div>
           </div>

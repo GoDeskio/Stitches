@@ -86,8 +86,13 @@ async def create_channel(data: ChannelInput, user: dict = Depends(get_current_us
 
 
 @router.get("/channels/{channel_id}/messages")
-async def get_messages(channel_id: str, user: dict = Depends(get_current_user)):
-    msgs = await db.messages.find({"channel_id": channel_id}, {"_id": 0}).sort("created_at", 1).to_list(500)
+async def get_messages(channel_id: str, before: str = None, limit: int = 50, user: dict = Depends(get_current_user)):
+    limit = max(1, min(limit, 200))
+    q = {"channel_id": channel_id}
+    if before:
+        q["created_at"] = {"$lt": before}
+    msgs = await db.messages.find(q, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
+    msgs.reverse()
     return msgs
 @router.post("/messages")
 async def post_message(data: MessageInput, user: dict = Depends(get_current_user)):

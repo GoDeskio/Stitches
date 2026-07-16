@@ -1,6 +1,8 @@
+import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { Monitor, Apple, Download, Check, Terminal, ShieldCheck, Zap, Smartphone, Share, PlusSquare } from "lucide-react";
+import { Monitor, Apple, Download, Check, Terminal, ShieldCheck, Zap, Smartphone, Share, PlusSquare, Github } from "lucide-react";
 import { PageShell, PageHeader } from "@/components/Stitch";
+import api from "@/lib/api";
 
 const APP_URL = typeof window !== "undefined" ? window.location.origin : "";
 
@@ -34,6 +36,11 @@ const FEATURES = [
 ];
 
 export default function Downloads() {
+  const [rel, setRel] = useState(null);
+  useEffect(() => {
+    api.get("/downloads/release").then(({ data }) => setRel(data)).catch(() => setRel(null));
+  }, []);
+
   return (
     <PageShell>
       <PageHeader title="Get Stitches on every device" subtitle="Install the app on your phone, desktop and laptop. Everything stays connected to your live account." />
@@ -97,19 +104,35 @@ export default function Downloads() {
         </div>
 
         <div className="grid sm:grid-cols-3 gap-6">
-          {DESKTOP.map((p, i) => (
-            <div key={p.key} className="neu-raised neu-hover rounded-[1.75rem] p-7 flex flex-col items-center text-center animate-fade-up" style={{ animationDelay: `${i * 60}ms` }} data-testid={`download-${p.key}`}>
-              <div className="neu-sm w-16 h-16 rounded-3xl flex items-center justify-center mb-5"><p.icon className="w-8 h-8 text-primary-stitch" /></div>
-              <h3 className="font-head font-bold text-xl mb-1" style={{ color: "var(--text)" }}>{p.label}</h3>
-              <p className="text-sm text-muted-stitch mb-6">{p.note}</p>
-              <button data-testid={`download-btn-${p.key}`}
-                onClick={() => window.open("https://github.com/", "_blank")}
-                className="neu-primary rounded-2xl px-6 py-3 font-semibold flex items-center gap-2 w-full justify-center">
-                <Download className="w-5 h-5" /> Download {p.ext}
-              </button>
-            </div>
-          ))}
+          {DESKTOP.map((p, i) => {
+            const asset = rel?.assets?.[p.key];
+            const releasesUrl = rel?.releases_url;
+            const onClick = () => {
+              if (asset) window.open(asset, "_blank");
+              else if (releasesUrl) window.open(releasesUrl, "_blank");
+              else window.open("https://github.com/", "_blank");
+            };
+            const label = asset ? `Download ${p.ext}` : (releasesUrl ? "View releases" : `Download ${p.ext}`);
+            return (
+              <div key={p.key} className="neu-raised neu-hover rounded-[1.75rem] p-7 flex flex-col items-center text-center animate-fade-up" style={{ animationDelay: `${i * 60}ms` }} data-testid={`download-${p.key}`}>
+                <div className="neu-sm w-16 h-16 rounded-3xl flex items-center justify-center mb-5"><p.icon className="w-8 h-8 text-primary-stitch" /></div>
+                <h3 className="font-head font-bold text-xl mb-1" style={{ color: "var(--text)" }}>{p.label}</h3>
+                <p className="text-sm text-muted-stitch mb-2">{p.note}</p>
+                {rel?.tag && asset && <p className="text-xs text-primary-stitch font-semibold mb-4">Latest: {rel.tag}</p>}
+                {!asset && <div className="mb-4" />}
+                <button data-testid={`download-btn-${p.key}`} onClick={onClick}
+                  className="neu-primary rounded-2xl px-6 py-3 font-semibold flex items-center gap-2 w-full justify-center">
+                  {asset ? <Download className="w-5 h-5" /> : <Github className="w-5 h-5" />} {label}
+                </button>
+              </div>
+            );
+          })}
         </div>
+        {rel?.repo && !rel?.has_release && (
+          <p className="text-xs text-muted-stitch mt-4" data-testid="no-release-note">
+            No published installers yet for <span className="font-mono-stitch">{rel.repo}</span>. Push a <span className="font-mono-stitch">v*</span> tag to trigger the CI build, or build from source below.
+          </p>
+        )}
       </div>
 
       <div className="neu-raised rounded-[1.75rem] p-8 animate-fade-up">

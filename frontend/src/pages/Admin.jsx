@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Users, Layers, FolderKanban, FolderOpen, Plug, MessagesSquare, Shield,
   ToggleRight, Search, Activity, Grid3x3, LayoutDashboard, KeyRound, LogIn, BadgeCheck, Bell,
-  Ban, UserCheck,
+  Ban, UserCheck, Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import api, { API } from "@/lib/api";
@@ -438,9 +438,12 @@ function IntegrationsTab() {
   const [items, setItems] = useState(null);
   const [goog, setGoog] = useState(null);
   const [savingG, setSavingG] = useState(false);
+  const [dl, setDl] = useState(null);
+  const [savingDl, setSavingDl] = useState(false);
   useEffect(() => {
     api.get("/admin/integrations").then(({ data }) => setItems(data)).catch(() => setItems([]));
     api.get("/admin/google-oauth").then(({ data }) => setGoog(data)).catch(() => setGoog({ client_id: "", client_secret: "", redirect_uri: "" }));
+    api.get("/admin/downloads-config").then(({ data }) => setDl(data)).catch(() => setDl({ repo: "" }));
   }, []);
   const saveGoogle = async () => {
     setSavingG(true);
@@ -450,9 +453,28 @@ function IntegrationsTab() {
       const { data } = await api.get("/admin/google-oauth"); setGoog(data);
     } catch (e) { toast.error("Save failed"); } finally { setSavingG(false); }
   };
-  if (!items || !goog) return <Loader />;
+  const saveDl = async () => {
+    setSavingDl(true);
+    try {
+      await api.put("/admin/downloads-config", { repo: dl.repo });
+      toast.success("Desktop release repository saved");
+    } catch (e) { toast.error("Save failed"); } finally { setSavingDl(false); }
+  };
+  if (!items || !goog || !dl) return <Loader />;
   return (
     <div className="space-y-6">
+      <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="desktop-release-card">
+        <div className="flex items-center gap-3 mb-2">
+          <div className="neu-sm w-10 h-10 rounded-2xl flex items-center justify-center"><Download className="w-5 h-5 text-primary-stitch" /></div>
+          <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Desktop app releases</h3>
+        </div>
+        <p className="text-sm text-muted-stitch mb-4">Set the GitHub repository that publishes the desktop installers (built by the CI workflow on <span className="font-mono-stitch">v*</span> tags). The Downloads page buttons will link to the latest release assets automatically.</p>
+        <label className="text-sm font-semibold text-muted-stitch">Repository (owner/repo)</label>
+        <input data-testid="desktop-repo-input" value={dl.repo || ""} placeholder="your-org/stitches-desktop"
+          onChange={(e) => setDl({ ...dl, repo: e.target.value })} className="neu-input w-full rounded-2xl py-3 px-5 mt-2 font-mono-stitch" />
+        <button data-testid="save-desktop-repo" onClick={saveDl} disabled={savingDl} className="neu-primary rounded-2xl px-6 py-3 font-semibold mt-4">{savingDl ? "Saving…" : "Save repository"}</button>
+      </div>
+
       <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="google-oauth-card">
         <div className="flex items-center gap-3 mb-2">
           <div className="neu-sm w-10 h-10 rounded-2xl flex items-center justify-center"><Plug className="w-5 h-5 text-primary-stitch" /></div>

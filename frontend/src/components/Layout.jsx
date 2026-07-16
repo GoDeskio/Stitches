@@ -9,6 +9,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
 import { FeaturesProvider, useFeatures } from "@/context/FeaturesContext";
 import NotificationBell from "@/components/NotificationBell";
+import InstallPrompt from "@/components/InstallPrompt";
 import api from "@/lib/api";
 
 const NAV = [
@@ -163,6 +164,7 @@ function LayoutInner() {
           <Outlet />
         </div>
       </main>
+      <InstallPrompt />
     </div>
   );
 }

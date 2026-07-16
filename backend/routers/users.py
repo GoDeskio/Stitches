@@ -35,6 +35,15 @@ async def upload_avatar(file: UploadFile = File(...), user: dict = Depends(get_c
     return {"avatar": avatar_url}
 
 
+@router.delete("/users/me/avatar")
+async def delete_avatar(user: dict = Depends(get_current_user)):
+    await db.users.update_one({"user_id": user["user_id"]},
+                              {"$set": {"avatar": None, "avatar_path": None}})
+    await log_activity(user["user_id"], "avatar_remove", {})
+    fresh = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    return public_user(fresh)
+
+
 @router.get("/users/{user_id}/avatar-image")
 async def get_avatar_image(user_id: str):
     u = await db.users.find_one({"user_id": user_id}, {"_id": 0, "avatar_path": 1})
@@ -46,8 +55,13 @@ async def get_avatar_image(user_id: str):
 
 
 @router.get("/users")
-async def list_users(user: dict = Depends(get_current_user)):
-    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(500)
+async def list_users(limit: int = 500, skip: int = 0, q: str = "", user: dict = Depends(get_current_user)):
+    limit = max(1, min(limit, 500))
+    query = {}
+    if q:
+        query = {"$or": [{"name": {"$regex": q, "$options": "i"}},
+                         {"email": {"$regex": q, "$options": "i"}}]}
+    users = await db.users.find(query, {"_id": 0, "password_hash": 0}).skip(max(0, skip)).limit(limit).to_list(limit)
     return users
 
 

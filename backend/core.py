@@ -212,6 +212,12 @@ async def get_google_oauth_cfg():
     }
 
 
+async def get_desktop_repo():
+    doc = await db.settings.find_one({"key": "desktop_release"})
+    val = (doc or {}).get("value", {})
+    return (val.get("repo") or os.environ.get("DESKTOP_RELEASE_REPO", "")).strip().strip("/")
+
+
 async def scan_due_reminders():
     from datetime import datetime, timezone, timedelta
     now = datetime.now(timezone.utc)

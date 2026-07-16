@@ -31,6 +31,10 @@ export default function Messages() {
   const typingTimerRef = useRef(null);
   const wsRef = useRef(null);
   const bottomRef = useRef(null);
+  const skipScrollRef = useRef(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const PAGE = 50;
 
   const loadWorkspaces = useCallback(async () => {
     const { data } = await api.get("/workspaces");
@@ -50,9 +54,38 @@ export default function Messages() {
   }, [activeWs]);
 
   const loadMessages = useCallback(async (chId) => {
-    const { data } = await api.get(`/channels/${chId}/messages`);
+    const { data } = await api.get(`/channels/${chId}/messages?limit=${PAGE}`);
     setMessages(data);
+    setHasMore(data.length === PAGE);
   }, []);
+
+  const mergeMessages = (prev, incoming) => {
+    const map = new Map();
+    incoming.forEach((m) => map.set(m.message_id, m));
+    prev.forEach((m) => map.set(m.message_id, m));
+    return Array.from(map.values()).sort((a, b) => (a.created_at < b.created_at ? -1 : 1));
+  };
+
+  const refreshLatest = useCallback(async (chId) => {
+    try {
+      const { data } = await api.get(`/channels/${chId}/messages?limit=${PAGE}`);
+      setMessages((prev) => mergeMessages(prev, data));
+    } catch (e) {}
+  }, []);
+
+  const loadEarlier = async () => {
+    if (!activeCh || messages.length === 0 || loadingMore) return;
+    setLoadingMore(true);
+    const oldest = messages.reduce((a, m) => (m.created_at < a ? m.created_at : a), messages[0].created_at);
+    try {
+      const { data } = await api.get(`/channels/${activeCh.channel_id}/messages?before=${encodeURIComponent(oldest)}&limit=${PAGE}`);
+      if (data.length) {
+        skipScrollRef.current = true;
+        setMessages((prev) => mergeMessages(prev, data));
+      }
+      setHasMore(data.length === PAGE);
+    } catch (e) {} finally { setLoadingMore(false); }
+  };
 
   const loadUnreads = useCallback(async () => {
     try { const { data } = await api.get("/unreads"); setUnreads(data); } catch (e) {}
@@ -98,11 +131,14 @@ export default function Messages() {
       wsRef.current = ws;
     } catch (e) { /* fallback to polling */ }
 
-    const poll = setInterval(() => loadMessages(activeCh.channel_id), 5000);
+    const poll = setInterval(() => refreshLatest(activeCh.channel_id), 5000);
     return () => { clearInterval(poll); if (ws) ws.close(); wsRef.current = null; };
-  }, [activeCh, loadMessages, markRead, user]);
+  }, [activeCh, loadMessages, refreshLatest, markRead, user]);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+  useEffect(() => {
+    if (skipScrollRef.current) { skipScrollRef.current = false; return; }
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   const extractMentions = (t) => members.filter((m) => m.name && t.includes("@" + m.name)).map((m) => m.user_id);
 
@@ -324,6 +360,14 @@ export default function Messages() {
               </div>
 
               <div className="neu-pressed m-4 rounded-2xl flex-1 overflow-y-auto p-5 space-y-4">
+                {hasMore && (
+                  <div className="flex justify-center">
+                    <button data-testid="load-earlier-btn" onClick={loadEarlier} disabled={loadingMore}
+                      className="neu-btn rounded-full px-4 py-1.5 text-xs font-semibold text-primary-stitch">
+                      {loadingMore ? "Loading…" : "Load earlier messages"}
+                    </button>
+                  </div>
+                )}
                 {messages.filter((m) => !m.parent_id).length === 0 && <p className="text-center text-muted-stitch py-10">No messages yet. Say hello!</p>}
                 {messages.filter((m) => !m.parent_id).map((m) => {
                   const mine = m.user_id === user?.user_id;
