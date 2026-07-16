@@ -156,8 +156,13 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - **Self-hosted TURN (option a/c, no third party)**: `GET /api/rtc/config` returns iceServers (STUN by default, +TURN when configured); admin-editable TURN server (urls/username/credential, credential masked & clearable) in Admin → Meetings (`turn-config-card`), env fallback `TURN_URLS/USERNAME/CREDENTIAL`. Calls fetch this config on join.
 - Verified (iteration_22): backend 5/5 pytest + WS chat/hand relay; frontend 100%. NOTE: SFU media server (option b, e.g. LiveKit/mediasoup) NOT added — it requires raw UDP ports this preview can't expose; deploy to real infra + run coturn/SFU there for large-group guaranteed connectivity.
 
+## Implemented (2026-06-24, part 9) — incoming-call ring + deploy-ready SFU (LiveKit)
+- **Incoming-call "ring"**: starting a channel meeting (channel Meet button → `POST /api/meetings {channel_id}`) posts a clickable join link to the channel AND creates a `meeting` notification for every other workspace member. The bell polls (20s) and shows a toast with a **"Join" action** + a bell entry linking to `/call/<room>`. `meeting` icon added to the bell.
+- **Self-hosted SFU (LiveKit), OFF by default**: `GET /api/rtc/config` now returns `sfu:{enabled,url}`; `POST /api/rtc/sfu-token` mints a LiveKit JWT (livekit-api, `VideoGrants`/`with_grants`); admin-editable `livekit` settings (url/api_key/api_secret — secret Fernet-encrypted & masked) at Admin → Meetings (`sfu-config-card`), env fallback `LIVEKIT_*`. `Call.jsx` fetches config on mount: loader → renders `SfuCall` (LiveKit `<VideoConference/>`) when SFU enabled, else the existing **P2P** room (default, fully tested). Deps: `livekit-api`, `livekit-client`, `@livekit/components-react`.
+- Verified (iteration_23): backend 5/5 pytest + frontend 100%; P2P regression confirmed intact. NOTE: the LiveKit media path itself is only functional after deploying a LiveKit server with open UDP ports — untestable in this sandbox, so it's shipped gated OFF.
+
 ## Backlog / Next
-- P2: (optional) self-hosted SFU (LiveKit/mediasoup) for large-group calls — requires real deployment infra (UDP ports).
+- Post-deploy: stand up LiveKit (or coturn TURN) on real infra, then flip it on in Admin → Meetings.
 - P3 (deferred): **Email reminders via Resend** — waiting on user's Resend API key + verified sender.
 - P3: Dropbox one-click OAuth (manual-token connector available now); authenticated Drive download stream.
 
