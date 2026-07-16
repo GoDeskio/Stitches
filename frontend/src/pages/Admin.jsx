@@ -1047,6 +1047,8 @@ function EmailSetupWizard() {
   const [savingSa, setSavingSa] = useState(false);
   const [mg, setMg] = useState(null);
   const [savingMg, setSavingMg] = useState(false);
+  const [dns, setDns] = useState(null);
+  const [checkingDns, setCheckingDns] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
 
@@ -1098,6 +1100,15 @@ function EmailSetupWizard() {
       toast.success("Mailgun saved");
       load();
     } catch (e) { toast.error("Save failed"); } finally { setSavingMg(false); }
+  };
+
+  const checkDns = async () => {
+    setCheckingDns(true); setDns(null);
+    try {
+      const { data } = await api.get("/admin/mailgun/dns");
+      setDns(data);
+      if (!data.ok) toast.error(data.error || "DNS check failed");
+    } catch (e) { toast.error("DNS check failed"); } finally { setCheckingDns(false); }
   };
 
   const saveSa = async () => {
@@ -1174,6 +1185,28 @@ function EmailSetupWizard() {
             <label className="text-xs font-semibold text-muted-stitch">Webhook URL (paste into Mailgun → Webhooks)</label>
             <CopyRow value={webhookUrl} testid="mailgun-webhook-url" />
           </div>
+          <div className="mt-4 flex items-center gap-3 flex-wrap">
+            <button data-testid="check-dns-btn" onClick={checkDns} disabled={checkingDns} className="neu-btn rounded-2xl px-6 py-3 font-semibold text-primary-stitch">{checkingDns ? "Checking…" : "Check DNS"}</button>
+            {dns && dns.ok && (
+              <span data-testid="dns-state" className={`text-sm font-semibold ${dns.all_valid ? "text-green-500" : "text-amber-500"}`}>
+                Domain state: {dns.state || "unknown"}{dns.all_valid ? " · all records valid ✓" : " · records pending"}
+              </span>
+            )}
+          </div>
+          {dns && dns.ok && (dns.sending || []).length > 0 && (
+            <div className="mt-3 space-y-2" data-testid="dns-checklist">
+              {dns.sending.map((r, i) => (
+                <div key={i} data-testid="dns-record-row" className="neu-pressed rounded-2xl px-4 py-2.5 flex items-center gap-3">
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: r.valid ? "#16a34a" : "#ef4444", boxShadow: `0 0 8px ${r.valid ? "#16a34a" : "#ef4444"}` }} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold" style={{ color: "var(--text)" }}>{r.type} · {r.name}</p>
+                    <p className="text-xs text-muted-stitch font-mono-stitch break-all">{r.value}</p>
+                  </div>
+                  <span className={`text-xs font-bold shrink-0 ${r.valid ? "text-green-500" : "text-red-400"}`}>{r.valid ? "Valid" : "Missing"}</span>
+                </div>
+              ))}
+            </div>
+          )}
           <p className="text-xs text-muted-stitch mt-3">Get API key + domain at Mailgun → Sending → Domains → Domain settings. Add the webhook URL under Sending → Webhooks (delivered, opened, permanent failure, complained) to see delivery stats below. Sandbox domains only send to authorized recipients.</p>
         </div>
       ) : cfg.provider === "gmail_sa" ? (

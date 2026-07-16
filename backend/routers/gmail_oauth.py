@@ -7,7 +7,8 @@ from services.gmail import (get_gmail_status, gmail_authorize_url, gmail_exchang
                             disconnect_service_account)
 from services.mailgun import (get_mailgun_admin, save_mailgun_admin, disconnect_mailgun_admin,
                               get_mailgun_user, save_mailgun_user, clear_mailgun_user,
-                              verify_webhook, record_email_event, get_email_events_summary, unsuppress)
+                              verify_webhook, record_email_event, get_email_events_summary, unsuppress,
+                              check_domain)
 from core import get_current_user
 from services.email import get_email_provider_cfg, get_smtp_cfg, get_email_health
 
@@ -62,6 +63,12 @@ async def admin_set_mailgun(request: Request, user: dict = Depends(require_admin
 async def admin_clear_mailgun(user: dict = Depends(require_admin)):
     await disconnect_mailgun_admin()
     return {"ok": True}
+
+
+@router.get("/admin/mailgun/dns")
+async def admin_mailgun_dns(user: dict = Depends(require_admin)):
+    cfg = await get_mailgun_admin(reveal=True)
+    return await check_domain(cfg)
 
 
 @router.get("/me/mailgun-config")

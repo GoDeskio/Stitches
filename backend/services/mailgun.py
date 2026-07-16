@@ -152,3 +152,30 @@ async def get_email_events_summary(limit=25):
 
 async def unsuppress(email: str):
     await db.suppressed_emails.delete_one({"email": (email or "").lower()})
+
+
+async def check_domain(cfg):
+    if not (cfg.get("domain") and cfg.get("api_key")):
+        return {"ok": False, "error": "Mailgun domain/API key not configured"}
+    base = _base_url(cfg.get("region"))
+    url = f"{base}/v4/domains/{cfg['domain']}"
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.get(url, auth=("api", cfg["api_key"]))
+        if r.status_code != 200:
+            return {"ok": False, "error": f"Mailgun {r.status_code}: {r.text[:180]}"}
+        d = r.json()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+    def _norm(rec):
+        return {"type": rec.get("record_type", ""), "name": rec.get("name", ""),
+                "value": rec.get("value", ""), "priority": rec.get("priority", ""),
+                "valid": (rec.get("valid", "") or "").lower() == "valid"}
+
+    sending = [_norm(x) for x in d.get("sending_dns_records", [])]
+    receiving = [_norm(x) for x in d.get("receiving_dns_records", [])]
+    state = (d.get("domain", {}) or {}).get("state", "")
+    return {"ok": True, "state": state, "domain": cfg["domain"],
+            "sending": sending, "receiving": receiving,
+            "all_valid": all(x["valid"] for x in sending) if sending else False}

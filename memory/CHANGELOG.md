@@ -1,5 +1,10 @@
 # Stitches Changelog
 
+## 2026-06 — One-click Mailgun DNS checklist
+- `services/mailgun.check_domain` → Mailgun v4 `GET /domains/{domain}`, returns domain state + sending DNS records (SPF/DKIM/tracking) each with valid/missing. Endpoint `GET /api/admin/mailgun/dns`.
+- Admin wizard: **"Check DNS"** button shows domain state (+ all-valid indicator) and a green/red checklist of each required record with name/value. Graceful error surfacing (e.g. 401 invalid key).
+- Verified: endpoint returns records shape / graceful errors; UI button + error toast confirmed.
+
 ## 2026-06 — Mailgun webhooks, delivery analytics & easier setup
 - **Webhook receiver** `POST /api/webhooks/mailgun` — HMAC-SHA256 signature verified against the stored webhook signing key (406 on bad sig). Records events to `email_events`; bounced/complained → auto-added to `suppressed_emails`.
 - **Suppression guard**: `send_email_detailed` skips suppressed recipients (returns clear detail).
