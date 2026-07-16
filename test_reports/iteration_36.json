@@ -1,0 +1,32 @@
+{
+  "summary": "Frontend E2E for plan-based gating + monthly/yearly pricing toggle. All 7 phases PASS: (1) regression with gating OFF (demo sees all nav unlocked, no upgrade btn), (2) admin Plans tab exposes plans-gating-toggle + plan-price/plan-yearly/plan-feature-<key> checkboxes for chat/projects/assets/integrations/ai_assistant/friends, and gating enable persists, (3) with gating ON + Free plan restricted, sidebar shows nav-locked-assets/integrations/ai-assistant/people + Lock icons and sidebar-upgrade; clicking a locked item navigates to /pricing, (4) Pricing billing-toggle switches Pro card between $10/mo and $100/yr with pricing-save badge (Free stays $0), (5) public checkout on a yearly plan with unique amount/email hits checkout-success, (6) logged-in yearly checkout auto-assigns plan_id to buyer and entitlements unlock, (7) gating toggled OFF at end. Backend already curl-verified per main agent context; no regressions observed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/checkout/plan", "issue": "NMI payload still lacks dup_seconds=0; duplicate amount+card within ~2 min returns 'Duplicate transaction REFID:...'. First yearly checkout on Pro at $100 failed with this error; worked immediately after creating a temp plan with a unique yearly price. Not blocking, but flaky for real users retrying."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Optional: add 'dup_seconds': '0' to NMI Direct-Post payloads in /app/backend/routers/payments.py (checkout_plan + admin/payments/charge) to avoid duplicate-transaction rejections on legit retries."
+  ],
+  "critical_code_review_comments": [
+    "FeaturesContext.entitled() gates on entitlements only; also depends on feature flags separately via NAV filter — behaviour is correct (admin can both hide by feature flag and lock by entitlement).",
+    "Layout.jsx SideLink derives testids from label text (nav-locked-<label>). Works today but relies on label stability; consider passing an explicit testid key.",
+    "PlansTab plan-feature-<key> buttons don't set aria-pressed; would improve a11y and testability (currently rely on class text-primary-stitch to detect ON state).",
+    "Pricing/Checkout: no client-side amount unique/dedupe messaging; when NMI returns 'Duplicate transaction', UX should suggest waiting a couple minutes or contacting support."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (curl already verified by main agent)", "frontend": "100%"},
+  "test_credentials": "admin@stitches.app / Admin@123, demo@stitches.app / Demo@123, NMI 4111111111111111 exp 1029 cvv 123",
+  "seed_data_creation": "Created 2 temporary admin plans (TEST_UNIQ_<ts>, TEST_UNIQ2_<ts>) with unique yearly prices to bypass NMI's 2-min duplicate detection; both DELETED after use. Demo user plan was cleared and restored (final: no plan). Free plan feature_keys were restored to all 6 keys at end. Gating toggle left OFF at end.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Login page selectors are email-input / password-input / submit-btn (NOT login-email etc.). Sidebar locked links use data-testid=nav-locked-<label-with-dashes> (e.g. nav-locked-ai-assistant, nav-locked-people). PlansTab feature toggles: use plan-feature-chat/projects/assets/integrations/ai_assistant/friends; ON-state is detected via class 'text-primary-stitch' (NOT neu-pressed). NMI still lacks dup_seconds=0 so use unique amount+email for each successful checkout; easiest way is create a temp admin plan with unusual yearly_price then delete it. Public pricing shows /yr and Save X% only when yearly is selected. Logged-in POST /api/checkout/plan auto-assigns plan_id to buyer.",
+  "rca of the issue": "N/A – no failures. NMI duplicate-transaction remains a known flakiness contributor and is documented above."
+}

@@ -15,7 +15,7 @@ async def list_projects(user: dict = Depends(get_current_user)):
 
 @router.post("/projects")
 async def create_project(data: ProjectInput, user: dict = Depends(get_current_user)):
-    await ensure_feature("projects")
+    await ensure_feature("projects", user)
     doc = {"project_id": f"proj_{uuid.uuid4().hex[:12]}", "name": data.name,
            "description": data.description, "status": data.status,
            "workspace_id": data.workspace_id, "owner_id": user["user_id"],
@@ -94,7 +94,7 @@ async def list_tasks(project_id: str, user: dict = Depends(get_current_user)):
 
 @router.post("/projects/{project_id}/tasks")
 async def create_task(project_id: str, data: TaskInput, user: dict = Depends(get_current_user)):
-    await ensure_feature("projects")
+    await ensure_feature("projects", user)
     await _require_project_member(project_id, user)
     doc = {"task_id": f"task_{uuid.uuid4().hex[:12]}", "project_id": project_id,
            "title": data.title, "description": data.description or "",

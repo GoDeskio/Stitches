@@ -3,7 +3,7 @@ import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, MessagesSquare, FolderKanban, FolderOpen, Plug,
   Sparkles, User, Settings, Shield, LogOut, Menu, X, Sun, Moon, Users, Eye, StickyNote,
-  Activity, Download, Video, MailWarning,
+  Activity, Download, Video, MailWarning, Lock,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -40,7 +40,7 @@ function LayoutInner() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { user, logout, impersonating, stopImpersonation } = useAuth();
   const { theme, toggleTheme } = useTheme();
-  const { flags } = useFeatures();
+  const { flags, entitled, entitlements } = useFeatures();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -113,8 +113,9 @@ function LayoutInner() {
         </button>
 
         <nav className="flex-1 px-4 space-y-2 overflow-y-auto">
-          {NAV.filter((n) => !n.flag || flags[n.flag]).map(({ to, label, icon: Icon }) => (
-            <SideLink key={to} to={to} label={label} Icon={Icon} collapsed={collapsed} badge={to === "/messages" ? unreadTotal : 0} />
+          {NAV.filter((n) => !n.flag || flags[n.flag]).map(({ to, label, icon: Icon, flag }) => (
+            <SideLink key={to} to={to} label={label} Icon={Icon} collapsed={collapsed}
+              badge={to === "/messages" ? unreadTotal : 0} locked={flag ? !entitled(flag) : false} />
           ))}
           {user?.role === "admin" && (
             <SideLink to="/admin" label="Admin" Icon={Shield} collapsed={collapsed} testid="nav-admin" />
@@ -129,6 +130,14 @@ function LayoutInner() {
             {theme === "dark" ? <Sun className="w-5 h-5 shrink-0" /> : <Moon className="w-5 h-5 shrink-0" />}
             {!collapsed && <span className="text-sm font-medium">{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>}
           </button>
+
+          {entitlements.gating && !entitlements.all_access && (
+            <button onClick={() => navigate("/pricing")} data-testid="sidebar-upgrade"
+              className="neu-btn w-full rounded-xl py-2.5 flex items-center gap-3 px-3 text-primary-stitch">
+              <Sparkles className="w-5 h-5 shrink-0" />
+              {!collapsed && <span className="text-sm font-semibold truncate">Upgrade{entitlements.plan_name ? ` · ${entitlements.plan_name}` : ""}</span>}
+            </button>
+          )}
 
           <div className="neu-pressed rounded-2xl p-3 flex items-center gap-3 mt-3">
             <div className="neu-sm w-9 h-9 rounded-full flex items-center justify-center shrink-0 overflow-hidden">
@@ -199,7 +208,22 @@ function VerifyBanner() {
   );
 }
 
-function SideLink({ to, label, Icon, collapsed, testid, badge = 0 }) {
+function SideLink({ to, label, Icon, collapsed, testid, badge = 0, locked = false }) {
+  const navigate = useNavigate();
+  if (locked) {
+    return (
+      <button
+        onClick={() => navigate("/pricing")}
+        data-testid={`nav-locked-${label.toLowerCase().replace(/\s/g, "-")}`}
+        title={`Upgrade to unlock ${label}`}
+        className="w-full rounded-xl py-2.5 px-3 flex items-center gap-3 font-medium text-sm transition-all text-muted-stitch neu-hover opacity-60"
+      >
+        <span className="relative shrink-0"><Icon className="w-5 h-5" /></span>
+        {!collapsed && <span className="truncate flex-1 text-left">{label}</span>}
+        {!collapsed && <Lock className="w-3.5 h-3.5 shrink-0" />}
+      </button>
+    );
+  }
   return (
     <NavLink
       to={to}

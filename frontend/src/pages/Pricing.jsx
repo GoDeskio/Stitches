@@ -14,17 +14,27 @@ export default function Pricing() {
   const { user } = useAuth();
   const [plans, setPlans] = useState(null);
   const [checkout, setCheckout] = useState(null);
+  const [billing, setBilling] = useState("month");
 
   useEffect(() => {
     api.get("/plans").then(({ data }) => setPlans(data.plans)).catch(() => setPlans([]));
   }, []);
 
+  const hasYearly = (plans || []).some((p) => Number(p.yearly_price) > 0 && Number(p.price) > 0);
+  const priceFor = (p) => (billing === "year" && Number(p.yearly_price) > 0 ? Number(p.yearly_price) : Number(p.price) || 0);
+  const intervalFor = (p) => (billing === "year" && Number(p.yearly_price) > 0 ? "year" : p.interval);
+  const savePct = (p) => {
+    const m = Number(p.price) || 0, y = Number(p.yearly_price) || 0;
+    if (billing !== "year" || m <= 0 || y <= 0) return 0;
+    return Math.max(0, Math.round((1 - y / (m * 12)) * 100));
+  };
+
   const pick = (p) => {
-    if ((Number(p.price) || 0) <= 0) {
+    if (priceFor(p) <= 0) {
       if (user && user !== false) navigate("/dashboard"); else navigate("/login");
       return;
     }
-    setCheckout(p);
+    setCheckout({ plan: p, billing: intervalFor(p), amount: priceFor(p) });
   };
 
   return (
@@ -38,6 +48,16 @@ export default function Pricing() {
         <div className="text-center mb-12 animate-fade-up">
           <h1 className="font-head font-black text-4xl sm:text-5xl lg:text-6xl" style={{ color: "var(--text)" }}>Simple, honest pricing</h1>
           <p className="text-base text-muted-stitch mt-4 max-w-xl mx-auto">Pick the plan that fits your team. Upgrade, downgrade or cancel anytime.</p>
+          {hasYearly && (
+            <div className="inline-flex items-center gap-1 mt-7 neu-pressed rounded-full p-1" data-testid="billing-toggle">
+              <button data-testid="billing-monthly" onClick={() => setBilling("month")}
+                className={`px-5 py-2 rounded-full text-sm font-semibold transition-all ${billing === "month" ? "neu-primary" : "text-muted-stitch"}`}>Monthly</button>
+              <button data-testid="billing-yearly" onClick={() => setBilling("year")}
+                className={`px-5 py-2 rounded-full text-sm font-semibold transition-all flex items-center gap-2 ${billing === "year" ? "neu-primary" : "text-muted-stitch"}`}>
+                Yearly <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: billing === "year" ? "rgba(255,255,255,0.25)" : "var(--primary)", color: "#fff" }}>Save more</span>
+              </button>
+            </div>
+          )}
         </div>
 
         {!plans ? (
@@ -56,8 +76,9 @@ export default function Pricing() {
                 <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>{p.name}</h3>
                 {p.description && <p className="text-sm text-muted-stitch mt-1 min-h-[2.5rem]">{p.description}</p>}
                 <p className="font-head font-black text-5xl mt-4" style={{ color: "var(--text)" }}>
-                  {fmtMoney(p.price)}<span className="text-base font-normal text-muted-stitch">{(Number(p.price) || 0) > 0 ? (intervalLabel[p.interval] || "") : ""}</span>
+                  {fmtMoney(priceFor(p))}<span className="text-base font-normal text-muted-stitch">{priceFor(p) > 0 ? (intervalLabel[intervalFor(p)] || "") : ""}</span>
                 </p>
+                {savePct(p) > 0 && <p className="text-xs font-semibold text-primary-stitch mt-1" data-testid="pricing-save">Save {savePct(p)}% vs monthly</p>}
                 <button data-testid="pricing-select" onClick={() => pick(p)}
                   className={`w-full mt-6 rounded-2xl py-3.5 font-semibold text-sm transition-transform hover:-translate-y-0.5 ${p.highlighted ? "neu-primary" : "neu-btn text-primary-stitch"}`}>
                   {p.cta || "Get started"}
@@ -75,12 +96,12 @@ export default function Pricing() {
         )}
       </div>
 
-      {checkout && <CheckoutModal plan={checkout} onClose={() => setCheckout(null)} />}
+      {checkout && <CheckoutModal plan={checkout.plan} billing={checkout.billing} amount={checkout.amount} onClose={() => setCheckout(null)} />}
     </div>
   );
 }
 
-function CheckoutModal({ plan, onClose }) {
+function CheckoutModal({ plan, billing, amount, onClose }) {
   const [f, setF] = useState({ name: "", email: "", ccnumber: "", ccexp: "", cvv: "" });
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
@@ -94,7 +115,7 @@ function CheckoutModal({ plan, onClose }) {
     setBusy(true);
     try {
       const { data } = await api.post("/checkout/plan", {
-        plan_id: plan.plan_id, name: f.name, email: f.email,
+        plan_id: plan.plan_id, billing, name: f.name, email: f.email,
         ccnumber: f.ccnumber, ccexp: f.ccexp, cvv: f.cvv,
       });
       if (data.success) setDone(true);
@@ -118,7 +139,7 @@ function CheckoutModal({ plan, onClose }) {
         ) : (
           <>
             <h2 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Checkout — {plan.name}</h2>
-            <p className="text-sm text-muted-stitch mt-1">{fmtMoney(plan.price)}{intervalLabel[plan.interval] || ""}</p>
+            <p className="text-sm text-muted-stitch mt-1">{fmtMoney(amount)}{intervalLabel[billing] || ""}</p>
             <div className="space-y-3 mt-5">
               <input data-testid="checkout-name" value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="Full name" className="neu-input w-full rounded-2xl py-3 px-4 text-sm" />
               <input data-testid="checkout-email" value={f.email} onChange={(e) => set("email", e.target.value)} placeholder="Email *" className="neu-input w-full rounded-2xl py-3 px-4 text-sm" />
@@ -128,7 +149,7 @@ function CheckoutModal({ plan, onClose }) {
                 <input data-testid="checkout-cvv" inputMode="numeric" value={f.cvv} onChange={(e) => set("cvv", e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="CVV" className="neu-input flex-1 rounded-2xl py-3 px-4 text-sm font-mono-stitch" />
               </div>
               {err && <p className="text-sm text-red-500" data-testid="checkout-error">{err}</p>}
-              <button data-testid="checkout-pay" onClick={pay} disabled={busy} className="neu-primary rounded-2xl py-3.5 font-semibold w-full disabled:opacity-50">{busy ? "Processing…" : `Pay ${fmtMoney(plan.price)}`}</button>
+              <button data-testid="checkout-pay" onClick={pay} disabled={busy} className="neu-primary rounded-2xl py-3.5 font-semibold w-full disabled:opacity-50">{busy ? "Processing…" : `Pay ${fmtMoney(amount)}`}</button>
               <p className="text-[11px] text-muted-stitch flex items-center gap-1.5 justify-center"><ShieldCheck className="w-3.5 h-3.5" /> Secured by NMI. Encrypted in transit.</p>
             </div>
           </>

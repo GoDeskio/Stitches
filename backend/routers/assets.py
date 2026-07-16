@@ -9,7 +9,7 @@ router = APIRouter()
 # ---------------- Assets / Files ----------------
 @router.post("/assets/upload")
 async def upload_asset(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
-    await ensure_feature("assets")
+    await ensure_feature("assets", user)
     ext = file.filename.split(".")[-1].lower() if "." in file.filename else "bin"
     path = f"{APP_NAME}/uploads/{user['user_id']}/{uuid.uuid4()}.{ext}"
     data = await file.read()

@@ -98,7 +98,7 @@ async def list_integrations(user: dict = Depends(get_current_user)):
 
 @router.post("/integrations")
 async def create_integration(data: IntegrationInput, user: dict = Depends(get_current_user)):
-    await ensure_feature("integrations")
+    await ensure_feature("integrations", user)
     doc = {"integration_id": f"int_{uuid.uuid4().hex[:12]}", "type": data.type,
            "name": data.name, "config": encrypt_config(data.config), "owner_id": user["user_id"],
            "auth_method": data.auth_method, "status": "connected", "created_at": now_iso()}
@@ -138,7 +138,7 @@ def _s3_client(cfg: dict):
 
 @router.post("/integrations/{integration_id}/run")
 async def run_integration(integration_id: str, data: IntegrationRunInput, user: dict = Depends(get_current_user)):
-    await ensure_feature("integrations")
+    await ensure_feature("integrations", user)
     it = await _get_owned_integration(integration_id, user)
     if it.get("type") != "n8n":
         raise HTTPException(status_code=400, detail="Run is only supported for N8N integrations")
@@ -285,7 +285,7 @@ async def _mcp_rpc(cfg, method, params, rid=2):
 
 @router.get("/integrations/{integration_id}/mcp/tools")
 async def mcp_list_tools(integration_id: str, user: dict = Depends(get_current_user)):
-    await ensure_feature("integrations")
+    await ensure_feature("integrations", user)
     it = await _get_owned_integration(integration_id, user)
     if it.get("type") != "mcp":
         raise HTTPException(status_code=400, detail="Not an MCP integration")
@@ -302,7 +302,7 @@ async def mcp_list_tools(integration_id: str, user: dict = Depends(get_current_u
 
 @router.post("/integrations/{integration_id}/mcp/call")
 async def mcp_call_tool(integration_id: str, data: McpToolCallInput, user: dict = Depends(get_current_user)):
-    await ensure_feature("integrations")
+    await ensure_feature("integrations", user)
     it = await _get_owned_integration(integration_id, user)
     if it.get("type") != "mcp":
         raise HTTPException(status_code=400, detail="Not an MCP integration")
@@ -329,7 +329,7 @@ async def mcp_call_tool(integration_id: str, data: McpToolCallInput, user: dict 
 
 @router.get("/integrations/{integration_id}/files")
 async def integration_files(integration_id: str, path: str = "", user: dict = Depends(get_current_user)):
-    await ensure_feature("integrations")
+    await ensure_feature("integrations", user)
     it = await _get_owned_integration(integration_id, user)
     cfg = it.get("config", {})
     t = it.get("type")
@@ -372,7 +372,7 @@ async def integration_files(integration_id: str, path: str = "", user: dict = De
 
 @router.post("/integrations/{integration_id}/download")
 async def integration_download(integration_id: str, data: FileKeyInput, user: dict = Depends(get_current_user)):
-    await ensure_feature("integrations")
+    await ensure_feature("integrations", user)
     it = await _get_owned_integration(integration_id, user)
     cfg = it.get("config", {})
     t = it.get("type")

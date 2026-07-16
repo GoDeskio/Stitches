@@ -281,10 +281,42 @@ async def get_feature_flags():
     return flags
 
 
-async def ensure_feature(name):
+async def get_plan_gating():
+    doc = await db.settings.find_one({"key": "plan_gating"})
+    return bool((doc or {}).get("value", {}).get("enabled"))
+
+
+async def get_user_entitlements(user: dict):
+    all_feats = {k: True for k in DEFAULT_FEATURES}
+    gating = await get_plan_gating()
+    if not gating or (user or {}).get("role") == "admin":
+        return {"gating": gating, "plan_id": None, "plan_name": None, "features": all_feats, "all_access": True}
+    plan = None
+    pid = (user or {}).get("plan_id")
+    if pid:
+        plan = await db.plans.find_one({"plan_id": pid, "active": True})
+    if not plan:
+        rows = await db.plans.find({"active": True}).sort([("price", 1), ("sort_order", 1)]).to_list(1)
+        plan = rows[0] if rows else None
+    if not plan:
+        return {"gating": True, "plan_id": None, "plan_name": None, "features": all_feats, "all_access": True}
+    fk = plan.get("feature_keys")
+    if not isinstance(fk, list):
+        feats = all_feats  # plan not configured with features -> don't lock users out
+    else:
+        feats = {k: (k in fk) for k in DEFAULT_FEATURES}
+    return {"gating": True, "plan_id": plan.get("plan_id"), "plan_name": plan.get("name"), "features": feats, "all_access": False}
+
+
+async def ensure_feature(name, user=None):
     flags = await get_feature_flags()
     if not flags.get(name, True):
         raise HTTPException(status_code=403, detail="This feature has been disabled by the administrator")
+    if user is not None:
+        ent = await get_user_entitlements(user)
+        if not ent["features"].get(name, True):
+            raise HTTPException(status_code=402,
+                                detail=f"Your {ent.get('plan_name') or 'current'} plan doesn't include this feature. Upgrade on the Pricing page to unlock it.")
 
 
 async def get_seo_settings():

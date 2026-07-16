@@ -22,7 +22,7 @@ async def get_conversation(conversation_id: str, user: dict = Depends(get_curren
 
 @router.post("/ai/chat")
 async def ai_chat(data: AiInput, user: dict = Depends(get_current_user)):
-    await ensure_feature("ai_assistant")
+    await ensure_feature("ai_assistant", user)
     from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, StreamDone
 
     conversation_id = data.conversation_id
@@ -66,7 +66,7 @@ async def ai_chat(data: AiInput, user: dict = Depends(get_current_user)):
 
 @router.post("/ai/agent")
 async def ai_agent(data: AiInput, user: dict = Depends(get_current_user)):
-    await ensure_feature("ai_assistant")
+    await ensure_feature("ai_assistant", user)
     from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, StreamDone
     await log_activity(user["user_id"], "ai_agent")
     chat = LlmChat(api_key=EMERGENT_KEY, session_id=f"agent_{user['user_id']}",

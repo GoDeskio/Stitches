@@ -96,7 +96,7 @@ async def get_messages(channel_id: str, before: str = None, limit: int = 50, use
     return msgs
 @router.post("/messages")
 async def post_message(data: MessageInput, user: dict = Depends(get_current_user)):
-    await ensure_feature("chat")
+    await ensure_feature("chat", user)
     doc = await _create_message(data.channel_id, user, data.text, data.parent_id, data.mentions)
     await ws_manager.broadcast(data.channel_id, {"type": "message", "message": doc})
     await _notify_mentions(doc, user)
