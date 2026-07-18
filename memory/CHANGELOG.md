@@ -1,5 +1,12 @@
 # Stitches Changelog
 
+## 2026-06 — Self-healing auto-rollback for the Software Update Center (COMPLETE)
+- **update.sh (self-healing)**: now respects the backend-provided `STAMP`, tees all output to `$BACKUP_DIR/$STAMP/update.log` (live-streamed in the Admin UI), and after restart runs a post-update **health check** (polls `HEALTH_URL` = `/api/health`, up to ~60s). Every step (git fetch/reset, pip install, yarn build) is guarded — on any failure OR a failed health check with `AUTO_ROLLBACK=true`, it automatically invokes `restore.sh` to roll the site back to the pre-update snapshot (code + .env + MongoDB). Writes `result.json` `{status: success|failed|rolled_back, rolled_back, finished_at}` that the backend reports to the UI.
+- **Backend** (`routers/updates.py`): `/api/health` endpoint; `_launch_update_script` passes `STAMP/HEALTH_URL/AUTO_ROLLBACK`; `/admin/updates/status` reads the file-based `result.json`/`update.log`. Managed (Emergent) instances still return a simulated response so the pod is never destroyed; real execution only under `SELF_HOSTED=true`.
+- **UI** (`UpdatesTab.jsx`): new **"Auto-rollback if an update breaks the site"** toggle (`updates-autorollback`), a rolled-back banner + color-coded status in the log panel.
+- Verified: `/api/health`=200; config persists `auto_rollback`; apply returns managed simulation. Isolated self-hosted harness proved both the healthy path (`result:success`) and the broken path (health 500 → `restore.sh` runs → `result:rolled_back`, snapshot restored). Frontend toggle renders.
+
+
 ## 2026-06 — CRM Kanban pipeline + more Admin.jsx refactor
 - **CRM pipeline (Kanban)**: List/Pipeline toggle in the CRM tab; drag lead cards across 6 stage columns (new→…→won/lost) with live persistence (`PUT` on drop). New `GET /api/admin/crm/board` groups leads by stage.
 - **"New leads this week"**: `new_leads_week` added to `/admin/crm/stats`, surfaced on the Leads funnel card.

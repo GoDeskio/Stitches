@@ -8,7 +8,7 @@ const short = (s) => (s || "").slice(0, 10);
 
 export function UpdatesTab() {
   const [cfg, setCfg] = useState(null);
-  const [f, setF] = useState({ repo_url: "", branch: "main", token: "", enabled: true, auto_apply: false });
+  const [f, setF] = useState({ repo_url: "", branch: "main", token: "", enabled: true, auto_apply: false, auto_rollback: false });
   const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
   const [check, setCheck] = useState(null);
@@ -18,7 +18,7 @@ export function UpdatesTab() {
 
   const loadCfg = () => api.get("/admin/updates/config").then(({ data }) => {
     setCfg(data);
-    setF({ repo_url: data.repo_url, branch: data.branch, token: "", enabled: data.enabled, auto_apply: data.auto_apply });
+    setF({ repo_url: data.repo_url, branch: data.branch, token: "", enabled: data.enabled, auto_apply: data.auto_apply, auto_rollback: data.auto_rollback });
   });
   const loadBackups = () => api.get("/admin/updates/backups").then(({ data }) => setBackups(data.backups || [])).catch(() => {});
   const loadStatus = () => api.get("/admin/updates/status").then(({ data }) => {
@@ -132,9 +132,15 @@ export function UpdatesTab() {
           </p>
         </div>
 
-        {job && (job.logs?.length > 0) && (
+        {job && (job.logs?.length > 0 || job.status) && (
           <div className="mt-4">
-            <p className="text-xs font-semibold text-muted-stitch mb-1">Update log <span className="uppercase">· {job.status}</span></p>
+            {job.status === "rolled_back" && (
+              <div className="neu-pressed rounded-2xl p-4 mb-2 flex items-start gap-2.5" data-testid="updates-rolledback-banner">
+                <ShieldCheck className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
+                <p className="text-xs text-muted-stitch"><span className="font-semibold" style={{ color: "var(--text)" }}>Update rolled back automatically.</span> The new version failed its health check, so Stitches restored the last working snapshot (code + .env + database). Your site is back online.</p>
+              </div>
+            )}
+            <p className="text-xs font-semibold text-muted-stitch mb-1">Update log <span className={`uppercase ${job.status === "rolled_back" ? "text-amber-500" : job.status === "failed" ? "text-red-500" : job.status === "success" ? "text-green-500" : ""}`}>· {(job.status || "").replace("_", " ")}</span></p>
             <pre data-testid="updates-log" className="neu-pressed rounded-2xl p-4 text-[11px] font-mono-stitch overflow-auto max-h-56" style={{ color: "var(--text)" }}>{(job.logs || []).join("\n")}</pre>
           </div>
         )}
@@ -162,9 +168,13 @@ export function UpdatesTab() {
           <div className="flex flex-wrap gap-4 pt-1">
             <Toggle label="Enable update checks" testid="updates-enabled" on={f.enabled} onToggle={() => setF((p) => ({ ...p, enabled: !p.enabled }))} />
             <Toggle label="Auto-apply on new version (self-hosted only)" testid="updates-autoapply" on={f.auto_apply} onToggle={() => setF((p) => ({ ...p, auto_apply: !p.auto_apply }))} />
+            <Toggle label="Auto-rollback if an update breaks the site" testid="updates-autorollback" on={f.auto_rollback} onToggle={() => setF((p) => ({ ...p, auto_rollback: !p.auto_rollback }))} />
           </div>
           {f.auto_apply && !cfg.self_hosted && (
             <p className="text-xs text-amber-500 flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5" /> Auto-apply only runs on a self-hosted server (SELF_HOSTED=true). On this managed instance it just notifies you.</p>
+          )}
+          {f.auto_rollback && (
+            <p className="text-xs text-muted-stitch flex items-center gap-1.5" data-testid="updates-autorollback-hint"><ShieldCheck className="w-3.5 h-3.5 text-green-500" /> After each update the site is health-checked; if it fails, Stitches automatically restores the pre-update snapshot (code + .env + database).</p>
           )}
           <button data-testid="updates-save-btn" onClick={save} disabled={saving} className="neu-primary rounded-2xl px-6 py-3 font-semibold text-sm mt-2">{saving ? "Saving…" : "Save settings"}</button>
         </div>
