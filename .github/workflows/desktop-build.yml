@@ -25,6 +25,12 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Bake production URL into the client
+        if: ${{ vars.STITCHES_URL != '' }}
+        run: node -e "const fs=require('fs');let s=fs.readFileSync('main.js','utf8');s=s.replace(/process\.env\.STITCHES_URL \|\| \"[^\"]*\"/, 'process.env.STITCHES_URL || \"'+process.env.URL+'\"');fs.writeFileSync('main.js',s);console.log('Baked STITCHES_URL =',process.env.URL);"
+        env:
+          URL: ${{ vars.STITCHES_URL }}
+
       - name: Build installer
         run: npm run dist
         env:

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Users, Layers, FolderKanban, FolderOpen, Plug, MessagesSquare,
   ToggleRight, Search, Activity, Grid3x3, LayoutDashboard, Bell,
-  Download, Video, Plus, PhoneOff, Users as UsersIcon, Workflow, Megaphone, LifeBuoy, Mail, Check, ShieldCheck, Contact2, CreditCard, Tag, DownloadCloud,
+  Download, Video, Plus, PhoneOff, Users as UsersIcon, Workflow, Megaphone, LifeBuoy, Mail, Check, ShieldCheck, Contact2, CreditCard, Tag, DownloadCloud, AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import api, { API } from "@/lib/api";
@@ -825,6 +825,8 @@ function MeetingsTab() {
   const [savingSfu, setSavingSfu] = useState(false);
   const [smtp, setSmtp] = useState(null);
   const [savingSmtp, setSavingSmtp] = useState(false);
+  const [rtcTest, setRtcTest] = useState(null);
+  const [testing, setTesting] = useState(false);
   const load = () => api.get("/admin/meetings").then(({ data }) => setItems(data)).catch(() => setItems([]));
   useEffect(() => {
     load(); const t = setInterval(load, 10000);
@@ -883,6 +885,11 @@ function MeetingsTab() {
     try { await api.delete("/admin/smtp-config"); const { data } = await api.get("/admin/smtp-config"); setSmtp(data); toast.success("Email credentials cleared"); }
     catch (e) { toast.error("Failed to clear"); }
   };
+  const testRtc = async () => {
+    setTesting(true); setRtcTest(null);
+    try { const { data } = await api.post("/admin/rtc/test"); setRtcTest(data); toast.success("Connectivity test complete"); }
+    catch (e) { toast.error("Test failed"); } finally { setTesting(false); }
+  };
 
   if (!items || !turn || !sfu || !smtp) return <Loader />;
   return (
@@ -906,7 +913,14 @@ function MeetingsTab() {
           <input data-testid="turn-credential-input" type="password" value={turn.credential || ""} onChange={(e) => setTurn({ ...turn, credential: e.target.value })} placeholder={turn.has_credential ? "•••••• (saved)" : "credential"} className="neu-input rounded-2xl py-3 px-4 text-sm" />
         </div>
         <button data-testid="save-turn-btn" onClick={saveTurn} disabled={savingTurn} className="neu-primary rounded-2xl px-6 py-3 font-semibold mt-4">{savingTurn ? "Saving…" : "Save TURN server"}</button>
+        <button data-testid="test-turn-btn" onClick={testRtc} disabled={testing} className="neu-btn rounded-2xl px-6 py-3 font-semibold mt-4 ml-3 text-primary-stitch">{testing ? "Testing…" : "Test connectivity"}</button>
         <button data-testid="clear-turn-btn" onClick={clearTurn} className="neu-btn rounded-2xl px-6 py-3 font-semibold mt-4 ml-3 text-red-500">Clear credentials</button>
+        {rtcTest?.turn && (
+          <div data-testid="turn-test-result" className={`neu-pressed rounded-2xl p-3 mt-4 text-xs flex items-start gap-2 ${rtcTest.turn.ok ? "text-green-500" : "text-amber-500"}`}>
+            {rtcTest.turn.ok ? <Check className="w-4 h-4 mt-0.5 shrink-0" /> : <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />}
+            <span>{rtcTest.turn.detail}</span>
+          </div>
+        )}
       </div>
 
       <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="sfu-config-card">
@@ -925,7 +939,14 @@ function MeetingsTab() {
           <input data-testid="sfu-secret-input" type="password" value={sfu.api_secret || ""} onChange={(e) => setSfu({ ...sfu, api_secret: e.target.value })} placeholder={sfu.has_secret ? "•••••• (saved)" : "API secret"} className="neu-input rounded-2xl py-3 px-4 text-sm" />
         </div>
         <button data-testid="save-sfu-btn" onClick={saveSfu} disabled={savingSfu} className="neu-primary rounded-2xl px-6 py-3 font-semibold mt-4">{savingSfu ? "Saving…" : "Save SFU settings"}</button>
+        <button data-testid="test-sfu-btn" onClick={testRtc} disabled={testing} className="neu-btn rounded-2xl px-6 py-3 font-semibold mt-4 ml-3 text-primary-stitch">{testing ? "Testing…" : "Test connectivity"}</button>
         <button data-testid="clear-sfu-btn" onClick={clearSfu} className="neu-btn rounded-2xl px-6 py-3 font-semibold mt-4 ml-3 text-red-500">Clear credentials</button>
+        {rtcTest?.sfu && (
+          <div data-testid="sfu-test-result" className={`neu-pressed rounded-2xl p-3 mt-4 text-xs flex items-start gap-2 ${rtcTest.sfu.ok ? "text-green-500" : "text-amber-500"}`}>
+            {rtcTest.sfu.ok ? <Check className="w-4 h-4 mt-0.5 shrink-0" /> : <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />}
+            <span>{rtcTest.sfu.detail}</span>
+          </div>
+        )}
       </div>
 
       <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="smtp-config-card">

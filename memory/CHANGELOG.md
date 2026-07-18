@@ -1,5 +1,11 @@
 # Stitches Changelog
 
+## 2026-06 — SFU/TURN connectivity tester + CI URL baking
+- **"Test connectivity" tool** (Admin → Meetings): new `POST /api/admin/rtc/test` (admin) probes the saved config — LiveKit via HTTP reachability (wss→https) and TURN via DNS resolve + TCP connect — returning `{sfu:{ok,detail}, turn:{ok,detail}}`. Both the TURN and SFU cards gained a **Test connectivity** button (`test-turn-btn`/`test-sfu-btn`) with a green/amber result line (`turn-test-result`/`sfu-test-result`). De-risks the P1 post-deploy step: admins confirm reachability without starting a real call.
+  - Verified: unconfigured → clear guidance; reachable hosts (google.com:443 / https://google.com) → `ok:true` with details; frontend buttons render + fire (screenshot + toast).
+- **CI desktop build**: `desktop-build.yml` now bakes the production `STITCHES_URL` (repo variable) into `main.js` at build time so end-user installers connect to the right domain (runtime env isn't set on user machines). Triggers on `v*` tag push → builds Win/macOS/Linux → publishes a GitHub Release.
+
+
 ## 2026-06 — Rollback alerts + Admin.jsx UsersTab refactor + conferencing/desktop deploy artifacts
 - **Auto-rollback admin alert** (`routers/updates.py`): when an update finishes as `failed` or `rolled_back`, all admins get a one-time in-app notification ("Update auto-rolled back" / "Update failed") via `_alert_admins_job` (idempotent `alerted` flag), surfaced through `/admin/updates/status`.
 - **P2 refactor**: extracted `UsersTab` from the monolithic `Admin.jsx` into `src/pages/admin/UsersTab.jsx`, plus shared `src/pages/admin/UserBits.jsx` (`Avatar`, `RolePill`, `ActionBtn`). Removed the now-unused icon/auth imports from `Admin.jsx`. Verified: Users tab renders 18 rows with avatars, role pills, plan selects and all action buttons; zero regressions; clean compile.

@@ -1,6 +1,9 @@
 from fastapi import APIRouter
 from core import *
 from services.livekit import get_livekit_cfg
+import socket
+import asyncio
+import httpx
 
 router = APIRouter()
 
@@ -59,3 +62,60 @@ async def admin_set_rtc(request: Request, user: dict = Depends(require_admin)):
 async def admin_clear_rtc(user: dict = Depends(require_admin)):
     await db.settings.delete_one({"key": "turn"})
     return {"ok": True}
+
+
+async def _test_livekit(lk):
+    if not (lk.get("url") and lk.get("api_key") and lk.get("api_secret")):
+        return {"ok": False, "detail": "SFU not fully configured — enter URL, API key and secret, then Save before testing."}
+    url = lk["url"].strip().rstrip("/")
+    http = url.replace("wss://", "https://").replace("ws://", "http://")
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as h:
+            r = await h.get(http + "/")
+        # LiveKit answers a plain GET on / with 200 "OK".
+        return {"ok": r.status_code < 500, "detail": f"Reached LiveKit at {http} (HTTP {r.status_code})."}
+    except Exception as e:
+        return {"ok": False, "detail": f"Could not reach {http}: {type(e).__name__}. Check the URL, TLS and that the server is running."}
+
+
+def _test_turn_sync(turn):
+    urls = (turn.get("urls") or "").strip()
+    if not urls:
+        return {"ok": False, "detail": "No TURN server configured — calls use public STUN only."}
+    results = []
+    for raw in [u.strip() for u in urls.split(",") if u.strip()]:
+        base = raw.split("?")[0]
+        parts = base.split(":")
+        if len(parts) >= 3:
+            host, port = parts[1], parts[2]
+        elif len(parts) == 2:
+            host, port = parts[1], "3478"
+        else:
+            results.append(f"{raw}: unparseable (use turn:host:port)")
+            continue
+        try:
+            port_i = int(port)
+        except Exception:
+            port_i = 3478
+        try:
+            ip = socket.gethostbyname(host)
+        except Exception:
+            results.append(f"{raw}: DNS resolve FAILED for '{host}'")
+            continue
+        try:
+            s = socket.create_connection((ip, port_i), timeout=5)
+            s.close()
+            results.append(f"{raw}: {host} → {ip}, TCP {port_i} open ✔")
+        except Exception:
+            results.append(f"{raw}: {host} → {ip} resolves, but TCP {port_i} unreachable (UDP-only TURN can't be probed from the server — verify UDP/firewall)")
+    ok = any("✔" in r for r in results)
+    return {"ok": ok, "detail": " | ".join(results)}
+
+
+@router.post("/admin/rtc/test")
+async def admin_test_rtc(user: dict = Depends(require_admin)):
+    lk = await get_livekit_cfg()
+    turn = await _get_turn_cfg()
+    sfu_res = await _test_livekit(lk)
+    turn_res = await asyncio.to_thread(_test_turn_sync, turn)
+    return {"sfu": sfu_res, "turn": turn_res}
