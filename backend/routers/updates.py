@@ -59,6 +59,7 @@ async def _get_config() -> dict:
         "token": cfg.get("token", ""),
         "enabled": cfg.get("enabled", True),
         "auto_apply": cfg.get("auto_apply", False),
+        "auto_rollback": cfg.get("auto_rollback", False),
         "applied_sha": cfg.get("applied_sha", ""),
         "last_check": cfg.get("last_check"),
         "latest_sha": cfg.get("latest_sha", ""),
@@ -104,6 +105,11 @@ def _public_cfg(cfg: dict) -> dict:
     return c
 
 
+@router.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
 @router.get("/admin/updates/config")
 async def get_update_config(user: dict = Depends(require_admin)):
     return _public_cfg(await _get_config())
@@ -123,6 +129,8 @@ async def set_update_config(request: Request, user: dict = Depends(require_admin
         patch["enabled"] = bool(b.get("enabled"))
     if "auto_apply" in b:
         patch["auto_apply"] = bool(b.get("auto_apply"))
+    if "auto_rollback" in b:
+        patch["auto_rollback"] = bool(b.get("auto_rollback"))
     owner, repo = _parse_repo(patch.get("repo_url", (await _get_config())["repo_url"]))
     if not owner:
         raise HTTPException(status_code=400, detail="Enter a valid GitHub repository URL")
@@ -162,41 +170,54 @@ async def update_status(user: dict = Depends(require_admin)):
     job = await db.update_jobs.find_one({}, sort=[("started_at", -1)])
     if not job:
         return {"job": None}
+    stamp = job.get("stamp")
+    if stamp:
+        d = os.path.join(BACKUP_DIR, stamp)
+        lf = os.path.join(d, "update.log")
+        if os.path.exists(lf):
+            try:
+                with open(lf) as f:
+                    job["logs"] = f.read().splitlines()[-200:]
+            except Exception:
+                pass
+        rf = os.path.join(d, "result.json")
+        if os.path.exists(rf) and job.get("status") == "running":
+            try:
+                with open(rf) as f:
+                    res = json.load(f)
+                job["status"] = res.get("status", "success")
+                await db.update_jobs.update_one({"job_id": job["job_id"]},
+                    {"$set": {"status": job["status"], "rolled_back": res.get("rolled_back", False),
+                              "finished_at": res.get("finished_at", now_iso())}})
+            except Exception:
+                pass
     job.pop("_id", None)
     return {"job": job}
 
 
-async def _run_apply(job_id: str, cfg: dict):
-    async def logline(msg):
-        await db.update_jobs.update_one({"job_id": job_id}, {"$push": {"logs": f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] {msg}"}})
-
+def _launch_update_script(script: str, stamp: str, cfg: dict, extra_env: dict):
     env = os.environ.copy()
-    env["REPO_URL"] = cfg["repo_url"]
-    env["BRANCH"] = cfg["branch"]
-    env["REPO_TOKEN"] = cfg.get("token", "")
-    env["APP_DIR"] = APP_DIR
-    try:
-        await logline(f"Starting update from {cfg['repo_url']} ({cfg['branch']})")
-        proc = await asyncio.create_subprocess_exec(
-            "bash", UPDATE_SCRIPT,
-            cwd=APP_DIR, env=env,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
-        while True:
-            line = await proc.stdout.readline()
-            if not line:
-                break
-            await logline(line.decode(errors="ignore").rstrip()[:500])
-        rc = await proc.wait()
-        if rc == 0:
-            await _save_config({"applied_sha": _local_sha(), "update_available": False})
-            await db.update_jobs.update_one({"job_id": job_id}, {"$set": {"status": "success", "finished_at": now_iso()}})
-            await logline("Update complete ✔")
-        else:
-            await db.update_jobs.update_one({"job_id": job_id}, {"$set": {"status": "failed", "finished_at": now_iso()}})
-            await logline(f"Update failed (exit {rc})")
-    except Exception as e:
-        await db.update_jobs.update_one({"job_id": job_id}, {"$set": {"status": "failed", "finished_at": now_iso()}})
-        await logline(f"Error: {e}")
+    env.update({
+        "REPO_URL": cfg["repo_url"], "BRANCH": cfg["branch"], "REPO_TOKEN": cfg.get("token", ""),
+        "APP_DIR": APP_DIR, "BACKUP_DIR": BACKUP_DIR, "STAMP": stamp,
+        "AUTO_ROLLBACK": "true" if cfg.get("auto_rollback") else "false",
+        "HEALTH_URL": os.environ.get("HEALTH_URL", "http://localhost:8001/api/health"),
+    })
+    env.update(extra_env or {})
+    os.makedirs(os.path.join(BACKUP_DIR, stamp), exist_ok=True)
+    # Detached (own session) so the script survives the backend restart it triggers.
+    subprocess.Popen(["bash", script], cwd=APP_DIR, env=env,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+async def _start_apply(cfg: dict, started_by: str) -> str:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    job_id = f"upd_{uuid.uuid4().hex[:12]}"
+    await db.update_jobs.insert_one({"job_id": job_id, "status": "running", "logs": [], "type": "update",
+                                     "stamp": stamp, "repo_url": cfg["repo_url"], "branch": cfg["branch"],
+                                     "started_by": started_by, "started_at": now_iso(), "finished_at": None})
+    _launch_update_script(UPDATE_SCRIPT, stamp, cfg, {})
+    return job_id
 
 
 @router.post("/admin/updates/apply")
@@ -205,16 +226,11 @@ async def apply_update(user: dict = Depends(require_admin)):
     if not _is_self_hosted():
         return {"applied": False, "managed": True,
                 "message": "This instance runs on the Emergent platform, where deploys are managed for you. Use the platform's Deploy flow to ship updates. True auto-apply runs on a self-hosted server (set SELF_HOSTED=true)."}
-    running = await db.update_jobs.find_one({"status": "running"})
-    if running:
+    if await db.update_jobs.find_one({"status": "running"}):
         raise HTTPException(status_code=409, detail="An update is already in progress")
     if not os.path.exists(UPDATE_SCRIPT):
         raise HTTPException(status_code=400, detail="Update script missing (scripts/update.sh)")
-    job_id = f"upd_{uuid.uuid4().hex[:12]}"
-    await db.update_jobs.insert_one({"job_id": job_id, "status": "running", "logs": [],
-                                     "repo_url": cfg["repo_url"], "branch": cfg["branch"],
-                                     "started_by": user.get("email"), "started_at": now_iso(), "finished_at": None})
-    asyncio.create_task(_run_apply(job_id, cfg))
+    job_id = await _start_apply(cfg, user.get("email"))
     await log_activity(user["user_id"], "update_apply", {"repo": cfg["repo_url"]})
     return {"applied": True, "job_id": job_id}
 
@@ -223,7 +239,6 @@ async def scan_updates():
     cfg = await _get_config()
     if not cfg.get("enabled"):
         return
-    # throttle: at most once per ~25 minutes
     last = cfg.get("last_check")
     if last:
         try:
@@ -240,21 +255,15 @@ async def scan_updates():
     except Exception:
         return
     if res["update_available"] and not was_available:
-        # notify admins
         async for a in db.users.find({"role": "admin"}, {"user_id": 1}):
             try:
                 await create_notification(a["user_id"], "system", "New site version available",
                                           res["latest"]["message"] or "A new version is ready to install.", "/admin")
             except Exception:
                 pass
-        if cfg.get("auto_apply") and _is_self_hosted():
-            # trigger apply directly
-            if not await db.update_jobs.find_one({"status": "running"}) and os.path.exists(UPDATE_SCRIPT):
-                job_id = f"upd_{uuid.uuid4().hex[:12]}"
-                await db.update_jobs.insert_one({"job_id": job_id, "status": "running", "logs": [],
-                                                 "repo_url": cfg["repo_url"], "branch": cfg["branch"],
-                                                 "started_by": "auto", "started_at": now_iso(), "finished_at": None})
-                asyncio.create_task(_run_apply(job_id, cfg))
+        if cfg.get("auto_apply") and _is_self_hosted() and os.path.exists(UPDATE_SCRIPT):
+            if not await db.update_jobs.find_one({"status": "running"}):
+                await _start_apply(cfg, "auto")
 
 
 # ---------------- Backups & rollback ----------------
