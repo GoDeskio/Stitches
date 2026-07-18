@@ -1,5 +1,10 @@
 # Stitches Changelog
 
+## 2026-06 — In-app Resend domain setup + live verification
+- **Resend DNS/verification helper** (Admin → Email → "Resend domain setup"): new `GET /api/admin/resend/dns` pulls the sender domain's DKIM/SPF records + verification status **live from the Resend API**, and `POST /api/admin/resend/verify` triggers Resend's verify. The card (`resend-setup-card`) shows a status badge (Verified/Pending/Failed/Not started), each record's type/host/value with copy buttons + per-record status dots, and Refresh/Verify buttons — so admins complete the DNS step and confirm delivery without leaving Stitches.
+- Verified live against the real Resend account: returns the account domain + 3 records (DKIM TXT, SPF MX, SPF TXT) with correct values; UI renders all rows, badge and buttons; clean compile.
+
+
 ## 2026-06 — Pre-join call connectivity check
 - **Network self-check on `/call`** (`Call.jsx` → `probeIce`): before joining a P2P room, the client runs a WebRTC ICE-gathering probe against the fetched `iceServers`. If a TURN server is configured it verifies a `relay` candidate is obtained; otherwise it checks for a STUN (`srflx`) candidate. Shows a dismissible amber/red warning banner (`call-net-warning`) when the network may block calls, or a subtle green "network good" line (`call-net-ok`) — so bad-network users get a heads-up instead of a frozen call.
 - Verified in-browser: sandbox (STUN reachable, no TURN) → green "Network looks good for peer-to-peer calls"; warn/fail paths covered logically. Clean compile.

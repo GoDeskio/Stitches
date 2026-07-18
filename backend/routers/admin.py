@@ -5,6 +5,7 @@ from services.site import get_site_config
 from services.email import send_email_detailed
 from services.digest import get_digest_config, save_digest_config, send_digest_now, send_report_now, render_digest, get_digest_history
 from models import *
+import httpx
 
 router = APIRouter()
 
@@ -391,6 +392,71 @@ async def admin_test_email(request: Request, user: dict = Depends(require_admin)
             "<p>If you're reading this, your email delivery is working. 🎉</p></div>")
     ok, detail = await send_email_detailed(to, "Stitches test email", html)
     return {"ok": ok, "detail": detail, "to": to}
+
+
+# ---------------- Resend domain DNS / verification helper ----------------
+async def _resend_sender_domain() -> str:
+    doc = await db.settings.find_one({"key": "email_provider"})
+    sender = ((doc or {}).get("value", {}) or {}).get("sender", "") or os.environ.get("SENDER_EMAIL", "")
+    return sender.split("@")[-1].strip().lower() if "@" in sender else sender.strip().lower()
+
+
+async def _resend_get(path: str, method: str = "GET"):
+    key = os.environ.get("RESEND_API_KEY", "")
+    if not key:
+        return None, "Resend API key is not configured on the server (RESEND_API_KEY)."
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as h:
+            r = await h.request(method, f"https://api.resend.com{path}", headers={"Authorization": f"Bearer {key}"})
+        if r.status_code >= 400:
+            return None, f"Resend API error {r.status_code}: {r.text[:200]}"
+        return r.json(), None
+    except Exception as e:
+        return None, f"Could not reach Resend: {type(e).__name__}"
+
+
+async def _find_resend_domain():
+    domain = await _resend_sender_domain()
+    listing, err = await _resend_get("/domains")
+    if err:
+        return None, domain, err
+    items = listing.get("data", listing) if isinstance(listing, dict) else listing
+    match = next((d for d in (items or []) if (d.get("name", "").lower() == domain)), None)
+    if not match and items:
+        match = items[0]
+    if not match:
+        return None, domain, "No domains found in your Resend account — add your domain at resend.com/domains."
+    detail, err2 = await _resend_get(f"/domains/{match['id']}")
+    if err2:
+        return match, domain, err2
+    return detail, domain, None
+
+
+@router.get("/admin/resend/dns")
+async def admin_resend_dns(user: dict = Depends(require_admin)):
+    d, domain, err = await _find_resend_domain()
+    if err and not d:
+        return {"ok": False, "error": err, "domain": domain, "records": [], "status": "unknown"}
+    records = [{
+        "record": r.get("record", ""), "type": r.get("type", ""), "name": r.get("name", ""),
+        "value": r.get("value", ""), "priority": r.get("priority"), "ttl": r.get("ttl", "Auto"),
+        "status": (r.get("status") or "").lower(),
+    } for r in (d.get("records") or [])]
+    status = (d.get("status") or "").lower()
+    return {"ok": True, "domain": d.get("name", domain), "domain_id": d.get("id"),
+            "status": status, "verified": status == "verified", "records": records,
+            "note": err}
+
+
+@router.post("/admin/resend/verify")
+async def admin_resend_verify(user: dict = Depends(require_admin)):
+    d, domain, err = await _find_resend_domain()
+    if not d or not d.get("id"):
+        raise HTTPException(status_code=400, detail=err or "No Resend domain to verify")
+    _, verr = await _resend_get(f"/domains/{d['id']}/verify", method="POST")
+    if verr:
+        raise HTTPException(status_code=400, detail=verr)
+    return {"ok": True, "domain": d.get("name", domain)}
 
 
 # ---------------- Weekly / scheduled admin digest email ----------------

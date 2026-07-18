@@ -7,6 +7,7 @@ export function EmailTab() {
   return (
     <div className="space-y-6" data-testid="email-tab">
       <EmailSetupWizard />
+      <ResendSetupCard />
       <EmailAnalyticsCard />
       <TestEmailCard />
       <DigestCard />
@@ -26,6 +27,79 @@ function CopyRow({ value, testid }) {
     <div className="neu-pressed rounded-xl flex items-center gap-2 pl-3 pr-1.5 py-1.5 mt-1">
       <span data-testid={testid} className="font-mono-stitch text-xs break-all flex-1" style={{ color: "var(--text)" }}>{value}</span>
       <button data-testid={`${testid}-copy`} onClick={copy} className="neu-btn rounded-lg px-3 py-1.5 text-xs font-semibold text-primary-stitch shrink-0">{copied ? "Copied ✓" : "Copy"}</button>
+    </div>
+  );
+}
+
+function ResendSetupCard() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try { const { data } = await api.get("/admin/resend/dns"); setData(data); }
+    catch (e) { setData({ ok: false, error: "Could not load Resend status", records: [] }); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const verify = async () => {
+    setVerifying(true);
+    try { await api.post("/admin/resend/verify"); toast.success("Verification requested — DNS can take a few minutes"); setTimeout(load, 2500); }
+    catch (e) { toast.error(e?.response?.data?.detail || "Verify failed"); }
+    finally { setVerifying(false); }
+  };
+
+  if (!data) return null;
+  const badge = (() => {
+    const s = data.status;
+    if (data.verified || s === "verified") return { t: "Verified ✓", c: "text-green-500", bg: "#16a34a" };
+    if (s === "pending") return { t: "Pending — DNS propagating", c: "text-amber-500", bg: "#f59e0b" };
+    if (s === "failure") return { t: "Failed — records not found", c: "text-red-400", bg: "#ef4444" };
+    if (s === "not_started") return { t: "Not started — add the records below", c: "text-muted-stitch", bg: "#9ca3af" };
+    return { t: data.error ? "Unavailable" : (s || "unknown"), c: "text-muted-stitch", bg: "#9ca3af" };
+  })();
+
+  return (
+    <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="resend-setup-card">
+      <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center"><Mail className="w-5 h-5 text-primary-stitch" /></div>
+          <div>
+            <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Resend domain setup</h3>
+            <p className="text-sm text-muted-stitch">Add these DNS records at your registrar to make email deliver from <span className="font-mono-stitch" data-testid="resend-domain">{data.domain || "your domain"}</span>.</p>
+          </div>
+        </div>
+        <span data-testid="resend-status-badge" className={`text-sm font-semibold px-3 py-1.5 rounded-full ${badge.c}`} style={{ background: "var(--neu-dark)" }}>{badge.t}</span>
+      </div>
+
+      {data.error && <p className="text-xs text-amber-500 mt-3" data-testid="resend-error">{data.error}</p>}
+
+      {data.records && data.records.length > 0 && (
+        <div className="mt-4 space-y-2" data-testid="resend-records">
+          {data.records.map((r, i) => (
+            <div key={i} data-testid="resend-record-row" className="neu-pressed rounded-2xl px-4 py-3">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: r.status === "verified" ? "#16a34a" : "#f59e0b", boxShadow: `0 0 8px ${r.status === "verified" ? "#16a34a" : "#f59e0b"}` }} />
+                <span className="text-xs font-bold uppercase tracking-wide" style={{ color: "var(--text)" }}>{r.record || r.type}</span>
+                <span className="text-[11px] text-muted-stitch">· {r.type}{r.priority != null ? ` · priority ${r.priority}` : ""} · TTL {r.ttl}</span>
+                <span className={`ml-auto text-[11px] font-bold ${r.status === "verified" ? "text-green-500" : "text-amber-500"}`}>{r.status || "pending"}</span>
+              </div>
+              <p className="text-[11px] text-muted-stitch mb-0.5">Host / Name</p>
+              <CopyRow value={r.name} testid={`resend-rec-name-${i}`} />
+              <p className="text-[11px] text-muted-stitch mb-0.5 mt-2">Value</p>
+              <CopyRow value={r.value} testid={`resend-rec-value-${i}`} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-4 flex items-center gap-3 flex-wrap">
+        <button data-testid="resend-refresh-btn" onClick={load} disabled={loading} className="neu-btn rounded-2xl px-6 py-3 font-semibold text-primary-stitch">{loading ? "Checking…" : "Refresh status"}</button>
+        <button data-testid="resend-verify-btn" onClick={verify} disabled={verifying || !data.domain_id} className="neu-primary rounded-2xl px-6 py-3 font-semibold">{verifying ? "Verifying…" : "Verify now"}</button>
+      </div>
+      <p className="text-xs text-muted-stitch mt-3">After the badge shows <span className="text-green-500 font-semibold">Verified ✓</span>, use “Test email delivery” below to confirm end-to-end. Records are pulled live from your Resend account.</p>
     </div>
   );
 }
