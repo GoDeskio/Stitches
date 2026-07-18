@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Users, Layers, FolderKanban, FolderOpen, Plug, MessagesSquare, Shield,
   ToggleRight, Search, Activity, Grid3x3, LayoutDashboard, KeyRound, LogIn, BadgeCheck, Bell,
-  Ban, UserCheck, Download, Video, Plus, PhoneOff, Users as UsersIcon, Workflow, Megaphone, LifeBuoy, Mail, Check, ShieldCheck, Contact2, CreditCard, Tag,
+  Ban, UserCheck, Download, Video, Plus, PhoneOff, Users as UsersIcon, Workflow, Megaphone, LifeBuoy, Mail, Check, ShieldCheck, Contact2, CreditCard, Tag, DownloadCloud,
 } from "lucide-react";
 import { toast } from "sonner";
 import api, { API } from "@/lib/api";
@@ -14,6 +14,7 @@ import MeetingLaunchButtons from "@/components/MeetingLaunchButtons";
 import { CrmTab } from "@/pages/admin/CrmTab";
 import { PaymentsTab } from "@/pages/admin/PaymentsTab";
 import { PlansTab } from "@/pages/admin/PlansTab";
+import { UpdatesTab } from "@/pages/admin/UpdatesTab";
 import { EmailTab } from "@/pages/admin/EmailTab";
 import { StatCard } from "@/pages/admin/StatCard";
 import { SiteNoteTab } from "@/pages/admin/SiteNoteTab";
@@ -45,7 +46,25 @@ const TABS = [
   { id: "sitenote", label: "Site Note", icon: Megaphone },
   { id: "support", label: "Support", icon: LifeBuoy },
   { id: "meetings", label: "Meetings", icon: Video },
+  { id: "updates", label: "Updates", icon: DownloadCloud },
 ];
+
+function UpdateBanner({ onGo }) {
+  const [avail, setAvail] = useState(false);
+  useEffect(() => {
+    api.get("/admin/updates/available").then(({ data }) => setAvail(!!data.update_available)).catch(() => {});
+  }, []);
+  if (!avail) return null;
+  return (
+    <div data-testid="admin-update-banner" className="neu-raised rounded-2xl px-5 py-3.5 mb-4 flex items-center justify-between gap-3 animate-fade-up" style={{ borderLeft: "4px solid var(--primary)" }}>
+      <div className="flex items-center gap-3">
+        <DownloadCloud className="w-5 h-5 text-primary-stitch shrink-0" />
+        <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>A new version of your site is available.</p>
+      </div>
+      <button data-testid="admin-update-banner-btn" onClick={onGo} className="neu-primary rounded-xl px-4 py-2 text-sm font-semibold shrink-0">Review &amp; update</button>
+    </div>
+  );
+}
 
 function EmailHealthBadge() {
   const [health, setHealth] = useState(null);
@@ -79,6 +98,7 @@ export default function Admin() {
   }, [tab]);
   return (
     <PageShell>
+      <UpdateBanner onGo={() => setTab("updates")} />
       <div className="flex items-start justify-between gap-4 flex-wrap mb-2" data-testid="admin-call-bar">
         <PageHeader title="Admin Dashboard" subtitle="Full control over Stitches — members, features, SEO, monitoring and activity heat maps." />
         <div className="pt-1 flex items-center gap-3"><EmailHealthBadge /><MeetingLaunchButtons /></div>
@@ -106,6 +126,7 @@ export default function Admin() {
       {tab === "crm" && <CrmTab />}
       {tab === "payments" && <PaymentsTab />}
       {tab === "plans" && <PlansTab />}
+      {tab === "updates" && <UpdatesTab />}
       {tab === "email" && <EmailTab />}
       {tab === "sitenote" && <SiteNoteTab />}
       {tab === "support" && <SupportTab />}

@@ -9,12 +9,14 @@ from routers import auth, users, messaging, projects, assets, integrations, ai, 
 from routers import gmail_oauth
 from routers import crm
 from routers import payments
+from routers import updates
 from services.digest import scan_digest
 from routers.payments import scan_subscription_renewals
+from routers.updates import scan_updates
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
-for _mod in (auth, users, messaging, projects, assets, integrations, ai, admin, meetings, rtc_config, sfu_config, smtp_config, gmail_oauth, crm, payments):
+for _mod in (auth, users, messaging, projects, assets, integrations, ai, admin, meetings, rtc_config, sfu_config, smtp_config, gmail_oauth, crm, payments, updates):
     api_router.include_router(_mod.router)
 
 
@@ -131,6 +133,7 @@ async def _reminder_loop():
             await scan_meeting_reminders()
             await scan_digest()
             await scan_subscription_renewals()
+            await scan_updates()
         except Exception as e:
             logger.warning(f"reminder scan failed: {e}")
         await asyncio.sleep(1800)
