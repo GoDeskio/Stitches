@@ -1,5 +1,12 @@
 # Stitches Changelog
 
+## 2026-06 — Rollback alerts + Admin.jsx UsersTab refactor + conferencing/desktop deploy artifacts
+- **Auto-rollback admin alert** (`routers/updates.py`): when an update finishes as `failed` or `rolled_back`, all admins get a one-time in-app notification ("Update auto-rolled back" / "Update failed") via `_alert_admins_job` (idempotent `alerted` flag), surfaced through `/admin/updates/status`.
+- **P2 refactor**: extracted `UsersTab` from the monolithic `Admin.jsx` into `src/pages/admin/UsersTab.jsx`, plus shared `src/pages/admin/UserBits.jsx` (`Avatar`, `RolePill`, `ActionBtn`). Removed the now-unused icon/auth imports from `Admin.jsx`. Verified: Users tab renders 18 rows with avatars, role pills, plan selects and all action buttons; zero regressions; clean compile.
+- **P1 deploy artifacts** (`/app/deploy/`): `docker-compose.yml` (LiveKit SFU + coturn TURN), `livekit.yaml`, `.env.example`, `README.md` with step-by-step setup + Admin → Meetings wiring. Enables real SFU/TURN on self-hosted infra (media path untestable in the managed preview, ships gated OFF). Confirmed `/api/rtc/config` + `/api/rtc/sfu-token` behave correctly (400 while disabled).
+- **P3 desktop wrapper** (`/app/desktop/main.js`): added WebRTC media permissions (camera/mic/notifications) + screen-share via `setDisplayMediaRequestHandler`/`desktopCapturer`, and a system tray, so the Electron client's audio/video meetings work. Installers still built via CI outside the sandbox.
+
+
 ## 2026-06 — Self-healing auto-rollback for the Software Update Center (COMPLETE)
 - **update.sh (self-healing)**: now respects the backend-provided `STAMP`, tees all output to `$BACKUP_DIR/$STAMP/update.log` (live-streamed in the Admin UI), and after restart runs a post-update **health check** (polls `HEALTH_URL` = `/api/health`, up to ~60s). Every step (git fetch/reset, pip install, yarn build) is guarded — on any failure OR a failed health check with `AUTO_ROLLBACK=true`, it automatically invokes `restore.sh` to roll the site back to the pre-update snapshot (code + .env + MongoDB). Writes `result.json` `{status: success|failed|rolled_back, rolled_back, finished_at}` that the backend reports to the UI.
 - **Backend** (`routers/updates.py`): `/api/health` endpoint; `_launch_update_script` passes `STAMP/HEALTH_URL/AUTO_ROLLBACK`; `/admin/updates/status` reads the file-based `result.json`/`update.log`. Managed (Emergent) instances still return a simulated response so the pod is never destroyed; real execution only under `SELF_HOSTED=true`.

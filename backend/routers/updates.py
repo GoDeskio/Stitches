@@ -189,10 +189,30 @@ async def update_status(user: dict = Depends(require_admin)):
                 await db.update_jobs.update_one({"job_id": job["job_id"]},
                     {"$set": {"status": job["status"], "rolled_back": res.get("rolled_back", False),
                               "finished_at": res.get("finished_at", now_iso())}})
+                await _alert_admins_job(job, res.get("rolled_back", False))
             except Exception:
                 pass
     job.pop("_id", None)
     return {"job": job}
+
+
+async def _alert_admins_job(job: dict, rolled_back: bool):
+    if job.get("alerted") or job.get("type") != "update":
+        return
+    if job.get("status") not in ("failed", "rolled_back"):
+        return
+    if rolled_back:
+        title = "Update auto-rolled back"
+        msg = "A site update failed its health check and was automatically rolled back to the previous working version. Your site is back online."
+    else:
+        title = "Update failed"
+        msg = "A site update did not complete successfully and was NOT rolled back. Review the update log in Admin → Updates."
+    async for a in db.users.find({"role": "admin"}, {"user_id": 1}):
+        try:
+            await create_notification(a["user_id"], "system", title, msg, "/admin")
+        except Exception:
+            pass
+    await db.update_jobs.update_one({"job_id": job["job_id"]}, {"$set": {"alerted": True}})
 
 
 def _launch_update_script(script: str, stamp: str, cfg: dict, extra_env: dict):

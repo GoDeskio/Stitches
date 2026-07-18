@@ -1,0 +1,14 @@
+# LiveKit SFU config for Stitches self-hosted conferencing.
+# Keys are injected from the LIVEKIT_KEYS env var in docker-compose (api_key:api_secret).
+port: 7880
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 60000
+  use_external_ip: true
+# For production, terminate wss:// via a reverse proxy (Caddy/Nginx) with TLS,
+# or set turn.enabled + a cert here. Public UDP ports must be open on the host/firewall.
+turn:
+  enabled: false
+logging:
+  level: info
