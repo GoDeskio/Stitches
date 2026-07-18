@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import uuid
 import asyncio
 import subprocess
@@ -13,6 +14,8 @@ router = APIRouter()
 APP_DIR = os.environ.get("APP_DIR", "/app")
 DEFAULT_REPO = "https://github.com/GoDeskio/Stitches.git"
 UPDATE_SCRIPT = os.path.join(APP_DIR, "scripts", "update.sh")
+RESTORE_SCRIPT = os.path.join(APP_DIR, "scripts", "restore.sh")
+BACKUP_DIR = os.environ.get("BACKUP_DIR", os.path.join(APP_DIR, "backups"))
 
 
 def _is_self_hosted() -> bool:
@@ -252,3 +255,72 @@ async def scan_updates():
                                                  "repo_url": cfg["repo_url"], "branch": cfg["branch"],
                                                  "started_by": "auto", "started_at": now_iso(), "finished_at": None})
                 asyncio.create_task(_run_apply(job_id, cfg))
+
+
+# ---------------- Backups & rollback ----------------
+@router.get("/admin/updates/backups")
+async def list_backups(user: dict = Depends(require_admin)):
+    items = []
+    if os.path.isdir(BACKUP_DIR):
+        for name in sorted(os.listdir(BACKUP_DIR), reverse=True):
+            d = os.path.join(BACKUP_DIR, name)
+            if not os.path.isdir(d):
+                continue
+            man = {"stamp": name, "created_at": "", "pre_sha": "", "has_db": False}
+            mf = os.path.join(d, "manifest.json")
+            if os.path.exists(mf):
+                try:
+                    with open(mf) as f:
+                        man.update(json.load(f))
+                except Exception:
+                    pass
+            man["has_env"] = os.path.exists(os.path.join(d, "backend", ".env"))
+            items.append(man)
+    return {"backups": items[:50], "self_hosted": _is_self_hosted()}
+
+
+async def _run_restore(job_id: str, stamp: str):
+    async def logline(msg):
+        await db.update_jobs.update_one({"job_id": job_id}, {"$push": {"logs": f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] {msg}"}})
+    env = os.environ.copy()
+    env["STAMP"] = stamp
+    env["APP_DIR"] = APP_DIR
+    env["BACKUP_DIR"] = BACKUP_DIR
+    try:
+        await logline(f"Restoring from backup {stamp}")
+        proc = await asyncio.create_subprocess_exec(
+            "bash", RESTORE_SCRIPT, cwd=APP_DIR, env=env,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+        while True:
+            line = await proc.stdout.readline()
+            if not line:
+                break
+            await logline(line.decode(errors="ignore").rstrip()[:500])
+        rc = await proc.wait()
+        status = "success" if rc == 0 else "failed"
+        if rc == 0:
+            await _save_config({"applied_sha": _local_sha(), "update_available": False})
+        await db.update_jobs.update_one({"job_id": job_id}, {"$set": {"status": status, "finished_at": now_iso()}})
+        await logline("Restore complete ✔" if rc == 0 else f"Restore failed (exit {rc})")
+    except Exception as e:
+        await db.update_jobs.update_one({"job_id": job_id}, {"$set": {"status": "failed", "finished_at": now_iso()}})
+        await logline(f"Error: {e}")
+
+
+@router.post("/admin/updates/restore/{stamp}")
+async def restore_backup(stamp: str, user: dict = Depends(require_admin)):
+    if not re.fullmatch(r"[0-9_]+", stamp) or not os.path.isdir(os.path.join(BACKUP_DIR, stamp)):
+        raise HTTPException(status_code=404, detail="Backup not found")
+    if not _is_self_hosted():
+        return {"restored": False, "managed": True,
+                "message": "Rollback runs on a self-hosted server (SELF_HOSTED=true). On this managed instance, use the platform's rollback/deploy tools."}
+    if await db.update_jobs.find_one({"status": "running"}):
+        raise HTTPException(status_code=409, detail="An update/restore is already in progress")
+    if not os.path.exists(RESTORE_SCRIPT):
+        raise HTTPException(status_code=400, detail="Restore script missing (scripts/restore.sh)")
+    job_id = f"rst_{uuid.uuid4().hex[:12]}"
+    await db.update_jobs.insert_one({"job_id": job_id, "status": "running", "logs": [], "type": "restore",
+                                     "stamp": stamp, "started_by": user.get("email"), "started_at": now_iso(), "finished_at": None})
+    asyncio.create_task(_run_restore(job_id, stamp))
+    await log_activity(user["user_id"], "update_restore", {"stamp": stamp})
+    return {"restored": True, "job_id": job_id}

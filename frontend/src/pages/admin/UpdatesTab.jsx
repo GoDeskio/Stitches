@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { Loader } from "@/components/Stitch";
-import { DownloadCloud, RefreshCw, GitBranch, Github, CheckCircle2, AlertTriangle, Server, ShieldCheck } from "lucide-react";
+import { DownloadCloud, RefreshCw, GitBranch, Github, CheckCircle2, AlertTriangle, Server, ShieldCheck, History } from "lucide-react";
 
 const short = (s) => (s || "").slice(0, 10);
 
@@ -13,19 +13,30 @@ export function UpdatesTab() {
   const [checking, setChecking] = useState(false);
   const [check, setCheck] = useState(null);
   const [job, setJob] = useState(null);
+  const [backups, setBackups] = useState([]);
   const poll = useRef(null);
 
   const loadCfg = () => api.get("/admin/updates/config").then(({ data }) => {
     setCfg(data);
     setF({ repo_url: data.repo_url, branch: data.branch, token: "", enabled: data.enabled, auto_apply: data.auto_apply });
   });
+  const loadBackups = () => api.get("/admin/updates/backups").then(({ data }) => setBackups(data.backups || [])).catch(() => {});
   const loadStatus = () => api.get("/admin/updates/status").then(({ data }) => {
     setJob(data.job);
     if (data.job && data.job.status === "running" && !poll.current) startPoll();
-    if (data.job && data.job.status !== "running") stopPoll();
+    if (data.job && data.job.status !== "running") { stopPoll(); loadBackups(); }
   }).catch(() => {});
 
-  useEffect(() => { loadCfg(); loadStatus(); return () => stopPoll(); }, []);
+  useEffect(() => { loadCfg(); loadStatus(); loadBackups(); return () => stopPoll(); }, []);
+
+  const restore = async (stamp) => {
+    if (!window.confirm(`Roll back the site to backup ${stamp}? This restores code, .env and the database from that snapshot.`)) return;
+    try {
+      const { data } = await api.post(`/admin/updates/restore/${stamp}`);
+      if (data.managed) { toast.info("Rollback is available on self-hosted servers"); setJob({ status: "managed", logs: [data.message] }); return; }
+      toast.success("Restore started"); startPoll(); loadStatus();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Restore failed"); }
+  };
 
   const startPoll = () => { if (poll.current) return; poll.current = setInterval(loadStatus, 2500); };
   const stopPoll = () => { if (poll.current) { clearInterval(poll.current); poll.current = null; } };
@@ -157,6 +168,37 @@ export function UpdatesTab() {
           )}
           <button data-testid="updates-save-btn" onClick={save} disabled={saving} className="neu-primary rounded-2xl px-6 py-3 font-semibold text-sm mt-2">{saving ? "Saving…" : "Save settings"}</button>
         </div>
+      </div>
+
+      {/* Backups & rollback */}
+      <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="updates-backups">
+        <div className="flex items-center gap-3 mb-1">
+          <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center"><History className="w-5 h-5 text-primary-stitch" /></div>
+          <div>
+            <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Backups &amp; rollback</h3>
+            <p className="text-sm text-muted-stitch">A snapshot (code + .env + database) is saved before every update. Roll back with one click.</p>
+          </div>
+        </div>
+        {backups.length === 0 ? (
+          <p className="text-sm text-muted-stitch py-6 text-center">No backups yet. One is created automatically the first time you apply an update.</p>
+        ) : (
+          <div className="space-y-2 mt-4">
+            {backups.map((b) => (
+              <div key={b.stamp} data-testid="backup-row" className="neu-pressed rounded-2xl px-4 py-3 flex items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>{b.created_at ? new Date(b.created_at).toLocaleString() : b.stamp}</p>
+                  <p className="text-[11px] text-muted-stitch font-mono-stitch">
+                    {short(b.pre_sha) || "—"}
+                    {b.has_db && <span className="ml-2 text-green-500">DB ✓</span>}
+                    {b.has_env && <span className="ml-2 text-green-500">.env ✓</span>}
+                  </p>
+                </div>
+                <button data-testid="backup-restore-btn" onClick={() => restore(b.stamp)} disabled={job?.status === "running"}
+                  className="neu-btn rounded-xl px-4 py-2 text-sm font-semibold text-primary-stitch shrink-0 disabled:opacity-50">Restore</button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -132,3 +132,9 @@
 - **True auto-apply for self-hosted** (`scripts/update.sh`): git fetch + reset to origin/branch, install deps, build frontend, restart via supervisor. GUARDED: only runs when SELF_HOSTED=true (or no .emergent dir); on the managed Emergent preview, Apply returns a "deploys managed by platform" message instead of running destructive commands.
 - **DATA PERSISTENCE THROUGH UPDATES (guaranteed)**: updates replace code ONLY. MongoDB (all user/admin/site data) is a separate service — untouched. `.env` files are git-ignored AND explicitly backed-up/restored around each update. Uploads use external object storage. Script never runs `git clean` (untracked files preserved) and takes a best-effort mongodump to backups/ before applying. Surfaced in the UI as a green "Your data is safe" note. Endpoints: GET/POST /api/admin/updates/config, POST /api/admin/updates/check, /apply, GET /status, /available.
 - Verified: backend curl (config save/mask/persist, invalid-repo 400, check vs GoDesk repo, apply managed-guard) + frontend screenshots (tab renders, check works, data-safety note).
+
+## Implemented (2026-06-18) — One-click Restore from backup (update rollback)
+- `scripts/update.sh` now records a restore manifest before each update (pre-update git sha, branch, repo, has_db) alongside the .env + mongodump snapshot.
+- New `scripts/restore.sh`: rolls code back to the recorded sha, restores .env files, and restores MongoDB (mongorestore --drop) from the snapshot, then rebuilds + restarts.
+- Backend `routers/updates.py`: GET /api/admin/updates/backups (lists snapshots via manifest), POST /api/admin/updates/restore/{stamp} (self-hosted only; managed preview returns a safe message; validates stamp; 404 on missing; shares update_jobs status/log polling).
+- Admin → Updates now has a **Backups & rollback** section listing each snapshot (date, pre-sha, DB/.env badges) with a one-click Restore. Verified: list, managed-guard message, 404 on bad stamp, UI render.
