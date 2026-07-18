@@ -1,11 +1,56 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
-import { Mic, MicOff, Video, VideoOff, MonitorUp, PhoneOff, Copy, Users, Hand, MessageSquare, Send, X, Loader2 } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, MonitorUp, PhoneOff, Copy, Users, Hand, MessageSquare, Send, X, Loader2, AlertTriangle, Wifi } from "lucide-react";
 import { toast } from "sonner";
 import api, { API } from "@/lib/api";
 import SfuCall from "@/pages/SfuCall";
 
 const ICE = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:global.stun.twilio.com:3478" }];
+
+// Client-side pre-join connectivity self-check using WebRTC ICE gathering.
+// Detects networks that will block calls before the user joins.
+function probeIce(iceServers, timeoutMs = 6000) {
+  return new Promise((resolve) => {
+    let pc;
+    try { pc = new RTCPeerConnection({ iceServers, iceCandidatePoolSize: 1 }); }
+    catch { return resolve({ level: "warn", detail: "WebRTC is unavailable in this browser." }); }
+    const types = new Set();
+    let done = false;
+    const hasTurn = (iceServers || []).some((s) => {
+      const u = Array.isArray(s.urls) ? s.urls.join(",") : String(s.urls || "");
+      return u.includes("turn:") || u.includes("turns:");
+    });
+    const finish = () => {
+      if (done) return; done = true;
+      try { pc.close(); } catch {}
+      const relay = types.has("relay"), srflx = types.has("srflx"), host = types.has("host");
+      if (hasTurn) {
+        if (relay) resolve({ level: "ok", detail: "TURN relay reachable — calls should connect on any network." });
+        else if (srflx) resolve({ level: "warn", detail: "TURN relay didn't respond; you may fail to connect behind strict firewalls." });
+        else resolve({ level: "fail", detail: "No network candidates found — this network may block calls." });
+      } else if (srflx) {
+        resolve({ level: "ok", detail: "Network looks good for peer-to-peer calls." });
+      } else if (host) {
+        resolve({ level: "warn", detail: "STUN didn't respond; calls may fail behind strict firewalls (ask an admin to add a TURN server)." });
+      } else {
+        resolve({ level: "fail", detail: "No network candidates found — this network may block calls." });
+      }
+    };
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        const m = (e.candidate.candidate || "").match(/ typ (\w+)/);
+        if (m) types.add(m[1]);
+        if (types.has("relay")) finish();
+      } else { finish(); }
+    };
+    pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === "complete") finish(); };
+    try {
+      pc.createDataChannel("probe");
+      pc.createOffer().then((o) => pc.setLocalDescription(o)).catch(finish);
+    } catch { finish(); }
+    setTimeout(finish, timeoutMs);
+  });
+}
 
 export default function Call() {
   const { roomId } = useParams();
@@ -24,6 +69,8 @@ export default function Call() {
   const [selfHand, setSelfHand] = useState(false);
   const [hands, setHands] = useState({}); // peerId -> bool
   const [mode, setMode] = useState(undefined); // undefined=loading | 'p2p' | sfu-config obj
+  const [netCheck, setNetCheck] = useState(null); // {level, detail}
+  const [netDismissed, setNetDismissed] = useState(false);
 
   const iceRef = useRef(ICE);
   const panelRef = useRef(null);
@@ -44,6 +91,7 @@ export default function Call() {
         const { data } = await api.get("/rtc/config");
         if (data?.iceServers?.length) iceRef.current = data.iceServers;
         if (alive) setMode(data?.sfu?.enabled ? { sfu: true, url: data.sfu.url } : "p2p");
+        probeIce(iceRef.current).then((r) => { if (alive) setNetCheck(r); });
       } catch (e) { if (alive) setMode("p2p"); }
     })();
     return () => { alive = false; };
@@ -244,6 +292,22 @@ export default function Call() {
       </div>
 
       <div className="flex-1 p-6 pt-0 overflow-y-auto transition-all" style={{ marginRight: panel ? "20rem" : 0 }}>
+        {netCheck && netCheck.level !== "ok" && !netDismissed && (
+          <div data-testid="call-net-warning" className="neu-raised rounded-2xl px-4 py-3 mb-4 flex items-start gap-3 animate-fade-up"
+            style={{ borderLeft: `4px solid ${netCheck.level === "fail" ? "#dc2626" : "#f59e0b"}` }}>
+            <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" style={{ color: netCheck.level === "fail" ? "#dc2626" : "#f59e0b" }} />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>Network check: {netCheck.level === "fail" ? "calls may not connect" : "possible connectivity issues"}</p>
+              <p className="text-xs text-muted-stitch">{netCheck.detail}</p>
+            </div>
+            <button data-testid="call-net-dismiss" onClick={() => setNetDismissed(true)} className="text-muted-stitch hover:text-primary-stitch shrink-0"><X className="w-4 h-4" /></button>
+          </div>
+        )}
+        {netCheck && netCheck.level === "ok" && !netDismissed && (
+          <div data-testid="call-net-ok" className="flex items-center gap-2 mb-4 text-xs text-green-500">
+            <Wifi className="w-4 h-4" /> {netCheck.detail}
+          </div>
+        )}
         <div className={`grid gap-4`} style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }} data-testid="video-grid">
           <VideoTile refEl={localVideoRef} label="You" muted local camOn={camOn} sharing={sharing} raised={selfHand} />
           {remoteList.map(([pid, r]) => (

@@ -1,5 +1,10 @@
 # Stitches Changelog
 
+## 2026-06 — Pre-join call connectivity check
+- **Network self-check on `/call`** (`Call.jsx` → `probeIce`): before joining a P2P room, the client runs a WebRTC ICE-gathering probe against the fetched `iceServers`. If a TURN server is configured it verifies a `relay` candidate is obtained; otherwise it checks for a STUN (`srflx`) candidate. Shows a dismissible amber/red warning banner (`call-net-warning`) when the network may block calls, or a subtle green "network good" line (`call-net-ok`) — so bad-network users get a heads-up instead of a frozen call.
+- Verified in-browser: sandbox (STUN reachable, no TURN) → green "Network looks good for peer-to-peer calls"; warn/fail paths covered logically. Clean compile.
+
+
 ## 2026-06 — SFU/TURN connectivity tester + CI URL baking
 - **"Test connectivity" tool** (Admin → Meetings): new `POST /api/admin/rtc/test` (admin) probes the saved config — LiveKit via HTTP reachability (wss→https) and TURN via DNS resolve + TCP connect — returning `{sfu:{ok,detail}, turn:{ok,detail}}`. Both the TURN and SFU cards gained a **Test connectivity** button (`test-turn-btn`/`test-sfu-btn`) with a green/amber result line (`turn-test-result`/`sfu-test-result`). De-risks the P1 post-deploy step: admins confirm reachability without starting a real call.
   - Verified: unconfigured → clear guidance; reachable hosts (google.com:443 / https://google.com) → `ok:true` with details; frontend buttons render + fire (screenshot + toast).
