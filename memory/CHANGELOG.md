@@ -1,5 +1,12 @@
 # Stitches Changelog
 
+## 2026-06 — Ops alerts: quiet-hours + severity filter
+- `services/ops_alerts.py` now supports `min_level` (info/warn/error), `quiet_enabled`, `quiet_start`/`quiet_end` (hours) and `tz_offset`. `_passes_filters` drops events below the min severity, and during quiet hours only `error`-level pings go through. Manual "Send test" bypasses filters.
+- Persisted via `POST /admin/ops-webhook` (expanded key list); exposed in `public_ops_webhook`.
+- UI (`StorageDbTab` OpsWebhookSection): Minimum-severity select + Quiet-hours toggle with From/To hour pickers and UTC offset.
+- **Verified**: unit test of `_passes_filters` (warn-min blocks info; quiet blocks warn, allows error) + live catcher end-to-end (min_level=error filtered a warn purge → 0 delivered; min_level=info delivered it). Config persists; UI renders; clean compile. Test data + webhook cleaned up.
+
+
 ## 2026-06 — Ops alerts broadened into a live feed
 - Extended `send_ops_alert` hooks beyond auto-rollback to a full ops feed:
   - **Payments/subscriptions** (`payments.py`): new pricing-page purchase → "New subscription 🎉" (plan/amount/email); successful admin charge → "Payment charged 💳".

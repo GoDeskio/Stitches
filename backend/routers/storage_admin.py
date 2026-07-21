@@ -259,7 +259,8 @@ async def ops_webhook_get(user: dict = Depends(require_super_admin)):
 
 @router.post("/admin/ops-webhook")
 async def ops_webhook_save(body: dict = Body(...), user: dict = Depends(require_super_admin)):
-    patch = {k: body[k] for k in ("url", "enabled", "platform") if k in body}
+    keys = ("url", "enabled", "platform", "min_level", "quiet_enabled", "quiet_start", "quiet_end", "tz_offset")
+    patch = {k: body[k] for k in keys if k in body}
     await save_ops_webhook(patch)
     await log_activity(user["user_id"], "ops_webhook_save", {"enabled": patch.get("enabled")})
     return public_ops_webhook(await get_ops_webhook())

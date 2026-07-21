@@ -29,30 +29,45 @@ function OpsWebhookSection() {
   const [url, setUrl] = useState("");
   const [platform, setPlatform] = useState("auto");
   const [enabled, setEnabled] = useState(false);
+  const [minLevel, setMinLevel] = useState("info");
+  const [quiet, setQuiet] = useState(false);
+  const [qStart, setQStart] = useState(22);
+  const [qEnd, setQEnd] = useState(7);
+  const [tz, setTz] = useState(0);
   const [busy, setBusy] = useState(false);
 
-  const load = () => api.get("/admin/ops-webhook").then(({ data }) => { setCfg(data); setPlatform(data.platform); setEnabled(data.enabled); }).catch(() => setCfg({ has_url: false }));
+  const load = () => api.get("/admin/ops-webhook").then(({ data }) => {
+    setCfg(data); setPlatform(data.platform); setEnabled(data.enabled);
+    setMinLevel(data.min_level); setQuiet(data.quiet_enabled);
+    setQStart(data.quiet_start); setQEnd(data.quiet_end); setTz(data.tz_offset);
+  }).catch(() => setCfg({ has_url: false }));
   useEffect(() => { load(); }, []);
 
+  const body = () => {
+    const b = { enabled, platform, min_level: minLevel, quiet_enabled: quiet, quiet_start: Number(qStart), quiet_end: Number(qEnd), tz_offset: Number(tz) };
+    if (url) b.url = url;
+    return b;
+  };
   const save = async () => {
     setBusy(true);
-    try { const body = { enabled, platform }; if (url) body.url = url; const { data } = await api.post("/admin/ops-webhook", body); setCfg(data); setUrl(""); toast.success("Ops alerts saved"); }
+    try { const { data } = await api.post("/admin/ops-webhook", body()); setCfg(data); setUrl(""); toast.success("Ops alerts saved"); }
     catch (e) { toast.error(e?.response?.data?.detail || "Save failed"); } finally { setBusy(false); }
   };
   const test = async () => {
     setBusy(true);
-    try { const body = { platform }; if (url) body.url = url; const { data } = await api.post("/admin/ops-webhook/test", body); data.ok ? toast.success("Sent — check your channel") : toast.error(data.detail || "Test failed"); }
+    try { const tb = { platform }; if (url) tb.url = url; const { data } = await api.post("/admin/ops-webhook/test", tb); data.ok ? toast.success("Sent — check your channel") : toast.error(data.detail || "Test failed"); }
     catch (e) { toast.error(e?.response?.data?.detail || "Test failed"); } finally { setBusy(false); }
   };
 
   if (!cfg) return null;
+  const hours = Array.from({ length: 24 }, (_, i) => i);
   return (
     <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="ops-webhook-section">
       <div className="flex items-center gap-3 mb-4">
         <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center"><Bell className="w-5 h-5 text-primary-stitch" /></div>
         <div>
           <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Ops alerts (Slack / Discord)</h3>
-          <p className="text-sm text-muted-stitch">Get pinged in a channel whenever a site update is applied or auto-rolled-back.</p>
+          <p className="text-sm text-muted-stitch">Live feed of updates, rollbacks, purchases, charges and destructive admin actions.</p>
         </div>
       </div>
       <div className="space-y-3">
@@ -69,12 +84,41 @@ function OpsWebhookSection() {
               <option value="discord">Discord</option>
             </select>
           </div>
+          <div>
+            <label className="text-xs font-semibold text-muted-stitch">Minimum severity</label>
+            <select data-testid="ops-webhook-minlevel" value={minLevel} onChange={(e) => setMinLevel(e.target.value)} className="neu-input rounded-2xl py-2.5 px-3 text-sm mt-1 block">
+              <option value="info">Everything</option>
+              <option value="warn">Warnings & errors</option>
+              <option value="error">Errors only</option>
+            </select>
+          </div>
           <button type="button" data-testid="ops-webhook-enabled" onClick={() => setEnabled((v) => !v)} className="flex items-center gap-2.5 text-sm text-muted-stitch mt-5">
             <span className={`w-11 h-6 rounded-full flex items-center px-1 transition-all ${enabled ? "justify-end" : "justify-start"}`} style={{ background: enabled ? "var(--primary)" : "var(--neu-dark)" }}>
               <span className="w-4 h-4 rounded-full bg-white shadow" />
             </span>
             Enable alerts
           </button>
+        </div>
+        <div className="neu-pressed rounded-2xl p-4">
+          <button type="button" data-testid="ops-webhook-quiet" onClick={() => setQuiet((v) => !v)} className="flex items-center gap-2.5 text-sm font-semibold" style={{ color: "var(--text)" }}>
+            <span className={`w-11 h-6 rounded-full flex items-center px-1 transition-all ${quiet ? "justify-end" : "justify-start"}`} style={{ background: quiet ? "var(--primary)" : "var(--neu-dark)" }}>
+              <span className="w-4 h-4 rounded-full bg-white shadow" />
+            </span>
+            Quiet hours (only error-level pings)
+          </button>
+          {quiet && (
+            <div className="flex flex-wrap items-center gap-3 mt-3">
+              <label className="text-xs text-muted-stitch">From
+                <select data-testid="ops-quiet-start" value={qStart} onChange={(e) => setQStart(e.target.value)} className="neu-input rounded-xl py-2 px-2.5 text-sm ml-1">{hours.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}</select>
+              </label>
+              <label className="text-xs text-muted-stitch">to
+                <select data-testid="ops-quiet-end" value={qEnd} onChange={(e) => setQEnd(e.target.value)} className="neu-input rounded-xl py-2 px-2.5 text-sm ml-1">{hours.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}</select>
+              </label>
+              <label className="text-xs text-muted-stitch">UTC offset
+                <select data-testid="ops-quiet-tz" value={tz} onChange={(e) => setTz(e.target.value)} className="neu-input rounded-xl py-2 px-2.5 text-sm ml-1">{Array.from({ length: 27 }, (_, i) => i - 12).map((o) => <option key={o} value={o}>{o >= 0 ? `+${o}` : o}</option>)}</select>
+              </label>
+            </div>
+          )}
         </div>
         <div className="flex gap-3 pt-1">
           <button data-testid="ops-webhook-save" onClick={save} disabled={busy} className="neu-primary rounded-2xl px-6 py-3 font-semibold text-sm">{busy ? "Saving…" : "Save"}</button>
