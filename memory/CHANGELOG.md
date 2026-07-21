@@ -1,5 +1,11 @@
 # Stitches Changelog
 
+## 2026-06 — Danger-zone audit trail (Storage & DB tab)
+- **Backend** `GET /admin/audit/destructive` (super-admin): returns the last 100 destructive actions from the activity log (db_purge/delete_doc/backup/restore, storage delete asset/by-user/orphans/all), joined with actor name + email.
+- **Frontend** `AuditSection` in `StorageDbTab.jsx`: red-bordered "Danger-zone audit trail" listing each action with a color-coded dot, human label + meta (collection/docs, backup stamp, file counts), actor, and timestamp; refresh button.
+- Verified: endpoint returns the earlier backup entry (actor "Stitches Admin Test", stamp); screenshot confirms the audit row + PROTECTED users badge + backups/storage sections render. Clean compile.
+
+
 ## 2026-06 — Super-admin Storage & Database management tab
 - **New backend router `routers/storage_admin.py`** (super-admin only, gated by `require_super_admin` = email == `ADMIN_EMAIL`):
   - DB: `GET /admin/db/overview` (dbstats + per-collection count/size/indexes), `GET /admin/db/collections/{name}/docs` (paginated JSON browse), `POST …/delete-doc` (delete by _id; super-admin user protected), `POST …/purge` (empty a collection; `users` purge preserves the super admin), `POST /admin/db/backup` + `GET /admin/db/backups` + `POST /admin/db/restore/{stamp}` (mongodump/mongorestore).

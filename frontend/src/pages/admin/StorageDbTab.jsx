@@ -18,6 +18,61 @@ export function StorageDbTab() {
       <DbSection />
       <DbBackupsSection />
       <StorageSection />
+      <AuditSection />
+    </div>
+  );
+}
+
+const AUDIT_LABELS = {
+  db_purge: { t: "Emptied collection", c: "#ef4444" },
+  db_delete_doc: { t: "Deleted document", c: "#ef4444" },
+  db_backup: { t: "Created DB backup", c: "#16a34a" },
+  db_restore: { t: "Restored database", c: "#f59e0b" },
+  storage_delete_all: { t: "Deleted ALL files", c: "#ef4444" },
+  storage_delete_by_user: { t: "Deleted user's files", c: "#ef4444" },
+  storage_delete_orphans: { t: "Deleted orphaned files", c: "#f59e0b" },
+  storage_delete_asset: { t: "Deleted a file", c: "#ef4444" },
+};
+
+function AuditSection() {
+  const [entries, setEntries] = useState(null);
+  const load = () => api.get("/admin/audit/destructive").then(({ data }) => setEntries(data.entries || [])).catch(() => setEntries([]));
+  useEffect(() => { load(); }, []);
+  if (!entries) return null;
+  return (
+    <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="audit-section" style={{ borderLeft: "4px solid #ef4444" }}>
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+        <div className="flex items-center gap-3">
+          <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center"><AlertTriangle className="w-5 h-5 text-red-500" /></div>
+          <div>
+            <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Danger-zone audit trail</h3>
+            <p className="text-sm text-muted-stitch">Every backup, restore, purge and delete — who did it and when.</p>
+          </div>
+        </div>
+        <button data-testid="audit-refresh" onClick={load} className="neu-btn rounded-2xl px-4 py-2.5 text-sm font-semibold text-primary-stitch">Refresh</button>
+      </div>
+      {entries.length === 0 ? <p className="text-sm text-muted-stitch py-6 text-center">No destructive actions recorded yet.</p> : (
+        <div className="space-y-2">
+          {entries.map((e, i) => {
+            const lbl = AUDIT_LABELS[e.action] || { t: e.action, c: "#9ca3af" };
+            const m = e.meta || {};
+            const detail = m.collection ? `${m.collection}${m.deleted != null ? ` · ${m.deleted} docs` : ""}` :
+              m.stamp ? m.stamp :
+              m.owner_id ? `${m.owner_id}${m.count != null ? ` · ${m.count} files` : ""}` :
+              m.count != null ? `${m.count} files` : m.asset_id || m.id || "";
+            return (
+              <div key={i} data-testid="audit-row" className="neu-pressed rounded-2xl px-4 py-3 flex items-center gap-3">
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: lbl.c, boxShadow: `0 0 8px ${lbl.c}` }} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>{lbl.t} {detail && <span className="font-mono-stitch text-xs text-muted-stitch">· {detail}</span>}</p>
+                  <p className="text-[11px] text-muted-stitch truncate">{e.actor_name}{e.actor_email ? ` (${e.actor_email})` : ""}</p>
+                </div>
+                <span className="text-[11px] text-muted-stitch shrink-0">{e.created_at ? new Date(e.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

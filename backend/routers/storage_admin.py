@@ -214,3 +214,25 @@ async def storage_delete_all(user: dict = Depends(require_super_admin)):
     n = await _hard_delete_assets({})
     await log_activity(user["user_id"], "storage_delete_all", {"count": n})
     return {"ok": True, "deleted": n}
+
+
+# ------------------------- Destructive-action audit trail -------------------------
+AUDIT_ACTIONS = ["db_delete_doc", "db_purge", "db_backup", "db_restore",
+                 "storage_delete_asset", "storage_delete_by_user",
+                 "storage_delete_orphans", "storage_delete_all"]
+
+
+@router.get("/admin/audit/destructive")
+async def audit_destructive(user: dict = Depends(require_super_admin)):
+    entries = await db.activity_log.find(
+        {"action": {"$in": AUDIT_ACTIONS}}, {"_id": 0}
+    ).sort("created_at", -1).limit(100).to_list(100)
+    uids = list({e.get("user_id") for e in entries if e.get("user_id")})
+    umap = {}
+    async for u in db.users.find({"user_id": {"$in": uids}}, {"user_id": 1, "name": 1, "email": 1}):
+        umap[u["user_id"]] = {"name": u.get("name"), "email": u.get("email")}
+    for e in entries:
+        info = umap.get(e.get("user_id"), {})
+        e["actor_name"] = info.get("name") or e.get("user_id") or "system"
+        e["actor_email"] = info.get("email") or ""
+    return {"entries": entries}
