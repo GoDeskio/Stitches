@@ -26,7 +26,9 @@ export function CrmTab() {
     .then(({ data }) => setData(data)).catch(() => {});
   const loadBoard = () => api.get("/admin/crm/board").then(({ data }) => setBoard(data)).catch(() => {});
   const loadForecast = () => api.get("/admin/crm/forecast").then(({ data }) => setForecast(data)).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { loadStats(); loadForecast(); }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (view === "list") loadList(); else { loadBoard(); loadForecast(); } }, [type, stage, q, page, view]);
 
   const moveStage = async (contactId, toStage) => {

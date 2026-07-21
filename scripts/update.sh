@@ -127,6 +127,9 @@ echo "==> Installing backend dependencies"
 pip install -r backend/requirements.txt || fail_and_maybe_rollback "backend dependency install failed"
 echo "==> Installing frontend dependencies & building"
 cd frontend || fail_and_maybe_rollback "frontend directory missing"
+# Don't let lint warnings fail the production build on CI-flagged hosts (would cause needless rollbacks).
+export CI=false
+export DISABLE_ESLINT_PLUGIN=true
 if command -v yarn >/dev/null 2>&1; then
   (yarn install --frozen-lockfile || yarn install) || fail_and_maybe_rollback "yarn install failed"
   yarn build || fail_and_maybe_rollback "frontend build failed"

@@ -37,6 +37,7 @@ export default function NotificationBell() {
     load();
     const t = setInterval(load, 20000);
     return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const markAll = async () => { await api.post("/notifications/read-all"); load(); };

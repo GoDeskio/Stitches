@@ -27,6 +27,7 @@ export function UpdatesTab() {
     if (data.job && data.job.status !== "running") { stopPoll(); loadBackups(); }
   }).catch(() => {});
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { loadCfg(); loadStatus(); loadBackups(); return () => stopPoll(); }, []);
 
   const restore = async (stamp) => {

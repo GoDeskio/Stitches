@@ -58,6 +58,8 @@ echo "==> Installing backend dependencies"
 pip install -r backend/requirements.txt
 echo "==> Building frontend"
 cd frontend
+export CI=false
+export DISABLE_ESLINT_PLUGIN=true
 if command -v yarn >/dev/null 2>&1; then
   yarn install --frozen-lockfile || yarn install
   yarn build
