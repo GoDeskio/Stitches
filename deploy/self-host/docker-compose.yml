@@ -1,0 +1,52 @@
+# Full-app self-host with Docker Compose (MongoDB + backend + nginx/SPA).
+#
+# Usage (run from the repo root):
+#   cp deploy/self-host/.env.backend.example backend/.env   # then edit secrets
+#   export SITE_URL=https://stitches.yourdomain.com         # public URL (baked into the SPA)
+#   docker compose -f deploy/self-host/docker-compose.yml up -d --build
+#
+# Notes:
+#   * `environment:` overrides MONGO_URL from backend/.env so the backend talks to the
+#     `mongo` service (data persists in the `mongo_data` volume).
+#   * The SPA is built with REACT_APP_BACKEND_URL=$SITE_URL and served by nginx, which
+#     proxies /api (+WebSockets) to the backend — so put your TLS/reverse proxy (or a
+#     Cloudflare tunnel) in front of port 80, or run certbot on the host.
+#   * Container updates = rebuild images (`git pull && docker compose ... up -d --build`).
+#     The in-app Software Update Center (scripts/update.sh) targets VM installs; see
+#     deploy/self-host/README.md for the VM path if you want fully in-app auto-updates.
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+
+  backend:
+    build:
+      context: ../..
+      dockerfile: deploy/self-host/Dockerfile.backend
+    restart: unless-stopped
+    env_file: ../../backend/.env
+    environment:
+      - SELF_HOSTED=true
+      - MONGO_URL=mongodb://mongo:27017
+      - DB_NAME=${DB_NAME:-stitches}
+    depends_on:
+      - mongo
+    expose:
+      - "8001"
+
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/self-host/Dockerfile.frontend
+      args:
+        REACT_APP_BACKEND_URL: ${SITE_URL:?Set SITE_URL to your public URL, e.g. https://stitches.yourdomain.com}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+volumes:
+  mongo_data:

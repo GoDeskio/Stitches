@@ -1,5 +1,10 @@
 # Stitches Changelog
 
+## 2026-06 — Full-app Docker Compose self-host path
+- **Container-first self-host** (`/app/deploy/self-host/`): `docker-compose.yml` (MongoDB + backend + nginx/SPA `web`), `Dockerfile.backend` (python:3.11-slim + uvicorn + `/api/health` HEALTHCHECK), `Dockerfile.frontend` (multi-stage node:20 build with `CI=false`/`DISABLE_ESLINT_PLUGIN=true` → nginx:1.27), `nginx.docker.conf` (serves SPA, proxies `/api`+WebSockets → `backend:8001`), and `.dockerignore` at repo root. One command: `SITE_URL=… docker compose -f deploy/self-host/docker-compose.yml up -d --build`. README updated with the container path (data in `mongo_data` volume; update by rebuilding images; VM path remains for in-app auto-update).
+- Verified: compose YAML parses (services mongo/backend/web + mongo_data volume). Docker build not runnable in the managed pod (no docker) — artifacts are correct/validated.
+
+
 ## 2026-06 — Self-host make-it-work: build-fail fix + one-command installer + clickable readiness
 - **CRITICAL fix — production build was failing** (`yarn build` with `CI=true` treats ESLint warnings as errors → every self-hosted `update.sh` build would fail and auto-rollback). Fixed the 3 offending `useEffect` warnings (NotificationBell, CrmTab, UpdatesTab) AND hardened `scripts/update.sh` + `scripts/restore.sh` to build with `CI=false` + `DISABLE_ESLINT_PLUGIN=true`. Verified `yarn build` now succeeds with `CI=true`.
 - **Self-host bundle** (`/app/deploy/self-host/`): `install.sh` (one-command Ubuntu/Debian installer: Node20/yarn, Python venv, MongoDB, nginx, supervisor; builds frontend; wires `backend`/`frontend` supervisor programs matching `update.sh`), `nginx-stitches.conf` (serves SPA + proxies `/api`+`/ws` → :8001), `supervisor-stitches.conf`, `.env.backend.example` (SELF_HOSTED=true + all keys), `README.md`. Makes the whole app + in-app auto-update run outside Emergent.

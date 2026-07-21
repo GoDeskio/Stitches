@@ -40,9 +40,21 @@ restarts services → polls `/api/health` → and, if unhealthy with auto-rollba
 > Data safety: MongoDB and uploaded files (object storage) are separate from code and are
 > preserved across updates; a snapshot is taken before every update for one-click rollback.
 
-## Prefer containers?
+## Prefer containers? (full-app Docker Compose)
 
-`deploy/docker-compose.yml` runs the optional **LiveKit SFU + coturn TURN** for large
-meetings. For a fully containerized app you can build images from `backend/` and `frontend/`
-and reverse-proxy with the nginx config here; note that container deploys typically update by
-rebuilding images rather than via `update.sh`.
+Run the whole stack (MongoDB + backend + nginx/SPA) with one command — from the repo root:
+
+```bash
+cp deploy/self-host/.env.backend.example backend/.env   # edit secrets
+export SITE_URL=https://stitches.yourdomain.com          # public URL, baked into the SPA
+docker compose -f deploy/self-host/docker-compose.yml up -d --build
+```
+
+Put TLS in front of port 80 (reverse proxy, Cloudflare tunnel, or host certbot). Data persists
+in the `mongo_data` volume. **Update by rebuilding**: `git pull && docker compose -f
+deploy/self-host/docker-compose.yml up -d --build`. (The in-app Software Update Center —
+`scripts/update.sh` — targets the VM install above, which supports fully in-app auto-update
+with health-check + auto-rollback.)
+
+`deploy/docker-compose.yml` additionally runs the optional **LiveKit SFU + coturn TURN** for
+large meetings.

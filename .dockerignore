@@ -1,0 +1,11 @@
+# Speeds up Docker builds and avoids copying host junk into images.
+**/node_modules
+frontend/build
+backend/__pycache__
+**/__pycache__
+*.pyc
+.git
+.emergent
+backups
+test_reports
+*.log
