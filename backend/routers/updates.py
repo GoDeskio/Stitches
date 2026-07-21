@@ -7,7 +7,7 @@ import subprocess
 from datetime import datetime, timezone, timedelta
 import httpx
 from fastapi import APIRouter, Depends, Request, HTTPException
-from core import db, require_admin, now_iso, log_activity, create_notification
+from core import db, require_admin, now_iso, log_activity, create_notification, _fernet
 
 router = APIRouter()
 
@@ -53,10 +53,18 @@ def _parse_repo(url: str):
 async def _get_config() -> dict:
     doc = await db.settings.find_one({"key": "update_config"})
     cfg = (doc or {}).get("value", {}) if doc else {}
+    token = ""
+    if cfg.get("token_enc"):
+        try:
+            token = _fernet.decrypt(cfg["token_enc"].encode()).decode()
+        except Exception:
+            token = ""
+    elif cfg.get("token"):  # legacy plaintext fallback
+        token = cfg.get("token", "")
     return {
         "repo_url": cfg.get("repo_url", DEFAULT_REPO),
         "branch": cfg.get("branch", "main"),
-        "token": cfg.get("token", ""),
+        "token": token,
         "enabled": cfg.get("enabled", True),
         "auto_apply": cfg.get("auto_apply", False),
         "auto_rollback": cfg.get("auto_rollback", False),
@@ -70,7 +78,15 @@ async def _get_config() -> dict:
 
 
 async def _save_config(patch: dict):
-    await db.settings.update_one({"key": "update_config"}, {"$set": {f"value.{k}": v for k, v in patch.items()}}, upsert=True)
+    sets = {}
+    for k, v in patch.items():
+        if k == "token":
+            # Encrypt the PAT at rest; clear any legacy plaintext value.
+            sets["value.token_enc"] = _fernet.encrypt(v.encode()).decode() if v else ""
+            sets["value.token"] = ""
+        else:
+            sets[f"value.{k}"] = v
+    await db.settings.update_one({"key": "update_config"}, {"$set": sets}, upsert=True)
 
 
 async def _github_latest(owner: str, repo: str, branch: str, token: str) -> dict:

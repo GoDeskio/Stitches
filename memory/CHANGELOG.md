@@ -1,5 +1,11 @@
 # Stitches Changelog
 
+## 2026-06 — Auto-update wired to GitHub (encrypted PAT) + token-at-rest hardening
+- **Update token encrypted at rest**: `routers/updates.py` now stores the GitHub PAT as Fernet ciphertext (`token_enc`), decrypts server-side only, and clears any legacy plaintext. Verified in Mongo: `token` field empty, `token_enc` = `gAAAA…`, no `ghp_` leak. `_public_cfg` still returns only `has_token`.
+- **Configured live**: admin GitHub repo (`https://github.com/GoDeskio/Stitches.git`, branch `main`) + PAT saved via `/admin/updates/config`; `enabled`, `auto_apply` and `auto_rollback` all ON. A check reached the repo with the token and detected an available update. Admin → Updates shows repo + "Access token · set" + all toggles + "Update available" banner.
+- **Behavior**: on a **self-hosted** deploy (`SELF_HOSTED=true`) the site will now auto-pull → rebuild → restart → health-check → auto-rollback on failure. On this **managed Emergent preview**, auto-apply only *notifies* (it cannot git-reset the managed pod) — clearly indicated in the UI.
+
+
 ## 2026-06 — In-app Resend domain setup + live verification
 - **Resend DNS/verification helper** (Admin → Email → "Resend domain setup"): new `GET /api/admin/resend/dns` pulls the sender domain's DKIM/SPF records + verification status **live from the Resend API**, and `POST /api/admin/resend/verify` triggers Resend's verify. The card (`resend-setup-card`) shows a status badge (Verified/Pending/Failed/Not started), each record's type/host/value with copy buttons + per-record status dots, and Refresh/Verify buttons — so admins complete the DNS step and confirm delivery without leaving Stitches.
 - Verified live against the real Resend account: returns the account domain + 3 records (DKIM TXT, SPF MX, SPF TXT) with correct values; UI renders all rows, badge and buttons; clean compile.
