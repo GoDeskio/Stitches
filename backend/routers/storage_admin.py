@@ -28,6 +28,13 @@ def _json_safe(d: dict) -> dict:
     return json.loads(json.dumps(d, default=str))
 
 
+async def _ops(title: str, message: str, level: str = "warn"):
+    try:
+        await send_ops_alert(title, message, level)
+    except Exception:
+        pass
+
+
 def _mongo_uri() -> str:
     return os.environ.get("MONGO_URL")
 
@@ -94,6 +101,7 @@ async def db_purge(name: str, user: dict = Depends(require_super_admin)):
     else:
         res = await db[name].delete_many({})
     await log_activity(user["user_id"], "db_purge", {"collection": name, "deleted": res.deleted_count})
+    await _ops("Collection purged 🗑️", f"'{name}' emptied — {res.deleted_count} document(s) deleted by {user.get('email')}.", "warn")
     return {"ok": True, "deleted": res.deleted_count}
 
 
@@ -143,6 +151,7 @@ async def db_restore(stamp: str, user: dict = Depends(require_super_admin)):
     if proc.returncode != 0:
         raise HTTPException(status_code=400, detail=f"Restore failed: {err.decode()[:200]}")
     await log_activity(user["user_id"], "db_restore", {"stamp": stamp})
+    await _ops("Database restored ⏮️", f"DB restored from backup {stamp} by {user.get('email')} (collections dropped & replaced).", "error")
     return {"ok": True}
 
 
@@ -199,6 +208,7 @@ async def storage_delete_asset(asset_id: str, user: dict = Depends(require_super
 async def storage_delete_by_user(owner_id: str, user: dict = Depends(require_super_admin)):
     n = await _hard_delete_assets({"owner_id": owner_id})
     await log_activity(user["user_id"], "storage_delete_by_user", {"owner_id": owner_id, "count": n})
+    await _ops("Files deleted 🗑️", f"{n} file(s) for user {owner_id} deleted by {user.get('email')}.", "warn")
     return {"ok": True, "deleted": n}
 
 
@@ -207,6 +217,7 @@ async def storage_delete_orphans(user: dict = Depends(require_super_admin)):
     valid = [u["user_id"] async for u in db.users.find({}, {"user_id": 1})]
     n = await _hard_delete_assets({"owner_id": {"$nin": valid}})
     await log_activity(user["user_id"], "storage_delete_orphans", {"count": n})
+    await _ops("Orphaned files deleted 🧹", f"{n} orphaned file(s) removed by {user.get('email')}.", "warn")
     return {"ok": True, "deleted": n}
 
 
@@ -214,6 +225,7 @@ async def storage_delete_orphans(user: dict = Depends(require_super_admin)):
 async def storage_delete_all(user: dict = Depends(require_super_admin)):
     n = await _hard_delete_assets({})
     await log_activity(user["user_id"], "storage_delete_all", {"count": n})
+    await _ops("ALL files deleted ⚠️", f"Every uploaded file ({n}) was deleted by {user.get('email')}.", "error")
     return {"ok": True, "deleted": n}
 
 

@@ -121,6 +121,11 @@ async def payments_charge(request: Request, user: dict = Depends(require_admin))
     await log_activity(user["user_id"], "payment_charge", {"amount": amount, "status": doc["status"]})
     if not success:
         return {"success": False, "error": doc["response_text"] or "Payment declined", "transaction": _public(doc)}
+    try:
+        from services.ops_alerts import send_ops_alert
+        await send_ops_alert("Payment charged 💳", f"${amount:.2f} charged to {doc['email'] or 'card ••'+doc['card_last4']} by {user.get('email')}.", "success")
+    except Exception:
+        pass
     return {"success": True, "transaction": _public(doc)}
 
 
@@ -351,6 +356,11 @@ async def checkout_plan(request: Request):
             "renewal_reminded": False, "started_at": now_iso(),
             "current_period_end": (datetime.now(timezone.utc) + period).isoformat(),
             "nmi_transaction_id": doc["nmi_transaction_id"], "created_at": now_iso()})
+    try:
+        from services.ops_alerts import send_ops_alert
+        await send_ops_alert("New subscription 🎉", f"{email} purchased *{plan.get('name')}* (${amount:.2f}/{interval}) via the pricing page.", "success")
+    except Exception:
+        pass
     return {"success": True, "transaction_id": doc["nmi_transaction_id"], "plan": plan.get("name")}
 
 

@@ -1,5 +1,13 @@
 # Stitches Changelog
 
+## 2026-06 — Ops alerts broadened into a live feed
+- Extended `send_ops_alert` hooks beyond auto-rollback to a full ops feed:
+  - **Payments/subscriptions** (`payments.py`): new pricing-page purchase → "New subscription 🎉" (plan/amount/email); successful admin charge → "Payment charged 💳".
+  - **Destructive admin actions** (`storage_admin.py`): collection purge (warn), DB restore (error), delete files by user / orphans (warn), delete-all files (error) — each with actor email + counts.
+- All calls are best-effort and only send when the webhook is enabled.
+- **Verified end-to-end** with a local webhook catcher: enabling the webhook and purging a throwaway collection delivered the exact Slack-formatted message ("Collection purged 🗑️ … deleted by admin@stitches.app"). Cleaned up webhook + throwaway data after.
+
+
 ## 2026-06 — Ops-alerts webhook (Slack/Discord), super-admin only — TESTED
 - **Service** `services/ops_alerts.py`: webhook URL stored Fernet-encrypted; `send_ops_alert(title, msg, level)` posts to Slack (`{text}`) or Discord (`{content}`) with auto platform detection.
 - **Endpoints** (super-admin only, in `storage_admin.py`): `GET/POST /admin/ops-webhook` (config, returns `has_url` only), `POST /admin/ops-webhook/test`. Wired into `updates.py` `_alert_admins_job` so an auto-rollback / failed update pings the channel (level warn/error).
