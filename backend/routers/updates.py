@@ -228,6 +228,11 @@ async def _alert_admins_job(job: dict, rolled_back: bool):
             await create_notification(a["user_id"], "system", title, msg, "/admin")
         except Exception:
             pass
+    try:
+        from services.ops_alerts import send_ops_alert
+        await send_ops_alert(title, msg, "warn" if rolled_back else "error")
+    except Exception:
+        pass
     await db.update_jobs.update_one({"job_id": job["job_id"]}, {"$set": {"alerted": True}})
 
 

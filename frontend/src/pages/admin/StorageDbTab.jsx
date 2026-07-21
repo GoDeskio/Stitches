@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { Loader } from "@/components/Stitch";
-import { Database, HardDrive, Trash2, DownloadCloud, History, X, AlertTriangle, Users } from "lucide-react";
+import { Database, HardDrive, Trash2, DownloadCloud, History, X, AlertTriangle, Users, Bell } from "lucide-react";
 
 const fmtBytes = (n) => {
   n = Number(n) || 0;
@@ -15,10 +15,72 @@ const fmtBytes = (n) => {
 export function StorageDbTab() {
   return (
     <div className="space-y-6" data-testid="storage-db-tab">
+      <OpsWebhookSection />
       <DbSection />
       <DbBackupsSection />
       <StorageSection />
       <AuditSection />
+    </div>
+  );
+}
+
+function OpsWebhookSection() {
+  const [cfg, setCfg] = useState(null);
+  const [url, setUrl] = useState("");
+  const [platform, setPlatform] = useState("auto");
+  const [enabled, setEnabled] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const load = () => api.get("/admin/ops-webhook").then(({ data }) => { setCfg(data); setPlatform(data.platform); setEnabled(data.enabled); }).catch(() => setCfg({ has_url: false }));
+  useEffect(() => { load(); }, []);
+
+  const save = async () => {
+    setBusy(true);
+    try { const body = { enabled, platform }; if (url) body.url = url; const { data } = await api.post("/admin/ops-webhook", body); setCfg(data); setUrl(""); toast.success("Ops alerts saved"); }
+    catch (e) { toast.error(e?.response?.data?.detail || "Save failed"); } finally { setBusy(false); }
+  };
+  const test = async () => {
+    setBusy(true);
+    try { const body = { platform }; if (url) body.url = url; const { data } = await api.post("/admin/ops-webhook/test", body); data.ok ? toast.success("Sent — check your channel") : toast.error(data.detail || "Test failed"); }
+    catch (e) { toast.error(e?.response?.data?.detail || "Test failed"); } finally { setBusy(false); }
+  };
+
+  if (!cfg) return null;
+  return (
+    <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="ops-webhook-section">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center"><Bell className="w-5 h-5 text-primary-stitch" /></div>
+        <div>
+          <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Ops alerts (Slack / Discord)</h3>
+          <p className="text-sm text-muted-stitch">Get pinged in a channel whenever a site update is applied or auto-rolled-back.</p>
+        </div>
+      </div>
+      <div className="space-y-3">
+        <div>
+          <label className="text-xs font-semibold text-muted-stitch">Incoming webhook URL {cfg.has_url && <span className="text-green-500">· set</span>}</label>
+          <input data-testid="ops-webhook-url" type="password" value={url} onChange={(e) => setUrl(e.target.value)} placeholder={cfg.has_url ? "•••• leave blank to keep" : "https://hooks.slack.com/… or https://discord.com/api/webhooks/…"} className="neu-input w-full rounded-2xl py-3 px-4 text-sm mt-1 font-mono-stitch" />
+        </div>
+        <div className="flex flex-wrap items-center gap-4">
+          <div>
+            <label className="text-xs font-semibold text-muted-stitch">Platform</label>
+            <select data-testid="ops-webhook-platform" value={platform} onChange={(e) => setPlatform(e.target.value)} className="neu-input rounded-2xl py-2.5 px-3 text-sm mt-1 block">
+              <option value="auto">Auto-detect</option>
+              <option value="slack">Slack</option>
+              <option value="discord">Discord</option>
+            </select>
+          </div>
+          <button type="button" data-testid="ops-webhook-enabled" onClick={() => setEnabled((v) => !v)} className="flex items-center gap-2.5 text-sm text-muted-stitch mt-5">
+            <span className={`w-11 h-6 rounded-full flex items-center px-1 transition-all ${enabled ? "justify-end" : "justify-start"}`} style={{ background: enabled ? "var(--primary)" : "var(--neu-dark)" }}>
+              <span className="w-4 h-4 rounded-full bg-white shadow" />
+            </span>
+            Enable alerts
+          </button>
+        </div>
+        <div className="flex gap-3 pt-1">
+          <button data-testid="ops-webhook-save" onClick={save} disabled={busy} className="neu-primary rounded-2xl px-6 py-3 font-semibold text-sm">{busy ? "Saving…" : "Save"}</button>
+          <button data-testid="ops-webhook-test" onClick={test} disabled={busy} className="neu-btn rounded-2xl px-6 py-3 font-semibold text-sm text-primary-stitch">Send test</button>
+        </div>
+      </div>
     </div>
   );
 }

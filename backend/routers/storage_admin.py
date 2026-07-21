@@ -7,6 +7,7 @@ import re
 import shutil
 import asyncio
 import datetime
+from services.ops_alerts import get_ops_webhook, save_ops_webhook, public_ops_webhook, send_ops_alert
 
 router = APIRouter()
 
@@ -236,3 +237,29 @@ async def audit_destructive(user: dict = Depends(require_super_admin)):
         e["actor_name"] = info.get("name") or e.get("user_id") or "system"
         e["actor_email"] = info.get("email") or ""
     return {"entries": entries}
+
+
+# ------------------------- Ops alerts webhook (Slack/Discord) -------------------------
+@router.get("/admin/ops-webhook")
+async def ops_webhook_get(user: dict = Depends(require_super_admin)):
+    return public_ops_webhook(await get_ops_webhook())
+
+
+@router.post("/admin/ops-webhook")
+async def ops_webhook_save(body: dict = Body(...), user: dict = Depends(require_super_admin)):
+    patch = {k: body[k] for k in ("url", "enabled", "platform") if k in body}
+    await save_ops_webhook(patch)
+    await log_activity(user["user_id"], "ops_webhook_save", {"enabled": patch.get("enabled")})
+    return public_ops_webhook(await get_ops_webhook())
+
+
+@router.post("/admin/ops-webhook/test")
+async def ops_webhook_test(body: dict = Body(default={}), user: dict = Depends(require_super_admin)):
+    cfg = await get_ops_webhook()
+    url = (body or {}).get("url") or cfg["url"]
+    if not url:
+        raise HTTPException(status_code=400, detail="Enter a webhook URL first (Save it, then Test).")
+    ok, detail = await send_ops_alert(
+        "Test alert", "Your ops webhook is connected — you'll be pinged on updates and auto-rollbacks.",
+        "success", url=url, platform=(body or {}).get("platform") or cfg["platform"])
+    return {"ok": ok, "detail": detail}
