@@ -58,3 +58,22 @@ with health-check + auto-rollback.)
 
 `deploy/docker-compose.yml` additionally runs the optional **LiveKit SFU + coturn TURN** for
 large meetings.
+
+## Zero-build path: prebuilt images + automatic HTTPS (recommended for containers)
+
+Push a `v*` tag (or land on `main`) and the **`.github/workflows/docker-images.yml`** workflow
+builds & publishes `stitches-backend` and `stitches-frontend` images to GHCR. Your server then
+just pulls them — no local build — and **Caddy handles TLS automatically**:
+
+```bash
+cp deploy/self-host/.env.backend.example backend/.env       # edit secrets
+export GHCR_OWNER=godeskio                                   # your GitHub org/user (lowercase)
+export SITE_DOMAIN=stitches.yourdomain.com                   # DNS A record must point here
+docker compose -f deploy/self-host/docker-compose.ghcr.yml pull
+docker compose -f deploy/self-host/docker-compose.ghcr.yml up -d
+```
+
+Open ports **80 + 443**; Caddy fetches and renews a Let's Encrypt certificate for
+`SITE_DOMAIN` on its own. The frontend image is domain-agnostic (it calls the API on the same
+origin), so the same image works behind any domain. Make the GHCR packages public, or run
+`docker login ghcr.io` on the server first.

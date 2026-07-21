@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import api, { API } from "@/lib/api";
+import api, { API, BACKEND_ORIGIN } from "@/lib/api";
 import { Mail, Activity, Check } from "lucide-react";
 
 export function EmailTab() {
@@ -259,7 +259,7 @@ function EmailSetupWizard() {
   const g = cfg.gmail || {};
   const sa = cfg.gmail_sa || {};
   const mgStatus = cfg.mailgun || {};
-  const webhookUrl = `${process.env.REACT_APP_BACKEND_URL}/api/webhooks/mailgun`;
+  const webhookUrl = `${BACKEND_ORIGIN}/api/webhooks/mailgun`;
   const providerBtn = (id, label, sub) => (
     <button data-testid={`email-provider-${id}`} onClick={() => setCfg({ ...cfg, provider: id })}
       className={`flex-1 text-left rounded-2xl p-4 transition-all ${cfg.provider === id ? "neu-primary" : "neu-pressed"}`}>

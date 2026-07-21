@@ -1,5 +1,11 @@
 # Stitches Changelog
 
+## 2026-06 — GHCR image publishing + automatic HTTPS + domain-agnostic frontend
+- **Domain-portable frontend**: `lib/api.js` now falls back to `window.location.origin` when `REACT_APP_BACKEND_URL` is unset (exported `BACKEND_ORIGIN`; EmailTab webhook URL updated). This makes prebuilt images work behind ANY domain (API + WebSockets resolve to same origin, proxied by nginx). Managed preview unchanged (env still set). Verified: login/dashboard/authed calls work, clean compile.
+- **GHCR publish workflow** (`.github/workflows/docker-images.yml`): on `v*` tag / `main`, builds & pushes `stitches-backend` + `stitches-frontend` to GHCR (buildx + gha cache, lowercased image names, `type=ref/raw/sha` tags).
+- **Zero-build container path with auto-TLS** (`deploy/self-host/docker-compose.ghcr.yml` + `Caddyfile`): pulls the GHCR images and fronts them with **Caddy** for automatic Let's Encrypt HTTPS (`SITE_DOMAIN`, ports 80/443). `docker compose pull && up` — no local build. `docker-compose.yml` `SITE_URL` now optional (thanks to origin fallback). README documents the path. YAML validated.
+
+
 ## 2026-06 — Full-app Docker Compose self-host path
 - **Container-first self-host** (`/app/deploy/self-host/`): `docker-compose.yml` (MongoDB + backend + nginx/SPA `web`), `Dockerfile.backend` (python:3.11-slim + uvicorn + `/api/health` HEALTHCHECK), `Dockerfile.frontend` (multi-stage node:20 build with `CI=false`/`DISABLE_ESLINT_PLUGIN=true` → nginx:1.27), `nginx.docker.conf` (serves SPA, proxies `/api`+WebSockets → `backend:8001`), and `.dockerignore` at repo root. One command: `SITE_URL=… docker compose -f deploy/self-host/docker-compose.yml up -d --build`. README updated with the container path (data in `mongo_data` volume; update by rebuilding images; VM path remains for in-app auto-update).
 - Verified: compose YAML parses (services mongo/backend/web + mongo_data volume). Docker build not runnable in the managed pod (no docker) — artifacts are correct/validated.

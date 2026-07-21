@@ -1,6 +1,11 @@
 import axios from "axios";
 
-export const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+// Falls back to the current origin when REACT_APP_BACKEND_URL is unset, so prebuilt
+// (domain-agnostic) Docker images work behind any domain/reverse proxy. Same-origin
+// requests are proxied to the backend by nginx (see deploy/self-host/nginx.docker.conf).
+const BACKEND = process.env.REACT_APP_BACKEND_URL || (typeof window !== "undefined" ? window.location.origin : "");
+export const BACKEND_ORIGIN = BACKEND;
+export const API = `${BACKEND}/api`;
 
 const api = axios.create({ baseURL: API, withCredentials: true });
 

@@ -1,0 +1,6 @@
+# Automatic HTTPS for Stitches via Caddy (Let's Encrypt).
+# SITE_DOMAIN is injected from docker-compose.ghcr.yml.
+{$SITE_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy web:80
+}

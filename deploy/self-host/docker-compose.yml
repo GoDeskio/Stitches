@@ -41,7 +41,7 @@ services:
       context: ../..
       dockerfile: deploy/self-host/Dockerfile.frontend
       args:
-        REACT_APP_BACKEND_URL: ${SITE_URL:?Set SITE_URL to your public URL, e.g. https://stitches.yourdomain.com}
+        REACT_APP_BACKEND_URL: ${SITE_URL:-}
     restart: unless-stopped
     depends_on:
       - backend
