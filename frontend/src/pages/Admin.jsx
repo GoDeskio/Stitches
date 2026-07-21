@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Users, Layers, FolderKanban, FolderOpen, Plug, MessagesSquare,
   ToggleRight, Search, Activity, Grid3x3, LayoutDashboard, Bell,
-  Download, Video, Plus, PhoneOff, Users as UsersIcon, Workflow, Megaphone, LifeBuoy, Mail, Check, ShieldCheck, Contact2, CreditCard, Tag, DownloadCloud, AlertTriangle,
+  Download, Video, Plus, PhoneOff, Users as UsersIcon, Workflow, Megaphone, LifeBuoy, Mail, Check, ShieldCheck, Contact2, CreditCard, Tag, DownloadCloud, AlertTriangle, Database,
 } from "lucide-react";
 import { toast } from "sonner";
 import api, { API } from "@/lib/api";
@@ -20,6 +20,7 @@ import { SiteNoteTab } from "@/pages/admin/SiteNoteTab";
 import { AutomationTab } from "@/pages/admin/AutomationTab";
 import { UsersTab } from "@/pages/admin/UsersTab";
 import { Avatar, RolePill } from "@/pages/admin/UserBits";
+import { StorageDbTab } from "@/pages/admin/StorageDbTab";
 
 const CARDS = [
   { key: "total_users", label: "Users", icon: Users },
@@ -93,10 +94,15 @@ function EmailHealthBadge() {
 export default function Admin() {
   const [tab, setTab] = useState("overview");
   const [openSupport, setOpenSupport] = useState(0);
+  const [isSuper, setIsSuper] = useState(false);
+  useEffect(() => {
+    api.get("/admin/superadmin/whoami").then(({ data }) => setIsSuper(!!data.is_super_admin)).catch(() => {});
+  }, []);
   useEffect(() => {
     api.get("/admin/support-requests", { params: { status: "open", limit: 1 } })
       .then(({ data }) => setOpenSupport(data.open_count || 0)).catch(() => {});
   }, [tab]);
+  const tabs = isSuper ? [...TABS, { id: "storage", label: "Storage & DB", icon: Database }] : TABS;
   return (
     <PageShell>
       <UpdateBanner onGo={() => setTab("updates")} />
@@ -105,7 +111,7 @@ export default function Admin() {
         <div className="pt-1 flex items-center gap-3"><EmailHealthBadge /><MeetingLaunchButtons /></div>
       </div>
       <div className="neu-pressed rounded-full p-1.5 flex gap-1 mb-8 overflow-x-auto animate-fade-up">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button key={t.id} data-testid={`admin-tab-${t.id}`} onClick={() => setTab(t.id)}
             className={`flex items-center gap-2 rounded-full py-2.5 px-4 text-sm font-semibold whitespace-nowrap transition-all ${tab === t.id ? "neu-primary" : "text-muted-stitch"}`}>
             <t.icon className="w-4 h-4" /> {t.label}
@@ -132,6 +138,7 @@ export default function Admin() {
       {tab === "sitenote" && <SiteNoteTab />}
       {tab === "support" && <SupportTab />}
       {tab === "meetings" && <MeetingsTab />}
+      {tab === "storage" && isSuper && <StorageDbTab />}
     </PageShell>
   );
 }

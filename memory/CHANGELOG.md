@@ -1,5 +1,14 @@
 # Stitches Changelog
 
+## 2026-06 — Super-admin Storage & Database management tab
+- **New backend router `routers/storage_admin.py`** (super-admin only, gated by `require_super_admin` = email == `ADMIN_EMAIL`):
+  - DB: `GET /admin/db/overview` (dbstats + per-collection count/size/indexes), `GET /admin/db/collections/{name}/docs` (paginated JSON browse), `POST …/delete-doc` (delete by _id; super-admin user protected), `POST …/purge` (empty a collection; `users` purge preserves the super admin), `POST /admin/db/backup` + `GET /admin/db/backups` + `POST /admin/db/restore/{stamp}` (mongodump/mongorestore).
+  - Storage: `GET /admin/storage/overview` (total files/bytes + per-user breakdown w/ orphan flag), `GET /admin/storage/assets` (paginated), `DELETE /admin/storage/assets/{id}`, `POST …/delete-by-user/{id}`, `…/delete-orphans`, `…/delete-all` (hard-delete: removes object via new `core.delete_object` + DB record). All destructive ops logged to activity log.
+  - `GET /admin/superadmin/whoami` → `{is_super_admin}` for UI gating.
+- **Frontend** `pages/admin/StorageDbTab.jsx` + wired into `Admin.jsx` as a **"Storage & DB"** tab shown only when `whoami.is_super_admin` (ADMIN_EMAIL). Sections: DB overview (collections w/ Browse doc-viewer + Empty), DB backups (backup/restore, disabled w/ notice if mongodump absent), File storage (per-user usage + delete user/orphans/all). Confirm dialogs on all destructive actions.
+- Verified via curl (whoami=true, 33 collections/1990 docs, real mongodump backup 427KB, doc browse, storage overview 10 files/5 users) + screenshot (tab renders for super admin). Clean compile. Destructive purge/delete-all endpoints were NOT executed against preview data (logic mirrors tested paths).
+
+
 ## 2026-06 — Container hands-off auto-update (Watchtower)
 - Added a **Watchtower** service to `deploy/self-host/docker-compose.ghcr.yml` (label-gated: only `backend`/`web` carry `com.centurylinklabs.watchtower.enable=true`, so mongo/caddy are left alone). Polls GHCR every `WATCHTOWER_POLL_INTERVAL`s (default 300) and auto-redeploys when a newer `:latest` is published, with `WATCHTOWER_CLEANUP` pruning old images. Commented volume shows how to mount docker creds for private GHCR packages. README documents it. Compose YAML validated (services: mongo/backend/web/caddy/watchtower). This gives the container path the same hands-off updates as the VM `update.sh` path.
 

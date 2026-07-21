@@ -442,6 +442,15 @@ def get_object(path: str):
     return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
 
 
+def delete_object(path: str) -> bool:
+    if not path:
+        return False
+    key = init_storage()
+    resp = requests.delete(f"{STORAGE_URL}/objects/{path}",
+                           headers={"X-Storage-Key": key}, timeout=60)
+    return resp.status_code < 400
+
+
 
 # ---------------- Shared message helpers ----------------
 async def _create_message(channel_id: str, user: dict, text: str, parent_id: str = None, mentions: list = None) -> dict:
