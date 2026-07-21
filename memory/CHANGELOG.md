@@ -1,5 +1,9 @@
 # Stitches Changelog
 
+## 2026-06 — Container hands-off auto-update (Watchtower)
+- Added a **Watchtower** service to `deploy/self-host/docker-compose.ghcr.yml` (label-gated: only `backend`/`web` carry `com.centurylinklabs.watchtower.enable=true`, so mongo/caddy are left alone). Polls GHCR every `WATCHTOWER_POLL_INTERVAL`s (default 300) and auto-redeploys when a newer `:latest` is published, with `WATCHTOWER_CLEANUP` pruning old images. Commented volume shows how to mount docker creds for private GHCR packages. README documents it. Compose YAML validated (services: mongo/backend/web/caddy/watchtower). This gives the container path the same hands-off updates as the VM `update.sh` path.
+
+
 ## 2026-06 — GHCR image publishing + automatic HTTPS + domain-agnostic frontend
 - **Domain-portable frontend**: `lib/api.js` now falls back to `window.location.origin` when `REACT_APP_BACKEND_URL` is unset (exported `BACKEND_ORIGIN`; EmailTab webhook URL updated). This makes prebuilt images work behind ANY domain (API + WebSockets resolve to same origin, proxied by nginx). Managed preview unchanged (env still set). Verified: login/dashboard/authed calls work, clean compile.
 - **GHCR publish workflow** (`.github/workflows/docker-images.yml`): on `v*` tag / `main`, builds & pushes `stitches-backend` + `stitches-frontend` to GHCR (buildx + gha cache, lowercased image names, `type=ref/raw/sha` tags).

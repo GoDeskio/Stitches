@@ -77,3 +77,9 @@ Open ports **80 + 443**; Caddy fetches and renews a Let's Encrypt certificate fo
 `SITE_DOMAIN` on its own. The frontend image is domain-agnostic (it calls the API on the same
 origin), so the same image works behind any domain. Make the GHCR packages public, or run
 `docker login ghcr.io` on the server first.
+
+**Hands-off auto-update (containers):** the GHCR compose includes a **Watchtower** service that
+polls GHCR every `WATCHTOWER_POLL_INTERVAL` seconds (default 300) and automatically redeploys
+`backend`/`web` when a newer `:latest` image is published — so once you push a `v*` tag, your
+server updates itself with no manual `pull`. For private packages, mount your docker creds into
+the Watchtower service (see the commented volume in the compose file).

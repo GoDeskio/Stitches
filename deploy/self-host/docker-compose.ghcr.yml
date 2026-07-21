@@ -20,6 +20,8 @@ services:
   backend:
     image: ghcr.io/${GHCR_OWNER:?Set GHCR_OWNER to your GitHub org/user}/stitches-backend:${TAG:-latest}
     restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     env_file: ../../backend/.env
     environment:
       - SELF_HOSTED=true
@@ -33,6 +35,8 @@ services:
   web:
     image: ghcr.io/${GHCR_OWNER:?Set GHCR_OWNER to your GitHub org/user}/stitches-frontend:${TAG:-latest}
     restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
     depends_on:
       - backend
     expose:
@@ -52,6 +56,21 @@ services:
       - caddy_config:/config
     depends_on:
       - web
+
+  # Hands-off auto-update: polls GHCR and redeploys backend/web when a newer image
+  # with the same tag is published (e.g. after your v* tag build pushes :latest).
+  # Checks every WATCHTOWER_POLL_INTERVAL seconds (default 5 min) and prunes old images.
+  watchtower:
+    image: containrrr/watchtower
+    restart: unless-stopped
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_POLL_INTERVAL=${WATCHTOWER_POLL_INTERVAL:-300}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # For private GHCR packages, mount a docker config with `docker login ghcr.io` creds:
+      # - ~/.docker/config.json:/config.json:ro
 
 volumes:
   mongo_data:
