@@ -1,5 +1,12 @@
 # Stitches Changelog
 
+## 2026-06 — Ops-alerts webhook (Slack/Discord), super-admin only — TESTED
+- **Service** `services/ops_alerts.py`: webhook URL stored Fernet-encrypted; `send_ops_alert(title, msg, level)` posts to Slack (`{text}`) or Discord (`{content}`) with auto platform detection.
+- **Endpoints** (super-admin only, in `storage_admin.py`): `GET/POST /admin/ops-webhook` (config, returns `has_url` only), `POST /admin/ops-webhook/test`. Wired into `updates.py` `_alert_admins_job` so an auto-rollback / failed update pings the channel (level warn/error).
+- **UI**: `OpsWebhookSection` added to the top of the super-admin **Storage & DB** tab (top-admin dashboard only) — URL (masked), platform select, enable toggle, Save + Send test.
+- **Verified by testing_agent (iteration_37, 100% backend + frontend, 0 issues)**: save/get/test/clear cycle, encrypted at rest (no plaintext leak), destructive DB purge + storage delete-orphans on seeded throwaway data, DB backup, audit trail capture, and access control (non-admin `demo@stitches.app` gets 401/403). Throwaway data cleaned up after.
+
+
 ## 2026-06 — Danger-zone audit trail (Storage & DB tab)
 - **Backend** `GET /admin/audit/destructive` (super-admin): returns the last 100 destructive actions from the activity log (db_purge/delete_doc/backup/restore, storage delete asset/by-user/orphans/all), joined with actor name + email.
 - **Frontend** `AuditSection` in `StorageDbTab.jsx`: red-bordered "Danger-zone audit trail" listing each action with a color-coded dot, human label + meta (collection/docs, backup stamp, file counts), actor, and timestamp; refresh button.
