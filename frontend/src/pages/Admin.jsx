@@ -146,6 +146,7 @@ function Overview() {
   if (!stats) return <Loader />;
   return (
     <>
+      <SetupStatusStrip />
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-5 mb-8">
         {CARDS.map(({ key, label, icon: Icon }, i) => (
           <div key={key} className="neu-raised neu-hover rounded-[1.5rem] p-6 animate-fade-up" style={{ animationDelay: `${i * 50}ms` }}>
@@ -190,6 +191,38 @@ function Overview() {
     </>
   );
 }
+
+function SetupStatusStrip() {
+  const [items, setItems] = useState(null);
+  useEffect(() => { api.get("/admin/setup-status").then(({ data }) => setItems(data.items || [])).catch(() => setItems([])); }, []);
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="neu-raised rounded-[1.75rem] p-5 mb-8 animate-fade-up" data-testid="setup-status-strip">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="neu-sm w-10 h-10 rounded-2xl flex items-center justify-center"><ShieldCheck className="w-5 h-5 text-primary-stitch" /></div>
+        <div>
+          <h2 className="font-head font-bold text-lg" style={{ color: "var(--text)" }}>Production readiness</h2>
+          <p className="text-sm text-muted-stitch">What's configured vs. still pending before you go live.</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {items.map((it) => (
+          <div key={it.key} data-testid={`setup-${it.key}`} className="neu-pressed rounded-2xl p-4 flex items-start gap-3">
+            <span className="w-2.5 h-2.5 rounded-full shrink-0 mt-1.5" style={{ background: it.ok ? "#16a34a" : "#f59e0b", boxShadow: `0 0 8px ${it.ok ? "#16a34a" : "#f59e0b"}` }} />
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                {it.ok ? <Check className="w-4 h-4 text-green-500 shrink-0" /> : <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />}
+                <p className="font-semibold text-sm truncate" style={{ color: "var(--text)" }}>{it.label}</p>
+              </div>
+              <p className="text-xs text-muted-stitch mt-0.5 truncate">{it.detail}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 
 function HealthStat({ label, value, color, testid }) {
   return (

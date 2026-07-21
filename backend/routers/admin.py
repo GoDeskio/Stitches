@@ -459,6 +459,42 @@ async def admin_resend_verify(user: dict = Depends(require_admin)):
     return {"ok": True, "domain": d.get("name", domain)}
 
 
+# ---------------- Production-readiness "Setup status" ----------------
+@router.get("/admin/setup-status")
+async def admin_setup_status(user: dict = Depends(require_admin)):
+    async def val(key):
+        doc = await db.settings.find_one({"key": key})
+        return (doc or {}).get("value", {}) if doc else {}
+
+    upd = await val("update_config")
+    update_ready = bool(upd.get("repo_url"))
+
+    smtp = await val("smtp")
+    smtp_ok = bool(smtp.get("host") and smtp.get("username") and (smtp.get("password_enc") or smtp.get("password")))
+    mg = await val("mailgun_config")
+    mg_ok = bool(mg.get("domain") and (mg.get("api_key_enc") or mg.get("api_key")))
+    gmail_ok = bool(await db.settings.find_one({"key": "gmail_token"})) or bool(await db.settings.find_one({"key": "gmail_service_account"}))
+    resend_ok = bool(os.environ.get("RESEND_API_KEY") and os.environ.get("SENDER_EMAIL"))
+    email_ready = smtp_ok or mg_ok or gmail_ok or resend_ok
+    email_detail = ("SMTP" if smtp_ok else "Mailgun" if mg_ok else "Gmail" if gmail_ok else "Resend" if resend_ok else "Not configured")
+
+    lk = await val("livekit")
+    sfu_ok = bool(lk.get("enabled") and lk.get("url") and lk.get("api_key") and lk.get("api_secret_enc"))
+
+    turn = await val("turn")
+    turn_ok = bool(turn.get("urls") or os.environ.get("TURN_URLS"))
+
+    return {
+        "items": [
+            {"key": "update", "label": "Update source", "ok": update_ready,
+             "detail": "GitHub repo + token set" if bool(upd.get("token_enc") or upd.get("token")) else ("Repo set (public)" if update_ready else "No repo configured")},
+            {"key": "email", "label": "Email delivery", "ok": email_ready, "detail": email_detail},
+            {"key": "sfu", "label": "SFU (large calls)", "ok": sfu_ok, "detail": "LiveKit enabled" if sfu_ok else "P2P only (optional)"},
+            {"key": "turn", "label": "TURN relay", "ok": turn_ok, "detail": "Configured" if turn_ok else "STUN only (optional)"},
+        ]
+    }
+
+
 # ---------------- Weekly / scheduled admin digest email ----------------
 @router.get("/admin/digest-config")
 async def admin_get_digest(user: dict = Depends(require_admin)):

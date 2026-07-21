@@ -1,5 +1,11 @@
 # Stitches Changelog
 
+## 2026-06 — Admin "Production readiness" status strip + rotated update token
+- **Setup status strip** (Admin → Overview, top): new `GET /api/admin/setup-status` aggregates four go-live checks — Update source (repo + token), Email delivery (SMTP/Mailgun/Gmail/Resend), SFU (LiveKit), TURN relay — each with a green ✓ / amber ⚠ pill + short detail. Gives admins an at-a-glance view of what's configured vs. pending. `SetupStatusStrip` component renders the pills.
+- Verified: endpoint returns Update ✓ / Email ✓ (SMTP) / SFU ⚠ / TURN ⚠; strip renders on the Overview (screenshot); clean compile.
+- **Rotated GitHub PAT** re-saved (encrypted at rest); live check reached `GoDeskio/Stitches` and detected an available update.
+
+
 ## 2026-06 — Auto-update wired to GitHub (encrypted PAT) + token-at-rest hardening
 - **Update token encrypted at rest**: `routers/updates.py` now stores the GitHub PAT as Fernet ciphertext (`token_enc`), decrypts server-side only, and clears any legacy plaintext. Verified in Mongo: `token` field empty, `token_enc` = `gAAAA…`, no `ghp_` leak. `_public_cfg` still returns only `has_token`.
 - **Configured live**: admin GitHub repo (`https://github.com/GoDeskio/Stitches.git`, branch `main`) + PAT saved via `/admin/updates/config`; `enabled`, `auto_apply` and `auto_rollback` all ON. A check reached the repo with the token and detected an available update. Admin → Updates shows repo + "Access token · set" + all toggles + "Update available" banner.
