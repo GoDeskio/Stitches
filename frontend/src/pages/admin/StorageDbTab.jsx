@@ -34,17 +34,19 @@ function OpsWebhookSection() {
   const [qStart, setQStart] = useState(22);
   const [qEnd, setQEnd] = useState(7);
   const [tz, setTz] = useState(0);
+  const [events, setEvents] = useState({ update: true, payment: true, destructive: true });
   const [busy, setBusy] = useState(false);
 
   const load = () => api.get("/admin/ops-webhook").then(({ data }) => {
     setCfg(data); setPlatform(data.platform); setEnabled(data.enabled);
     setMinLevel(data.min_level); setQuiet(data.quiet_enabled);
     setQStart(data.quiet_start); setQEnd(data.quiet_end); setTz(data.tz_offset);
+    setEvents(data.events || { update: true, payment: true, destructive: true });
   }).catch(() => setCfg({ has_url: false }));
   useEffect(() => { load(); }, []);
 
   const body = () => {
-    const b = { enabled, platform, min_level: minLevel, quiet_enabled: quiet, quiet_start: Number(qStart), quiet_end: Number(qEnd), tz_offset: Number(tz) };
+    const b = { enabled, platform, min_level: minLevel, quiet_enabled: quiet, quiet_start: Number(qStart), quiet_end: Number(qEnd), tz_offset: Number(tz), events };
     if (url) b.url = url;
     return b;
   };
@@ -119,6 +121,19 @@ function OpsWebhookSection() {
               </label>
             </div>
           )}
+        </div>
+        <div className="neu-pressed rounded-2xl p-4" data-testid="ops-events">
+          <p className="text-sm font-semibold mb-2" style={{ color: "var(--text)" }}>Which events to send</p>
+          <div className="flex flex-wrap gap-4">
+            {[["update", "Updates & rollbacks"], ["payment", "Payments & subscriptions"], ["destructive", "Destructive admin actions"]].map(([k, lbl]) => (
+              <button key={k} type="button" data-testid={`ops-event-${k}`} onClick={() => setEvents((p) => ({ ...p, [k]: !p[k] }))} className="flex items-center gap-2 text-sm text-muted-stitch">
+                <span className={`w-9 h-5 rounded-full flex items-center px-0.5 transition-all ${events[k] ? "justify-end" : "justify-start"}`} style={{ background: events[k] ? "var(--primary)" : "var(--neu-dark)" }}>
+                  <span className="w-4 h-4 rounded-full bg-white shadow" />
+                </span>
+                {lbl}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex gap-3 pt-1">
           <button data-testid="ops-webhook-save" onClick={save} disabled={busy} className="neu-primary rounded-2xl px-6 py-3 font-semibold text-sm">{busy ? "Saving…" : "Save"}</button>

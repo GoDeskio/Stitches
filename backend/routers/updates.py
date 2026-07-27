@@ -230,7 +230,7 @@ async def _alert_admins_job(job: dict, rolled_back: bool):
             pass
     try:
         from services.ops_alerts import send_ops_alert
-        await send_ops_alert(title, msg, "warn" if rolled_back else "error")
+        await send_ops_alert(title, msg, "warn" if rolled_back else "error", event="update")
     except Exception:
         pass
     await db.update_jobs.update_one({"job_id": job["job_id"]}, {"$set": {"alerted": True}})

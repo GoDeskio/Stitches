@@ -16,6 +16,7 @@ import Messages from "@/pages/Messages";
 import Projects from "@/pages/Projects";
 import Assets from "@/pages/Assets";
 import Integrations from "@/pages/Integrations";
+import Bots from "@/pages/Bots";
 import AiAssistant from "@/pages/AiAssistant";
 import Profile from "@/pages/Profile";
 import People from "@/pages/People";
@@ -70,6 +71,7 @@ function AppRouter() {
         <Route path="/projects/:projectId/board" element={<ProjectBoard />} />
         <Route path="/assets" element={<Assets />} />
         <Route path="/integrations" element={<Integrations />} />
+        <Route path="/bots" element={<Bots />} />
         <Route path="/assistant" element={<AiAssistant />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/people" element={<People />} />

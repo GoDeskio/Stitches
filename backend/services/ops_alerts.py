@@ -21,6 +21,7 @@ async def get_ops_webhook() -> dict:
         "quiet_start": int(v.get("quiet_start", 22)),
         "quiet_end": int(v.get("quiet_end", 7)),
         "tz_offset": int(v.get("tz_offset", 0)),
+        "events": {"update": True, "payment": True, "destructive": True, **(v.get("events") or {})},
     }
 
 
@@ -29,6 +30,7 @@ def public_ops_webhook(cfg: dict) -> dict:
         "enabled": cfg["enabled"], "platform": cfg["platform"], "has_url": bool(cfg["url"]),
         "min_level": cfg["min_level"], "quiet_enabled": cfg["quiet_enabled"],
         "quiet_start": cfg["quiet_start"], "quiet_end": cfg["quiet_end"], "tz_offset": cfg["tz_offset"],
+        "events": cfg["events"],
     }
 
 
@@ -50,6 +52,10 @@ async def save_ops_webhook(patch: dict):
                 sets[f"value.{k}"] = int(patch[k])
             except Exception:
                 pass
+    if isinstance(patch.get("events"), dict):
+        for ek in ("update", "payment", "destructive"):
+            if ek in patch["events"]:
+                sets[f"value.events.{ek}"] = bool(patch["events"][ek])
     if sets:
         await db.settings.update_one({"key": "ops_webhook"}, {"$set": sets}, upsert=True)
 
@@ -62,7 +68,9 @@ def _detect(url: str, platform: str) -> str:
     return "slack"
 
 
-def _passes_filters(level: str, cfg: dict) -> bool:
+def _passes_filters(level: str, cfg: dict, event: str = "general") -> bool:
+    if event in ("update", "payment", "destructive") and not cfg.get("events", {}).get(event, True):
+        return False
     if _RANK.get(level, 0) < _RANK.get(cfg.get("min_level", "info"), 0):
         return False
     if cfg.get("quiet_enabled") and level != "error":
@@ -74,17 +82,17 @@ def _passes_filters(level: str, cfg: dict) -> bool:
     return True
 
 
-async def send_ops_alert(title: str, message: str, level: str = "info", url: str = None, platform: str = None):
+async def send_ops_alert(title: str, message: str, level: str = "info", url: str = None, platform: str = None, event: str = "general"):
     cfg = await get_ops_webhook()
     target = url if url is not None else cfg["url"]
     if not target:
         return False, "No webhook URL configured"
     if url is None:
-        # Real event (not a manual test): honour enable + severity/quiet-hours filters.
+        # Real event (not a manual test): honour enable + severity/quiet-hours/event filters.
         if not cfg["enabled"]:
             return False, "Ops alerts are disabled"
-        if not _passes_filters(level, cfg):
-            return False, "Filtered by severity/quiet-hours settings"
+        if not _passes_filters(level, cfg, event):
+            return False, "Filtered by severity/quiet-hours/event settings"
     plat = _detect(target, platform if platform is not None else cfg["platform"])
     icon = {"error": "🔴", "warn": "🟠", "success": "🟢", "info": "🔵"}.get(level, "🔵")
     try:

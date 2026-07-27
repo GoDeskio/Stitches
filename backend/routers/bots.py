@@ -1,0 +1,145 @@
+from fastapi import APIRouter, HTTPException, Depends, Body, Request
+from core import *
+from core import _create_message, ws_manager, _fernet
+import uuid
+import hashlib
+import secrets
+
+router = APIRouter()
+
+
+def _hash(t: str) -> str:
+    return hashlib.sha256(t.encode()).hexdigest()
+
+
+def _dec(enc: str):
+    if not enc:
+        return None
+    try:
+        return _fernet.decrypt(enc.encode()).decode()
+    except Exception:
+        return None
+
+
+def _public_bot(b: dict) -> dict:
+    return {
+        "bot_id": b["bot_id"], "name": b["name"], "enabled": b.get("enabled", True),
+        "target_channel_id": b.get("target_channel_id"), "target_channel_name": b.get("target_channel_name"),
+        "outbound_webhook_set": bool(b.get("outbound_webhook_enc")),
+        "message_count": b.get("message_count", 0), "last_used_at": b.get("last_used_at"),
+        "created_at": b.get("created_at"), "token": _dec(b.get("token_enc")),
+    }
+
+
+async def _resolve_channel(user: dict, channel_id: str) -> dict:
+    ch = await db.channels.find_one({"channel_id": channel_id})
+    if not ch:
+        raise HTTPException(status_code=400, detail="Channel not found")
+    ws = await db.workspaces.find_one({"workspace_id": ch.get("workspace_id")})
+    if ws and user["user_id"] != ws.get("owner_id") and user["user_id"] not in (ws.get("members") or []):
+        raise HTTPException(status_code=403, detail="You don't have access to that channel")
+    return ch
+
+
+def _new_token() -> str:
+    return "stbot_" + secrets.token_hex(24)
+
+
+@router.post("/bots")
+async def create_bot(body: dict = Body(...), user: dict = Depends(get_current_user)):
+    name = (body.get("name") or "").strip()
+    channel_id = body.get("target_channel_id")
+    if not name:
+        raise HTTPException(status_code=400, detail="Bot name is required")
+    ch = await _resolve_channel(user, channel_id)
+    token = _new_token()
+    doc = {
+        "bot_id": f"bot_{uuid.uuid4().hex[:12]}", "owner_id": user["user_id"], "name": name,
+        "enabled": True, "target_channel_id": channel_id, "target_channel_name": ch.get("name"),
+        "token_hash": _hash(token), "token_enc": _fernet.encrypt(token.encode()).decode(),
+        "outbound_webhook_enc": "", "message_count": 0, "last_used_at": None, "created_at": now_iso(),
+    }
+    await db.bots.insert_one(doc)
+    await log_activity(user["user_id"], "bot_create", {"bot_id": doc["bot_id"], "name": name})
+    return _public_bot(doc)
+
+
+@router.get("/bots")
+async def list_bots(user: dict = Depends(get_current_user)):
+    items = await db.bots.find({"owner_id": user["user_id"]}).sort("created_at", -1).to_list(200)
+    return {"bots": [_public_bot(b) for b in items]}
+
+
+@router.patch("/bots/{bot_id}")
+async def update_bot(bot_id: str, body: dict = Body(...), user: dict = Depends(get_current_user)):
+    b = await db.bots.find_one({"bot_id": bot_id, "owner_id": user["user_id"]})
+    if not b:
+        raise HTTPException(status_code=404, detail="Bot not found")
+    sets = {}
+    if "enabled" in body:
+        sets["enabled"] = bool(body["enabled"])
+    if body.get("name", "").strip():
+        sets["name"] = body["name"].strip()
+    if "target_channel_id" in body:
+        ch = await _resolve_channel(user, body["target_channel_id"])
+        sets["target_channel_id"] = body["target_channel_id"]
+        sets["target_channel_name"] = ch.get("name")
+    if "outbound_webhook" in body:
+        sets["outbound_webhook_enc"] = _fernet.encrypt(body["outbound_webhook"].encode()).decode() if body["outbound_webhook"] else ""
+    if sets:
+        await db.bots.update_one({"bot_id": bot_id}, {"$set": sets})
+    return _public_bot(await db.bots.find_one({"bot_id": bot_id}))
+
+
+@router.post("/bots/{bot_id}/rotate")
+async def rotate_bot(bot_id: str, user: dict = Depends(get_current_user)):
+    b = await db.bots.find_one({"bot_id": bot_id, "owner_id": user["user_id"]})
+    if not b:
+        raise HTTPException(status_code=404, detail="Bot not found")
+    token = _new_token()
+    await db.bots.update_one({"bot_id": bot_id}, {"$set": {
+        "token_hash": _hash(token), "token_enc": _fernet.encrypt(token.encode()).decode()}})
+    await log_activity(user["user_id"], "bot_rotate", {"bot_id": bot_id})
+    return _public_bot(await db.bots.find_one({"bot_id": bot_id}))
+
+
+@router.delete("/bots/{bot_id}")
+async def delete_bot(bot_id: str, user: dict = Depends(get_current_user)):
+    r = await db.bots.delete_one({"bot_id": bot_id, "owner_id": user["user_id"]})
+    if not r.deleted_count:
+        raise HTTPException(status_code=404, detail="Bot not found")
+    return {"ok": True}
+
+
+# ---------------- Public ingest (bot-token auth, no user session) ----------------
+async def _auth_bot(request: Request, body_token: str):
+    token = None
+    auth = request.headers.get("Authorization", "")
+    if auth.lower().startswith("bearer "):
+        token = auth[7:].strip()
+    token = token or body_token
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing bot token")
+    b = await db.bots.find_one({"token_hash": _hash(token)})
+    if not b:
+        raise HTTPException(status_code=401, detail="Invalid bot token")
+    if not b.get("enabled", True):
+        raise HTTPException(status_code=403, detail="This bot is disabled")
+    return b
+
+
+@router.post("/bots/ingest")
+async def bot_ingest(request: Request, body: dict = Body(...)):
+    b = await _auth_bot(request, body.get("token"))
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="'text' is required")
+    sender = (body.get("sender_name") or "").strip()
+    display = f"🤖 {b['name']}" + (f" · {sender}" if sender else "")
+    bot_user = {"user_id": b["bot_id"], "name": display, "avatar": None}
+    doc = await _create_message(b["target_channel_id"], bot_user, text[:4000])
+    doc["is_bot"] = True
+    await ws_manager.broadcast(b["target_channel_id"], {"type": "message", "message": doc})
+    await db.bots.update_one({"bot_id": b["bot_id"]},
+                             {"$set": {"last_used_at": now_iso()}, "$inc": {"message_count": 1}})
+    return {"ok": True, "message_id": doc["message_id"], "channel_id": b["target_channel_id"]}

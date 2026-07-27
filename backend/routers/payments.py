@@ -123,7 +123,7 @@ async def payments_charge(request: Request, user: dict = Depends(require_admin))
         return {"success": False, "error": doc["response_text"] or "Payment declined", "transaction": _public(doc)}
     try:
         from services.ops_alerts import send_ops_alert
-        await send_ops_alert("Payment charged 💳", f"${amount:.2f} charged to {doc['email'] or 'card ••'+doc['card_last4']} by {user.get('email')}.", "success")
+        await send_ops_alert("Payment charged 💳", f"${amount:.2f} charged to {doc['email'] or 'card ••'+doc['card_last4']} by {user.get('email')}.", "success", event="payment")
     except Exception:
         pass
     return {"success": True, "transaction": _public(doc)}
@@ -358,7 +358,7 @@ async def checkout_plan(request: Request):
             "nmi_transaction_id": doc["nmi_transaction_id"], "created_at": now_iso()})
     try:
         from services.ops_alerts import send_ops_alert
-        await send_ops_alert("New subscription 🎉", f"{email} purchased *{plan.get('name')}* (${amount:.2f}/{interval}) via the pricing page.", "success")
+        await send_ops_alert("New subscription 🎉", f"{email} purchased *{plan.get('name')}* (${amount:.2f}/{interval}) via the pricing page.", "success", event="payment")
     except Exception:
         pass
     return {"success": True, "transaction_id": doc["nmi_transaction_id"], "plan": plan.get("name")}

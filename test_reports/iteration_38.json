@@ -1,0 +1,45 @@
+{
+  "summary": "Full-system test for iteration 38: NEW Bot Connections (backend + UI), NEW ops-alerts per-event toggles, plus regression (auth, super-admin gating, messaging, projects, admin storage/DB tab). 18/18 backend pytest cases pass. All 3 new bot flows (create/show token/copy cURL/toggle/rotate/delete) verified via Playwright. All 9 admin data-testids on Storage & DB tab render including ops-event-update/payment/destructive, ops-webhook-minlevel, ops-webhook-quiet. Ops-webhook save+event-toggle round-trips persist; test with no URL returns helpful 400. Bots are per-user (demo cannot see admin's bots). Rotate correctly invalidates old token (401). Disabled bot ingest returns 403. Invalid/missing tokens return 401. Bot messages appear in the target channel with '🤖 <bot name>' display.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/bots (CreateBot modal)", "issues": ["React hydration warning in dev: 'In HTML, <span> cannot be a child of <option>' on the bot-channel-select and bot-ws-select <option> children. Caused by the emergent dev-tooling instrumenting the `#{c.name}` text expression with a wrapping <span>. Non-blocking in production; consider whitelisting <option> children in the instrumentation."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration38_bots_ops.py",
+    "/app/test_reports/pytest/iter38.xml"
+  ],
+  "verified": [
+    "POST /api/auth/login for admin@stitches.app and demo@stitches.app return 200 with token",
+    "GET /api/admin/superadmin/whoami -> is_super_admin=true for admin",
+    "GET /api/admin/db/overview 200 for admin, 401/403 for demo",
+    "POST /api/admin/ops-webhook with events={update:false,payment:true,destructive:false} + min_level=warn + quiet_enabled=true persists; GET returns the same values",
+    "POST /api/admin/ops-webhook/test with no saved url returns 400 with helpful detail",
+    "POST /api/bots creates bot with stbot_ token, enabled=true, message_count=0",
+    "GET /api/bots lists the created bot for its owner only (demo cannot see admin's bot)",
+    "POST /api/bots/ingest 401 with missing/invalid Bearer token; 200 with valid token, message_id returned",
+    "After ingest, bot.message_count increments in GET /api/bots and message text appears in GET /api/channels/{id}/messages",
+    "PATCH /api/bots/{id} enabled=false -> subsequent ingest returns 403",
+    "POST /api/bots/{id}/rotate returns new stbot_ token; old token now 401; new token 200",
+    "DELETE /api/bots/{id} removes bot; subsequent ingest with the (now orphaned) token returns 401",
+    "UI /bots: new-bot-btn, create-bot-modal, bot-name-input, bot-ws-select, bot-channel-select, create-bot-submit, bot-card, bot-token (masked then Show), bot-copy-token, bot-copy-curl, bot-toggle, bot-rotate, bot-delete all render and function",
+    "UI /admin Storage & DB tab: ops-webhook-section, db-section, storage-section, audit-section, ops-event-update, ops-event-payment, ops-event-destructive, ops-webhook-minlevel, ops-webhook-quiet all render; ops-webhook-save clickable",
+    "Regression: POST /api/messages posts a message (200); GET /api/projects returns list; /projects UI page loads with kanban card visible",
+    "Nav 'Bots' link visible in left sidebar for logged-in user"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "bots.py _auth_bot: token accepted from either Authorization header OR body 'token'. Body-token fallback expands the attack surface (bot tokens in server access logs / referer). Consider header-only auth or requiring content-type/JSON only.",
+    "bots.py: message text is silently truncated at 4000 chars ([:4000]) with no client hint. Consider returning a warning field or rejecting with 413 when payload > 4000."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration38_bots_ops.py"],
+  "success_rate": { "backend": "100%", "frontend": "100%" },
+  "test_credentials": "admin@stitches.app / Admin@123 (super admin), demo@stitches.app / Demo@123 (regular)",
+  "seed_data_creation": "Created TEST_qa_bot and TEST_ui_bot_iter38 bots + a few TEST_ messages during runs. Cleanup fixture removes all TEST_ bots; UI test explicitly deletes its bot. Ops-webhook state restored to defaults (events all true, min_level=info, quiet_enabled=false, url empty).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 38 features fully working. Test file /app/backend/tests/test_iteration38_bots_ops.py covers bots CRUD, ingest auth, per-user isolation, ops-webhook events round-trip. Note: default pytest addopts use xdist (-n --dist loadscope). This suite's TestBots class stores state across tests, so if you run it in isolation prefer -o addopts=\"\" or ensure loadscope keeps class together (it does by default). No leftover test data expected."
+}

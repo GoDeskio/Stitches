@@ -30,7 +30,7 @@ def _json_safe(d: dict) -> dict:
 
 async def _ops(title: str, message: str, level: str = "warn"):
     try:
-        await send_ops_alert(title, message, level)
+        await send_ops_alert(title, message, level, event="destructive")
     except Exception:
         pass
 
@@ -259,7 +259,7 @@ async def ops_webhook_get(user: dict = Depends(require_super_admin)):
 
 @router.post("/admin/ops-webhook")
 async def ops_webhook_save(body: dict = Body(...), user: dict = Depends(require_super_admin)):
-    keys = ("url", "enabled", "platform", "min_level", "quiet_enabled", "quiet_start", "quiet_end", "tz_offset")
+    keys = ("url", "enabled", "platform", "min_level", "quiet_enabled", "quiet_start", "quiet_end", "tz_offset", "events")
     patch = {k: body[k] for k in keys if k in body}
     await save_ops_webhook(patch)
     await log_activity(user["user_id"], "ops_webhook_save", {"enabled": patch.get("enabled")})

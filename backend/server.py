@@ -11,13 +11,14 @@ from routers import crm
 from routers import payments
 from routers import updates
 from routers import storage_admin
+from routers import bots
 from services.digest import scan_digest
 from routers.payments import scan_subscription_renewals
 from routers.updates import scan_updates
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
-for _mod in (auth, users, messaging, projects, assets, integrations, ai, admin, meetings, rtc_config, sfu_config, smtp_config, gmail_oauth, crm, payments, updates, storage_admin):
+for _mod in (auth, users, messaging, projects, assets, integrations, ai, admin, meetings, rtc_config, sfu_config, smtp_config, gmail_oauth, crm, payments, updates, storage_admin, bots):
     api_router.include_router(_mod.router)
 
 
