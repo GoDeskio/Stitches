@@ -161,7 +161,7 @@ async def _send_email_impl(to_email, subject, html, ics=None, sender_user_id=Non
     sender = cfg["sender"]
     primary = cfg["provider"]
     order = [primary] + [p for p in ("mailgun", "gmail_sa", "gmail", "smtp") if p != primary]
-    labels = {"mailgun": "Mailgun", "gmail_sa": "Gmail service account", "gmail": "Gmail", "smtp": "admin SMTP"}
+    labels = {"mailgun": "Mailgun", "gmail_sa": "Gmail service account", "gmail": "Gmail", "smtp": "admin SMTP", "resend": "Resend"}
     errors = {}       # provider -> error string (only for providers that were actually attempted)
     attempted = []    # ordered providers actually tried
 
@@ -215,7 +215,6 @@ async def _send_email_impl(to_email, subject, html, ics=None, sender_user_id=Non
 
     # Lead with the configured/active provider's error so admins see the real cause,
     # not just the last fallback that happened to run.
-    labels["resend"] = "Resend"
     parts = []
     if primary in errors:
         parts.append(f"{labels.get(primary, primary)} (active) failed: {errors[primary]}")

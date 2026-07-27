@@ -1,5 +1,13 @@
 # Stitches Changelog
 
+## 2026-06 — Email delivery diagnostics finalized (P1) + full regression (iteration_39)
+- **Root cause of confusing "email failing" reports fixed**: `send_email_detailed` tried providers in order and only kept the *last* fallback error, so the admin saw an unrelated SMTP error even though the *active* provider (Mailgun) was the real failure. `services/email.py::_send_email_impl` now accumulates a per-provider error map and returns a detail that **leads with the active provider** — e.g. `Mailgun (active) failed: Mailgun 401: Forbidden | admin SMTP failed: …`.
+- **`/api/admin/setup-status` email pill** now reflects the *selected* provider (`Mailgun (active)`), instead of always reporting whatever happened to be configured first (previously mislabeled "SMTP").
+- Hardened the provider id→label map (includes `resend`) to avoid a future KeyError.
+- **Verified (iteration_39, testing_agent, 100% backend 11/11 + 100% frontend, zero issues)**: active-provider error surfacing, setup-status label, plus full regression (auth for 4 users, super-admin gating on DB/storage, RTC config + SFU-token-400, bots create+ingest, admin dashboard tabs render, user dashboard renders).
+- NOTE (user-action): actual delivery still fails because the stored **Mailgun API key is invalid (401 Forbidden)** and the Gmail SMTP account needs an **app-specific password**. Enter a valid key at Admin → Email to go live. Restored the Mailgun domain/sender (`mg.godesk.io` / `noreply@mg.godesk.io`) that the test overwrote.
+
+
 ## 2026-06 — Ops alerts: quiet-hours + severity filter
 - `services/ops_alerts.py` now supports `min_level` (info/warn/error), `quiet_enabled`, `quiet_start`/`quiet_end` (hours) and `tz_offset`. `_passes_filters` drops events below the min severity, and during quiet hours only `error`-level pings go through. Manual "Send test" bypasses filters.
 - Persisted via `POST /admin/ops-webhook` (expanded key list); exposed in `public_ops_webhook`.
