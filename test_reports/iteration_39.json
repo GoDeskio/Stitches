@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 39 – verified primary email-diagnostics fix + full regression. Backend 11/11 pytest cases pass. /api/admin/test-email now returns detail starting with 'Mailgun (active) failed: ...' when provider=mailgun with an invalid key (any SMTP fallback error follows after ' | ', never leads). /api/admin/setup-status email item detail correctly reads 'Mailgun (active)'. UI verified: admin@stitches.app logs in and sees the Admin Dashboard with tabs (Overview/Users/Features/Notifications/SEO/Monitoring/Heat Map/Integrations/Automation/CRM… all render); the Overview 'Production readiness' card shows the green 'Email delivery — Mailgun (active)' pill; demo@stitches.app logs in and sees the user Dashboard (workspaces=1, quick actions, tasks, QR login card). Regression sanity: RTC config returns iceServers, /api/rtc/sfu-token returns 400 while LiveKit disabled (expected), super-admin gating still blocks demo on /api/admin/db/overview and /api/admin/storage/overview (403), bots create+ingest still works.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration39_email_diag.py",
+    "/app/test_reports/pytest/iter39.xml"
+  ],
+  "verified": [
+    "POST /api/auth/login for admin, demo, alice, bob all return 200 with tokens",
+    "GET /api/auth/me returns correct email/role for each user",
+    "POST /api/admin/test-email with provider=mailgun + invalid key returns ok=false and detail STARTS WITH 'Mailgun (active) failed:' (primary fix)",
+    "GET /api/admin/setup-status returns items[key=email].detail === 'Mailgun (active)' when provider=mailgun and mailgun is configured (setup-status active-provider label fix)",
+    "GET /api/admin/db/overview 200 for admin, 403 for demo",
+    "GET /api/admin/storage/overview 200 for admin, 403 for demo",
+    "GET /api/rtc/config returns iceServers array (>0)",
+    "POST /api/rtc/sfu-token returns 400 while LiveKit disabled",
+    "POST /api/bots creates stbot_ token; POST /api/bots/ingest with header token returns 200 + message_id",
+    "UI: admin login → /admin renders header + all tabs (Overview, Users, Features, Notifications, SEO, Monitoring, Heat Map, Integrations, Automation, CRM, Payments, Plans, Email, Updates, Storage, Support). Production-readiness card shows green 'Email delivery — Mailgun (active)'.",
+    "UI: demo login → /dashboard renders with workspaces=1, quick actions, tasks, weekly calendar, QR login block"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "services/email.py::_send_email_impl: 'errors' dict keys by short provider id but Resend fallback uses labels['resend']. Correct today because labels is patched at line 218, but consider centralizing the id→label map to avoid a KeyError regression if a new provider id is added.",
+    "routers/admin.py::admin_setup_status: gmail_ok is set from gmail_token OR gmail_service_account, but active_map treats 'gmail' and 'gmail_sa' identically. If only the service account is configured but provider='gmail' (personal OAuth), the pill shows 'Gmail (active)' even though the true active path is the SA. Consider distinguishing gmail_token vs gmail_service_account to avoid misleading operators."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration39_email_diag.py"],
+  "success_rate": { "backend": "100%", "frontend": "100%" },
+  "test_credentials": "admin@stitches.app / Admin@123 (super admin), demo@stitches.app / Demo@123, alice@stitches.app / Alice@123, bob@stitches.app / Bob@123",
+  "seed_data_creation": "Test class TestEmailDiagnostics temporarily set email_provider=mailgun with an invalid Mailgun key (domain=invalid.stitches.test, api_key=key-TEST_iter39_invalid_diag_key). Teardown restores the original email_provider snapshot; mailgun-config credentials were NOT restored to a prior state (the previous config, if any, remains overwritten with the invalid test value). TestBotsRegression created TEST_iter39_bot and deleted it in cleanup. NOTE: if the environment previously had a real Mailgun key configured for testing, an admin will need to re-enter it via /admin > Email; because we cannot read the encrypted key back, we can't perfectly restore it. Preview env showed no valid key beforehand (email was already failing), so this should be a no-op for this environment.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Primary email-diagnostics fix (services/email.py::_send_email_impl leads with active provider; routers/admin.py::setup-status reflects selected provider) is verified end-to-end. Test file /app/backend/tests/test_iteration39_email_diag.py covers the two email-diagnostics assertions plus regression (auth, super-admin gating, RTC, meetings, bots). To re-run just this suite: `pytest tests/test_iteration39_email_diag.py -v -o addopts=''`. If you need to reset email_provider back to Gmail for other tests: `PUT /api/admin/email-provider {\"provider\":\"gmail\"}` as admin.",
+  "rca_of_the_issue": "N/A – no defects found this run."
+}

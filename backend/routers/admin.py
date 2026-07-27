@@ -476,7 +476,20 @@ async def admin_setup_status(user: dict = Depends(require_admin)):
     gmail_ok = bool(await db.settings.find_one({"key": "gmail_token"})) or bool(await db.settings.find_one({"key": "gmail_service_account"}))
     resend_ok = bool(os.environ.get("RESEND_API_KEY") and os.environ.get("SENDER_EMAIL"))
     email_ready = smtp_ok or mg_ok or gmail_ok or resend_ok
-    email_detail = ("SMTP" if smtp_ok else "Mailgun" if mg_ok else "Gmail" if gmail_ok else "Resend" if resend_ok else "Not configured")
+    # Reflect the ACTIVE selected provider first (not just whatever is configured), so the
+    # readiness pill matches what actually sends mail.
+    provider_cfg = await val("email_provider")
+    active = provider_cfg.get("provider") or "gmail"
+    active_map = {"mailgun": ("Mailgun", mg_ok), "smtp": ("SMTP", smtp_ok),
+                  "gmail": ("Gmail", gmail_ok), "gmail_sa": ("Gmail service account", gmail_ok)}
+    active_label, active_configured = active_map.get(active, ("Gmail", gmail_ok))
+    if active_configured:
+        email_detail = f"{active_label} (active)"
+    elif email_ready:
+        fallback = ("SMTP" if smtp_ok else "Mailgun" if mg_ok else "Gmail" if gmail_ok else "Resend")
+        email_detail = f"{active_label} selected, not configured — using {fallback}"
+    else:
+        email_detail = "Not configured"
 
     lk = await val("livekit")
     sfu_ok = bool(lk.get("enabled") and lk.get("url") and lk.get("api_key") and lk.get("api_secret_enc"))

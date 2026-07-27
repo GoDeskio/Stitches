@@ -161,49 +161,68 @@ async def _send_email_impl(to_email, subject, html, ics=None, sender_user_id=Non
     sender = cfg["sender"]
     primary = cfg["provider"]
     order = [primary] + [p for p in ("mailgun", "gmail_sa", "gmail", "smtp") if p != primary]
-    last = "No email provider configured (set one up in the admin Email setup)"
+    labels = {"mailgun": "Mailgun", "gmail_sa": "Gmail service account", "gmail": "Gmail", "smtp": "admin SMTP"}
+    errors = {}       # provider -> error string (only for providers that were actually attempted)
+    attempted = []    # ordered providers actually tried
 
     for p in order:
         if p == "mailgun":
             if await mailgun_admin_configured():
+                attempted.append(p)
                 try:
                     mg = await get_mailgun_admin(reveal=True)
                     await send_via_mailgun(mg, to_email, subject, html, ics, sender=sender or mg.get("sender"))
                     return True, "Sent via Mailgun"
                 except Exception as e:
-                    last = f"Mailgun failed: {e}"
+                    errors[p] = str(e)
         elif p == "gmail_sa":
             if await service_account_connected():
+                attempted.append(p)
                 try:
                     await send_via_service_account(to_email, subject, html, ics, sender=sender)
                     return True, f"Sent via Gmail service account ({sender})"
                 except Exception as e:
-                    last = f"Gmail service account failed: {e}"
+                    errors[p] = str(e)
         elif p == "gmail":
             if await gmail_connected():
+                attempted.append(p)
                 try:
                     await send_via_gmail(to_email, subject, html, ics, sender=sender)
                     return True, "Sent via Gmail"
                 except Exception as e:
-                    last = f"Gmail failed: {e}"
+                    errors[p] = str(e)
         elif p == "smtp":
             admincfg = await get_smtp_cfg()
             if _smtp_complete(admincfg):
+                attempted.append(p)
                 try:
                     await run_in_threadpool(_send_email_sync, admincfg, to_email, subject, html, ics)
                     return True, "Sent via admin SMTP"
                 except Exception as e:
-                    last = f"Admin SMTP failed: {e}"
+                    errors[p] = str(e)
 
     # Resend only if explicitly enabled as a fallback
     if cfg["resend_fallback"] and os.environ.get("RESEND_API_KEY") and os.environ.get("SENDER_EMAIL"):
+        attempted.append("resend")
         try:
             await _send_via_resend(to_email, subject, html, ics)
             return True, f"Sent via Resend from {os.environ.get('SENDER_EMAIL')}"
         except Exception as e:
-            last = f"Resend error: {e}"
+            errors["resend"] = str(e)
 
-    return False, last
+    if not attempted:
+        return False, "No email provider configured (set one up in the admin Email setup)"
+
+    # Lead with the configured/active provider's error so admins see the real cause,
+    # not just the last fallback that happened to run.
+    labels["resend"] = "Resend"
+    parts = []
+    if primary in errors:
+        parts.append(f"{labels.get(primary, primary)} (active) failed: {errors[primary]}")
+    for p in attempted:
+        if p != primary and p in errors:
+            parts.append(f"{labels.get(p, p)} failed: {errors[p]}")
+    return False, " | ".join(parts) if parts else "Email send failed"
 
 
 async def send_meeting_email(to_email, subject, html, ics=None, sender_user_id=None):
