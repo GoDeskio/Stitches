@@ -1,5 +1,11 @@
 # Stitches Changelog
 
+## 2026-06 — Card action lock (single-decision, race-safe)
+- **Action lock**: the first action taken on a bot card wins — the callback fires exactly once and all buttons disable for everyone in the channel. Enforced **atomically** server-side (`update_one` guarded by `card_receipts` empty) so concurrent taps can't double-fire; a losing/late tap gets `409 "This card was already actioned by <name>."`. The `card_receipt` WS broadcast carries `locked: true`.
+- Frontend: `BotMessageCard` disables all buttons and shows a "🔒 locked" hint once any receipt exists; the taken action shows "✓ <label>".
+- **Verified**: curl (1st→200 locked, 2nd→409, webhook fired exactly once) + UI (both buttons disabled, "✓ Approve", locked badge, receipt line). Test data purged.
+
+
 ## 2026-06 — Card action receipts (channel-wide outcome line)
 - **Action receipts**: when a teammate taps a bot-card button, `POST /api/bots/{bot_id}/action` now records a receipt on the message (`card_receipts: [{action_id,label,user_id,user_name,at}]`) and broadcasts a `card_receipt` WebSocket event to the channel. Everyone sees a subtle "✓ Alice approved · 1:45 AM" line under the card in real time (also survives reloads/polling).
 - Frontend: `BotMessageCard` accepts `receipts` and renders them; Messages WS handler updates `card_receipts` on the `card_receipt` event.

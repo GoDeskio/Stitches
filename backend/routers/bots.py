@@ -287,6 +287,18 @@ async def bot_card_action(bot_id: str, body: dict = Body(...), user: dict = Depe
         "user": {"user_id": user["user_id"], "name": user.get("name"), "email": user.get("email")},
         "at": now_iso(),
     }
+    # Atomically acquire the "action lock": only the FIRST action on a card is accepted.
+    receipt = {"action_id": action_id, "label": action["label"],
+               "user_id": user["user_id"], "user_name": user.get("name"), "at": now_iso()}
+    acquired = await db.messages.update_one(
+        {"message_id": message_id, "$or": [{"card_receipts": {"$exists": False}}, {"card_receipts": {"$size": 0}}]},
+        {"$push": {"card_receipts": receipt}})
+    if acquired.matched_count == 0:
+        cur = await db.messages.find_one({"message_id": message_id}, {"_id": 0, "card_receipts": 1})
+        prev = (cur or {}).get("card_receipts") or [{}]
+        raise HTTPException(status_code=409,
+                            detail=f"This card was already actioned by {prev[0].get('user_name', 'someone')}.")
+    # We hold the lock — now call back the external tool.
     delivered, detail = False, ""
     try:
         async with httpx.AsyncClient(timeout=10) as client:
@@ -298,13 +310,10 @@ async def bot_card_action(bot_id: str, body: dict = Body(...), user: dict = Depe
     await db.bot_actions.insert_one({
         "bot_id": bot_id, "action_id": action_id, "message_id": message_id,
         "user_id": user["user_id"], "delivered": delivered, "detail": detail, "created_at": now_iso()})
-    receipt = {"action_id": action_id, "label": action["label"],
-               "user_id": user["user_id"], "user_name": user.get("name"), "at": now_iso()}
-    await db.messages.update_one({"message_id": message_id}, {"$push": {"card_receipts": receipt}})
     updated = await db.messages.find_one({"message_id": message_id}, {"_id": 0, "card_receipts": 1})
     receipts = (updated or {}).get("card_receipts", [])
-    await ws_manager.broadcast(msg["channel_id"], {"type": "card_receipt", "message_id": message_id, "card_receipts": receipts})
-    return {"ok": True, "delivered": delivered, "detail": detail, "card_receipts": receipts}
+    await ws_manager.broadcast(msg["channel_id"], {"type": "card_receipt", "message_id": message_id, "card_receipts": receipts, "locked": True})
+    return {"ok": True, "delivered": delivered, "detail": detail, "card_receipts": receipts, "locked": True}
 
 
 @router.post("/bots/ingest")

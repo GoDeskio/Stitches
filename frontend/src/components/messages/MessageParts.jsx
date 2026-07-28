@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { X, Send, Mail, UserPlus, UserMinus, Smile, ExternalLink, Check } from "lucide-react";
+import { X, Send, Mail, UserPlus, UserMinus, Smile, ExternalLink, Check, Lock } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 
@@ -34,6 +34,8 @@ export function BotMessageCard({ card, botId, messageId, receipts }) {
   if (!card) return null;
   const accent = CARD_COLORS[card.status] || CARD_COLORS.info;
   const fmtTime = (iso) => { try { return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch { return ""; } };
+  const locked = (receipts?.length || 0) > 0;
+  const takenIds = new Set((receipts || []).map((r) => r.action_id));
   const runAction = async (a) => {
     if (!botId || !messageId) return;
     setBusy(a.id);
@@ -67,14 +69,15 @@ export function BotMessageCard({ card, botId, messageId, receipts }) {
           </a>
         )}
         {card.actions?.length > 0 && (
-          <div className="flex flex-wrap gap-2 mt-3" data-testid="bot-card-actions">
+          <div className="flex flex-wrap gap-2 mt-3 items-center" data-testid="bot-card-actions">
             {card.actions.map((a) => (
               <button key={a.id} data-testid={`bot-card-action-${a.id}`} onClick={() => runAction(a)}
-                disabled={busy === a.id || done[a.id]}
-                className={`rounded-xl px-3 py-1.5 text-xs font-semibold disabled:opacity-60 ${ACTION_CLASSES[a.style] || ACTION_CLASSES.default}`}>
-                {busy === a.id ? "…" : done[a.id] ? `✓ ${a.label}` : a.label}
+                disabled={busy === a.id || done[a.id] || locked}
+                className={`rounded-xl px-3 py-1.5 text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed ${ACTION_CLASSES[a.style] || ACTION_CLASSES.default}`}>
+                {busy === a.id ? "…" : (done[a.id] || takenIds.has(a.id)) ? `✓ ${a.label}` : a.label}
               </button>
             ))}
+            {locked && <span data-testid="bot-card-locked" className="inline-flex items-center gap-1 text-[11px] text-muted-stitch"><Lock className="w-3 h-3" /> locked</span>}
           </div>
         )}
         {receipts?.length > 0 && (
