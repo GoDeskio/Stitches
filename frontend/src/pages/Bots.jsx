@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import api, { BACKEND_ORIGIN } from "@/lib/api";
 import { PageShell, PageHeader, Loader } from "@/components/Stitch";
-import { Bot, Plus, Copy, RefreshCw, Trash2, X, Radio, Users, Share2, GitFork, BookOpen, ChevronDown, Tag, Activity } from "lucide-react";
+import { Bot, Plus, Copy, RefreshCw, Trash2, X, Radio, Users, Share2, GitFork, BookOpen, ChevronDown, Tag, Activity, LayoutTemplate } from "lucide-react";
 import { Sparkline } from "@/components/Sparkline";
 
 const INGEST_URL = `${BACKEND_ORIGIN}/api/bots/ingest`;
@@ -102,7 +102,9 @@ function SetupGuide() {
 
 function BotCard({ bot, onChange }) {
   const [showToken, setShowToken] = useState(false);
+  const [showCard, setShowCard] = useState(false);
   const curl = `curl -X POST ${INGEST_URL} \\\n  -H "Authorization: Bearer ${bot.token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"text":"Hello from my app","sender_name":"CI bot"}'`;
+  const cardCurl = `curl -X POST ${INGEST_URL} \\\n  -H "Authorization: Bearer ${bot.token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "card": {\n      "title": "Build #128 passed",\n      "status": "success",\n      "fields": [{"label":"Branch","value":"main"},{"label":"Duration","value":"2m 14s"}],\n      "link": "https://ci.example.com/128"\n    }\n  }'`;
   const patch = async (body, msg) => { try { await api.patch(`/bots/${bot.bot_id}`, body); if (msg) toast.success(msg); onChange(); } catch { toast.error("Failed"); } };
   const toggle = () => patch({ enabled: !bot.enabled });
   const toggleShare = () => patch({ shared: !bot.shared }, bot.shared ? "Removed from directory" : "Shared to directory");
@@ -149,6 +151,15 @@ function BotCard({ bot, onChange }) {
         <pre className="text-[11px] font-mono-stitch overflow-x-auto" style={{ color: "var(--text)" }}>{curl}</pre>
         <button data-testid="bot-copy-curl" onClick={() => copy(curl, "cURL")} className="neu-btn rounded-lg px-2.5 py-1.5 text-primary-stitch absolute top-3 right-3"><Copy className="w-3.5 h-3.5" /></button>
       </div>
+      <button data-testid="bot-toggle-card-example" onClick={() => setShowCard((s) => !s)} className="text-xs text-primary-stitch font-semibold mt-2 inline-flex items-center gap-1">
+        <LayoutTemplate className="w-3.5 h-3.5" /> {showCard ? "Hide" : "Send a rich card instead"}
+      </button>
+      {showCard && (
+        <div className="neu-pressed rounded-2xl p-4 mt-2 relative" data-testid="bot-card-example">
+          <pre className="text-[11px] font-mono-stitch overflow-x-auto" style={{ color: "var(--text)" }}>{cardCurl}</pre>
+          <button data-testid="bot-copy-card-curl" onClick={() => copy(cardCurl, "Card cURL")} className="neu-btn rounded-lg px-2.5 py-1.5 text-primary-stitch absolute top-3 right-3"><Copy className="w-3.5 h-3.5" /></button>
+        </div>
+      )}
     </div>
   );
 }

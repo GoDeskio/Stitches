@@ -136,6 +136,7 @@ async def _reminder_loop():
             await scan_digest()
             await scan_subscription_renewals()
             await scan_updates()
+            await scan_bot_health()
         except Exception as e:
             logger.warning(f"reminder scan failed: {e}")
         await asyncio.sleep(1800)

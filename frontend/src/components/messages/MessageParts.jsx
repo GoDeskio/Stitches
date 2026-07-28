@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { X, Send, Mail, UserPlus, UserMinus, Smile } from "lucide-react";
+import { X, Send, Mail, UserPlus, UserMinus, Smile, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 
@@ -16,6 +16,39 @@ export function MentionText({ text, light }) {
         return <span key={i}>{p}</span>;
       })}
     </span>
+  );
+}
+
+const CARD_COLORS = {
+  info: "#6366f1", success: "#22c55e", warn: "#f59e0b", error: "#ef4444",
+};
+
+export function BotMessageCard({ card }) {
+  if (!card) return null;
+  const accent = CARD_COLORS[card.status] || CARD_COLORS.info;
+  return (
+    <div data-testid="bot-message-card" className="neu-pressed rounded-2xl overflow-hidden mt-1 min-w-[240px] max-w-[360px]"
+      style={{ borderLeft: `4px solid ${accent}` }}>
+      <div className="p-3.5">
+        {card.title && <p data-testid="bot-card-title" className="font-head font-bold text-sm mb-1.5" style={{ color: "var(--text)" }}>{card.title}</p>}
+        {card.fields?.length > 0 && (
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 mb-2">
+            {card.fields.map((f, i) => (
+              <div key={i} className="min-w-0">
+                <p className="text-[10px] uppercase font-bold text-muted-stitch truncate">{f.label}</p>
+                <p className="text-xs truncate" style={{ color: "var(--text)" }}>{f.value}</p>
+              </div>
+            ))}
+          </div>
+        )}
+        {card.link && (
+          <a data-testid="bot-card-link" href={card.link} target="_blank" rel="noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold mt-1" style={{ color: accent }}>
+            Open <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        )}
+      </div>
+    </div>
   );
 }
 

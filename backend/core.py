@@ -411,6 +411,27 @@ async def scan_meeting_reminders():
         await db.meetings.update_one({"room_id": m["room_id"]}, {"$push": {"reminded_occurrences": occ_key}})
 
 
+async def scan_bot_health():
+    """Notify a bot's owner once when the bot has been quiet for 7+ days.
+    Re-arms automatically when the bot is used again (ingest clears stale_alerted)."""
+    from datetime import datetime, timezone, timedelta
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    count = 0
+    cur = db.bots.find({"enabled": True, "stale_alerted": {"$ne": True}})
+    async for b in cur:
+        last = b.get("last_used_at") or b.get("created_at")
+        if not last or last >= cutoff:
+            continue
+        owner = b.get("owner_id")
+        if owner:
+            when = "hasn't posted yet" if not b.get("last_used_at") else "has been quiet for over 7 days"
+            await create_notification(owner, "bot", "Bot went quiet",
+                                      f"Your bot '{b.get('name')}' {when}. Check the integration that feeds it.", "/bots")
+        await db.bots.update_one({"bot_id": b["bot_id"]}, {"$set": {"stale_alerted": True}})
+        count += 1
+    return count
+
+
 # ---------------- Storage ----------------
 storage_key = None
 
@@ -453,11 +474,11 @@ def delete_object(path: str) -> bool:
 
 
 # ---------------- Shared message helpers ----------------
-async def _create_message(channel_id: str, user: dict, text: str, parent_id: str = None, mentions: list = None) -> dict:
+async def _create_message(channel_id: str, user: dict, text: str, parent_id: str = None, mentions: list = None, card: dict = None) -> dict:
     doc = {"message_id": f"msg_{uuid.uuid4().hex[:12]}", "channel_id": channel_id,
            "user_id": user["user_id"], "author_name": user.get("name"),
            "author_avatar": user.get("avatar"), "text": text,
-           "parent_id": parent_id, "mentions": mentions or [], "created_at": now_iso()}
+           "parent_id": parent_id, "mentions": mentions or [], "card": card, "created_at": now_iso()}
     await db.messages.insert_one(doc)
     doc.pop("_id", None)
     return doc

@@ -130,6 +130,12 @@ async def featured_bots(user: dict = Depends(get_current_user)):
     return {"bots": out}
 
 
+@router.post("/admin/bots/scan-health")
+async def admin_scan_bot_health(user: dict = Depends(require_admin)):
+    n = await scan_bot_health()
+    return {"ok": True, "alerted": n}
+
+
 @router.patch("/bots/{bot_id}")
 async def update_bot(bot_id: str, body: dict = Body(...), user: dict = Depends(get_current_user)):
     b = await db.bots.find_one({"bot_id": bot_id, "owner_id": user["user_id"]})
@@ -216,22 +222,44 @@ async def _auth_bot(request: Request, body_token: str):
     return b
 
 
+CARD_STATUSES = ("info", "success", "warn", "error")
+
+
+def _clean_card(card):
+    if not isinstance(card, dict):
+        return None
+    fields = []
+    for f in (card.get("fields") or [])[:8]:
+        if isinstance(f, dict) and (f.get("label") or f.get("value")):
+            fields.append({"label": str(f.get("label") or "")[:60], "value": str(f.get("value") or "")[:300]})
+    clean = {
+        "title": str(card.get("title") or "")[:200],
+        "link": str(card.get("link") or "")[:800],
+        "status": card.get("status") if card.get("status") in CARD_STATUSES else "info",
+        "fields": fields,
+    }
+    if not (clean["title"] or clean["link"] or clean["fields"]):
+        return None
+    return clean
+
+
 @router.post("/bots/ingest")
 async def bot_ingest(request: Request, body: dict = Body(...)):
     b = await _auth_bot(request, body.get("token"))
     text = (body.get("text") or "").strip()
-    if not text:
-        raise HTTPException(status_code=400, detail="'text' is required")
+    card = _clean_card(body.get("card"))
+    if not text and not card:
+        raise HTTPException(status_code=400, detail="'text' or 'card' is required")
     sender = (body.get("sender_name") or "").strip()
     display = f"🤖 {b['name']}" + (f" · {sender}" if sender else "")
     bot_user = {"user_id": b["bot_id"], "name": display, "avatar": None}
-    doc = await _create_message(b["target_channel_id"], bot_user, text[:4000])
+    doc = await _create_message(b["target_channel_id"], bot_user, text[:4000], card=card)
     doc["is_bot"] = True
     await ws_manager.broadcast(b["target_channel_id"], {"type": "message", "message": doc})
     day = datetime.now(timezone.utc).date().isoformat()
     daily = b.get("daily") or {}
     cutoff = (datetime.now(timezone.utc).date() - timedelta(days=30)).isoformat()
-    update = {"$set": {"last_used_at": now_iso()}, "$inc": {"message_count": 1, f"daily.{day}": 1}}
+    update = {"$set": {"last_used_at": now_iso(), "stale_alerted": False}, "$inc": {"message_count": 1, f"daily.{day}": 1}}
     stale = {f"daily.{k}": "" for k in daily if k < cutoff}
     if stale:
         update["$unset"] = stale

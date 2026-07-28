@@ -1,0 +1,45 @@
+{
+  "summary": "Full E2E for Bot Rich Cards + Bot Health Alerts. Backend pytest 8/8 pass (card-only ingest persists with title/status/fields/link; text+card both persist; text-only regression works; empty body -> 400; unknown status coerces to 'info'; POST /api/admin/bots/scan-health blocks non-admin (401/403), admin gets {ok:true,alerted:int}, backdated bot triggers a 'bot' notification for the OWNER titled 'Bot went quiet', stale_alerted flag persists (idempotent — 2nd scan doesn't re-alert same bot), and ingest re-arms by clearing stale_alerted). Frontend: logged in as Alice, ingested a success card + error card + plain text via /api/bots/ingest to the general channel; /messages shows 3 messages via BotMessageCard renderer with data-testid=bot-message-card (title='Deploy successful' with green rgb(34,197,94) left-accent, 'Build failed' with red rgb(239,68,68) left-accent, plus info=rgb(99,102,241) accent for other cards), bot-card-title text matches, bot-card-link 'Open' anchor rendered, and 2-column key/value grid renders each field. Plain-text bot message still renders via MentionText (regression). On /bots the bot card exposes bot-toggle-card-example — clicking reveals bot-card-example with a bot-copy-card-curl button. Bot regression: rotate mints a new stbot_ token, PATCH enabled=false/true persists, DELETE returns 200 and removes the bot. All TEST_ bots, messages, and bot notifications purged from Mongo (0 remaining).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/messages BotMessageCard", "issues": ["Cards use fixed min-w-[240px] max-w-[360px] which caps width on wide viewports — the 2-col field grid truncates long values with 'truncate'. If a value like a long URL is important, it silently ellipses. Consider a title attribute or an optional 'full-width' variant. Non-blocking."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter42_bot_cards_health.py",
+    "/app/test_reports/pytest/iter42.xml"
+  ],
+  "verified": [
+    "POST /api/bots/ingest with {card:{...}} persists card into message doc (title/status/fields/link)",
+    "POST /api/bots/ingest with {text, card} keeps both",
+    "POST /api/bots/ingest with {} -> 400",
+    "Unknown card.status coerces to 'info' (server-side _clean_card)",
+    "Frontend BotMessageCard renders bot-message-card / bot-card-title / bot-card-link with correct status→accent color (success=#22c55e green, error=#ef4444 red, info=#6366f1 indigo)",
+    "Non-card bot messages still render via MentionText (regression)",
+    "/bots card exposes bot-toggle-card-example → reveals bot-card-example + bot-copy-card-curl",
+    "POST /api/admin/bots/scan-health: non-admin blocked (403); admin returns {ok:true, alerted:int}",
+    "Owner receives an in-app 'Bot went quiet' notification (type=bot, link=/bots) when bot's created_at/last_used_at is >7d old",
+    "Idempotency: stale_alerted flag persists after alert; a second scan does NOT re-alert the same bot",
+    "Re-arm: after /bots/ingest, stale_alerted flips back to False on the bot doc",
+    "Bot regression: rotate mints fresh stbot_ token; PATCH enabled toggles; DELETE removes"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "_clean_card silently drops fields beyond 8 without any 'more' indicator. Consider surfacing a truncation warning in the response payload so integrators know their card was clipped.",
+    "scan_bot_health notification body always says 'has been quiet for over 7 days' / 'hasn't posted yet' — it never includes the actual last_used_at timestamp. Adding it would help the owner triage without opening /bots.",
+    "BotMessageCard.jsx uses truncate on values which silently cuts long links (e.g. a build URL); consider adding title={f.value} on the <p> so hover reveals the full value."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter42_bot_cards_health.py"
+  ],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100%"},
+  "seed_data_creation": "Created 1 UI bot + ~7 test-only bots via API; ingested ~10 test messages (mixed card + plain). ALL purged from Mongo at end of run — 0 TEST_ bots/messages/workspaces/bot-notifications remain.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "alice@stitches.app / Alice@123, admin@stitches.app / Admin@123",
+  "context_for_next_testing_agent": "Rich cards + health alerts are fully working end-to-end. Note (a) frontend BotMessageCard applies inline style border-left: 4px solid rgb(...) — assert accent colors via rgb() strings, NOT hex. (b) /api/notifications returns {notifications:[...]}, not a bare list. (c) To make a bot 'stale' fast, backdate created_at directly via pymongo using DB_NAME from /app/backend/.env (currently 'test_database') and unset last_used_at + stale_alerted; then POST /api/admin/bots/scan-health as admin. (d) Bot notifications currently don't carry the bot_id — idempotency check is done by asserting the stale_alerted flag persists on the bot doc after the 2nd scan. (e) Always cleanup TEST_ messages using both text-regex and card.title matches, and delete bot notifications with body regex 'TEST_'.",
+  "rca_of_the_issue": "N/A — no defects. One transient script-side glitch during UI test: my accent-color assertion originally used hex substrings ('22c55e','ef4444') but the DOM renders style as 'rgb(34, 197, 94)' / 'rgb(239, 68, 68)'. Visual + evaluated styles both confirmed the correct accents were applied; the check should compare rgb() strings."
+}
