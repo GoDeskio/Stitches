@@ -1,5 +1,14 @@
 # Stitches Changelog
 
+## 2026-06 — Bot Directory (share + reuse) + LiveKit/TURN readiness verified (iteration_40)
+- **Bot Directory**: bots can now be **shared to a team directory** so every member can discover and reuse them. New `GET /api/bots/directory` returns all shared bots with the owner's name — and **never exposes the token** (public-safe `_directory_bot` view). Bots gained a `shared` flag + optional `description`.
+- **Clone & reuse**: `POST /api/bots/{id}/clone` lets any member copy a shared bot into their **own** bot with a **fresh token**, pointed at a channel they have access to (membership-gated; cloning a non-shared bot → 404).
+- **Bots page redesign** (`Bots.jsx`): two tabs — *My bots* (with a per-card **Share** toggle + shared badge) and *Directory* (gallery of shared bots with **Clone & reuse**). Added a collapsible **"How to set up a bot"** guide (4 steps + copyable ingest endpoint) shown on the Bots tab across all dashboards. Added a zero-workspace hint so users without a workspace aren't dead-ended in the create/clone modals.
+- **Verified (iteration_40, frontend E2E 100%, zero bugs)**: cross-user flow (Alice shares → Admin sees it with owner name, no token, no "yours" badge → clones into own channel with a unique fresh token), share toggle, setup guide. Backend curl-verified (directory no-token, clone fresh-token, non-shared→404).
+- **LiveKit SFU + coturn TURN readiness (kept OFF, per user)**: confirmed activation-ready — `/api/rtc/config` returns STUN-only with `sfu.enabled=false`, `/api/rtc/sfu-token` → 400 while disabled, `/api/admin/rtc/test` connectivity tester live, setup-status shows sfu/turn as optional. Deploy artifacts present (`deploy/docker-compose.yml` with LiveKit + coturn incl. UDP port ranges, `livekit.yaml`, README). Activate via Admin → Meetings after deploying to infra with open UDP ports.
+- **Ops Alerts webhook**: skipped per user — they'll paste their Slack/Discord webhook in Admin → Storage & DB later.
+
+
 ## 2026-06 — Email delivery diagnostics finalized (P1) + full regression (iteration_39)
 - **Root cause of confusing "email failing" reports fixed**: `send_email_detailed` tried providers in order and only kept the *last* fallback error, so the admin saw an unrelated SMTP error even though the *active* provider (Mailgun) was the real failure. `services/email.py::_send_email_impl` now accumulates a per-provider error map and returns a detail that **leads with the active provider** — e.g. `Mailgun (active) failed: Mailgun 401: Forbidden | admin SMTP failed: …`.
 - **`/api/admin/setup-status` email pill** now reflects the *selected* provider (`Mailgun (active)`), instead of always reporting whatever happened to be configured first (previously mislabeled "SMTP").

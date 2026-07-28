@@ -190,6 +190,13 @@ function useWorkspaceChannels() {
 
 function WsChannelSelects({ hook }) {
   const { workspaces, ws, setWs, channels, channel, setChannel } = hook;
+  if (workspaces.length === 0) {
+    return (
+      <div className="neu-pressed rounded-2xl p-4 mb-5 text-sm text-muted-stitch" data-testid="no-workspace-hint">
+        You need a workspace with a channel first. Create or join one from <span className="text-primary-stitch font-semibold">Messages</span>, then come back to add a bot.
+      </div>
+    );
+  }
   return (
     <>
       <label className="text-xs font-semibold text-muted-stitch">Workspace</label>
