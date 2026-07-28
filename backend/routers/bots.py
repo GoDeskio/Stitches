@@ -116,6 +116,27 @@ def _action_payload(a: dict, extra: dict = None) -> dict:
     return p
 
 
+async def _notify_giveup(bot: dict, action: dict):
+    owner = bot.get("owner_id") if bot else None
+    if not owner:
+        return
+    label = action.get("action_label") or action.get("action_id")
+    card = action.get("card_title") or "a card"
+    await create_notification(owner, "bot", "Callback delivery failed",
+                              f"Your bot '{bot.get('name')}' couldn't deliver the '{label}' action on \"{card}\" after 3 retries. Check the callback endpoint.", "/bots")
+    try:
+        u = await db.users.find_one({"user_id": owner}, {"_id": 0, "email": 1, "name": 1})
+        if u and u.get("email"):
+            from services.email import send_email_detailed
+            html = (f"<p>Hi {u.get('name') or 'there'},</p>"
+                    f"<p>Your Stitches bot <strong>{bot.get('name')}</strong> couldn't deliver the "
+                    f"<strong>{label}</strong> action on \"{card}\" after 3 automatic retries.</p>"
+                    f"<p>Check the callback endpoint configured for this bot on the Bots page.</p>")
+            await send_email_detailed(u["email"], f"Bot callback failed: {bot.get('name')}", html)
+    except Exception:
+        pass
+
+
 async def scan_failed_callbacks():
     """Auto-retry failed card-action callbacks with backoff (~1m, ~10m, ~1h) — up to 3 background attempts."""
     now = now_iso()
@@ -129,18 +150,23 @@ async def scan_failed_callbacks():
             upd = {"$inc": {"auto_retries": 1}}
             if n >= 3:
                 upd["$unset"] = {"next_retry_at": ""}
+                await db.bot_actions.update_one({"action_uid": a["action_uid"]}, upd)
+                await _notify_giveup(b, a)
             else:
-                upd.setdefault("$set", {})["next_retry_at"] = _retry_at(RETRY_BACKOFF[min(n, len(RETRY_BACKOFF) - 1)])
-            await db.bot_actions.update_one({"action_uid": a["action_uid"]}, upd)
+                upd["$set"] = {"next_retry_at": _retry_at(RETRY_BACKOFF[min(n, len(RETRY_BACKOFF) - 1)])}
+                await db.bot_actions.update_one({"action_uid": a["action_uid"]}, upd)
             continue
         delivered, detail, resp = await _post_callback(b, webhook, _action_payload(a, {"auto_retry": True}))
         sets = {"delivered": delivered, "detail": detail, "last_response": resp, "last_retry_at": now}
         upd = {"$set": sets, "$inc": {"auto_retries": 1}}
+        gave_up = (not delivered) and n >= 3
         if delivered or n >= 3:
             upd["$unset"] = {"next_retry_at": ""}
         else:
             sets["next_retry_at"] = _retry_at(RETRY_BACKOFF[min(n, len(RETRY_BACKOFF) - 1)])
         await db.bot_actions.update_one({"action_uid": a["action_uid"]}, upd)
+        if gave_up:
+            await _notify_giveup(b, a)
         count += 1
     return count
 
@@ -208,7 +234,23 @@ async def create_bot(body: dict = Body(...), user: dict = Depends(get_current_us
 @router.get("/bots")
 async def list_bots(user: dict = Depends(get_current_user)):
     items = await db.bots.find({"owner_id": user["user_id"]}).sort("created_at", -1).to_list(200)
-    return {"bots": [_public_bot(b) for b in items]}
+    bots = [_public_bot(b) for b in items]
+    ids = [b["bot_id"] for b in bots]
+    since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    stats = {}
+    if ids:
+        pipeline = [
+            {"$match": {"bot_id": {"$in": ids}, "created_at": {"$gte": since}}},
+            {"$group": {"_id": "$bot_id", "total": {"$sum": 1},
+                        "delivered": {"$sum": {"$cond": [{"$eq": ["$delivered", True]}, 1, 0]}}}},
+        ]
+        async for row in db.bot_actions.aggregate(pipeline):
+            t = row["total"]
+            stats[row["_id"]] = {"total": t, "delivered": row["delivered"],
+                                 "rate": round(row["delivered"] / t * 100) if t else None}
+    for b in bots:
+        b["callback_health"] = stats.get(b["bot_id"])
+    return {"bots": bots}
 
 
 async def _owner_names(items):

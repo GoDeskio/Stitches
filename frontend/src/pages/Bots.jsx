@@ -127,6 +127,14 @@ function BotCard({ bot, onChange }) {
                 {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
               {bot.shared && <span data-testid="bot-shared-badge" className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full text-primary-stitch inline-flex items-center gap-1" style={{ background: "var(--neu-dark)" }}><Users className="w-2.5 h-2.5" /> shared</span>}
+              {bot.callback_health && (
+                <span data-testid="bot-health-badge"
+                  title={`${bot.callback_health.delivered}/${bot.callback_health.total} callbacks delivered in the last 24h`}
+                  className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1"
+                  style={{ background: "var(--neu-dark)", color: bot.callback_health.rate >= 90 ? "#22c55e" : bot.callback_health.rate >= 50 ? "#f59e0b" : "#ef4444" }}>
+                  <Activity className="w-2.5 h-2.5" /> {bot.callback_health.rate}% · 24h
+                </span>
+              )}
             </p>
             <p className="text-xs text-muted-stitch flex items-center gap-1.5"><Radio className="w-3 h-3" /> posts to #{bot.target_channel_name || bot.target_channel_id} · {bot.message_count} msg(s)</p>
           </div>

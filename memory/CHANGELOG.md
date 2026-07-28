@@ -1,5 +1,10 @@
 # Stitches Changelog
 
+## 2026-06 — Per-bot callback health badge + retry give-up alerts
+- **Endpoint health**: `GET /api/bots` now returns `callback_health` per bot — last-24h delivery success rate computed via a single Mongo aggregation over `bot_actions`. The Bots page shows an at-a-glance badge ("75% · 24h") coloured green (≥90%) / amber (≥50%) / red (<50%) with a "X/Y delivered" tooltip. Verified 2/3 → 67% and 3/4 → 75%.
+- **Retry give-up alerts**: when a callback exhausts all 3 auto-retries (or the bot has no callback URL) `scan_failed_callbacks` now pings the bot **owner** once — in-app notification + best-effort email ("Bot callback failed"). Verified exactly one notification fires at the give-up transition (auto_retries=3, next_retry_at cleared); email path attempts send (Mailgun 401 until a valid key is added, as expected).
+
+
 ## 2026-06 — Retry backoff + callback logs
 - **Retry backoff**: auto-retries are now spaced out (~1 min → ~10 min → ~1 hr) via a per-action `next_retry_at`, so a longer outage still gets a late attempt instead of burning all 3 in 90 min. Added a dedicated **60s callback-retry loop** (separate from the 30-min business loop) so the fine-grained schedule is actually honoured; after the 3rd attempt the schedule is cleared. Verified the exact progression (attempt1→600s, attempt2→3600s, attempt3→give up) and that success clears the schedule.
 - **Callback logs**: `_post_callback` now returns the response body; each trail row stores `last_response`. Trail rows are expandable to show STATUS (detail), the RESPONSE body snippet, and the NEXT AUTO-RETRY time — so admins can debug a failing endpoint. Rows also show `·N manual` / `·N auto` retry counts.
