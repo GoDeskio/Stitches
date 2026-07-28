@@ -24,10 +24,22 @@ def _dec(enc: str):
 def _public_bot(b: dict) -> dict:
     return {
         "bot_id": b["bot_id"], "name": b["name"], "enabled": b.get("enabled", True),
+        "shared": bool(b.get("shared")),
         "target_channel_id": b.get("target_channel_id"), "target_channel_name": b.get("target_channel_name"),
         "outbound_webhook_set": bool(b.get("outbound_webhook_enc")),
         "message_count": b.get("message_count", 0), "last_used_at": b.get("last_used_at"),
         "created_at": b.get("created_at"), "token": _dec(b.get("token_enc")),
+    }
+
+
+def _directory_bot(b: dict, owner_name: str, is_owner: bool) -> dict:
+    # public-safe view for the shared directory — NEVER exposes the token
+    return {
+        "bot_id": b["bot_id"], "name": b["name"], "enabled": b.get("enabled", True),
+        "target_channel_name": b.get("target_channel_name"),
+        "message_count": b.get("message_count", 0), "last_used_at": b.get("last_used_at"),
+        "created_at": b.get("created_at"), "description": b.get("description", ""),
+        "owner_name": owner_name or "A teammate", "is_owner": is_owner,
     }
 
 
@@ -55,7 +67,8 @@ async def create_bot(body: dict = Body(...), user: dict = Depends(get_current_us
     token = _new_token()
     doc = {
         "bot_id": f"bot_{uuid.uuid4().hex[:12]}", "owner_id": user["user_id"], "name": name,
-        "enabled": True, "target_channel_id": channel_id, "target_channel_name": ch.get("name"),
+        "enabled": True, "shared": bool(body.get("shared")), "description": (body.get("description") or "").strip()[:280],
+        "target_channel_id": channel_id, "target_channel_name": ch.get("name"),
         "token_hash": _hash(token), "token_enc": _fernet.encrypt(token.encode()).decode(),
         "outbound_webhook_enc": "", "message_count": 0, "last_used_at": None, "created_at": now_iso(),
     }
@@ -70,6 +83,15 @@ async def list_bots(user: dict = Depends(get_current_user)):
     return {"bots": [_public_bot(b) for b in items]}
 
 
+@router.get("/bots/directory")
+async def bot_directory(user: dict = Depends(get_current_user)):
+    items = await db.bots.find({"shared": True}).sort("message_count", -1).to_list(300)
+    owner_ids = list({b.get("owner_id") for b in items})
+    users = await db.users.find({"user_id": {"$in": owner_ids}}, {"_id": 0, "user_id": 1, "name": 1}).to_list(len(owner_ids) or 1)
+    names = {u["user_id"]: u.get("name") for u in users}
+    return {"bots": [_directory_bot(b, names.get(b.get("owner_id")), b.get("owner_id") == user["user_id"]) for b in items]}
+
+
 @router.patch("/bots/{bot_id}")
 async def update_bot(bot_id: str, body: dict = Body(...), user: dict = Depends(get_current_user)):
     b = await db.bots.find_one({"bot_id": bot_id, "owner_id": user["user_id"]})
@@ -78,6 +100,10 @@ async def update_bot(bot_id: str, body: dict = Body(...), user: dict = Depends(g
     sets = {}
     if "enabled" in body:
         sets["enabled"] = bool(body["enabled"])
+    if "shared" in body:
+        sets["shared"] = bool(body["shared"])
+    if "description" in body:
+        sets["description"] = (body.get("description") or "").strip()[:280]
     if body.get("name", "").strip():
         sets["name"] = body["name"].strip()
     if "target_channel_id" in body:
@@ -109,6 +135,27 @@ async def delete_bot(bot_id: str, user: dict = Depends(get_current_user)):
     if not r.deleted_count:
         raise HTTPException(status_code=404, detail="Bot not found")
     return {"ok": True}
+
+
+@router.post("/bots/{bot_id}/clone")
+async def clone_bot(bot_id: str, body: dict = Body(...), user: dict = Depends(get_current_user)):
+    src = await db.bots.find_one({"bot_id": bot_id, "shared": True})
+    if not src:
+        raise HTTPException(status_code=404, detail="Bot not found in the shared directory")
+    channel_id = body.get("target_channel_id")
+    ch = await _resolve_channel(user, channel_id)
+    token = _new_token()
+    name = (body.get("name") or f"{src['name']} (copy)").strip()[:120]
+    doc = {
+        "bot_id": f"bot_{uuid.uuid4().hex[:12]}", "owner_id": user["user_id"], "name": name,
+        "enabled": True, "shared": False, "description": src.get("description", ""),
+        "cloned_from": src["bot_id"], "target_channel_id": channel_id, "target_channel_name": ch.get("name"),
+        "token_hash": _hash(token), "token_enc": _fernet.encrypt(token.encode()).decode(),
+        "outbound_webhook_enc": "", "message_count": 0, "last_used_at": None, "created_at": now_iso(),
+    }
+    await db.bots.insert_one(doc)
+    await log_activity(user["user_id"], "bot_clone", {"bot_id": doc["bot_id"], "from": src["bot_id"], "name": name})
+    return _public_bot(doc)
 
 
 # ---------------- Public ingest (bot-token auth, no user session) ----------------

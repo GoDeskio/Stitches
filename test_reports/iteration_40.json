@@ -1,0 +1,36 @@
+{
+  "summary": "Frontend E2E for Bot Directory feature on /bots. Verified: setup guide (bot-setup-guide) toggle expands 4 numbered steps + ingest endpoint with copy button, and the guide text uses real curly quotes (no raw \\u201C/\\u201D leak). Alice can create a bot with 'Share to directory' pre-checked → card shows bot-shared-badge immediately + token visible. Alice's shared bot appears in her own Directory tab with 'yours' badge. Admin (different user with a workspace) logs in, opens Directory, sees Alice's shared bot with owner 'Alice Stitch', no 'yours' badge, and CRITICALLY no token exposed in /api/bots/directory payload (keys: bot_id, name, enabled, target_channel_name, message_count, last_used_at, created_at, description, owner_name, is_owner). Admin clicks 'Clone & reuse' → clone-bot-modal opens with workspace + channel pre-populated → submits → clone appears under admin's My bots tab with its OWN fresh stbot_ token (54 chars, unique). Toggling bot-share on the clone flips the shared badge on. All bots created during test were cleaned up (DELETE /api/bots/{id} returned 200).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/bots create + clone modals", "issues": ["React hydration warning in console: '<span> cannot be a child of <option>' — appears because option children get wrapped in a data-ve-dynamic <span> by the tooling. Harmless (values still submit correctly, defaults populate after ~1s) but pollutes console. Consider disabling the dynamic-instrumentation wrapper for option children."]}
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iteration_40.json"],
+  "verified": [
+    "GET /api/bots/directory payload contains NO 'token' key (token never exposed to non-owners) — critical requirement met",
+    "bot-setup-guide toggle expands to show 4 numbered steps + ingest endpoint card with guide-copy-url button; text renders with real “ ” characters (no raw \\u escape)",
+    "bots-tab-mine / bots-tab-directory tabs both render and switch correctly",
+    "new-bot-btn → create-bot-modal with name/desc/ws/channel/share-checkbox; submit creates bot; shared-checkbox=true results in bot-shared-badge showing on the new card AND bot appearing in /api/bots/directory immediately",
+    "directory-card shows: bot name, 'by <owner name>', message count, target channel #, description, and directory-clone-btn",
+    "is_owner flag correctly true for alice viewing her own shared bot (shows 'yours' badge) and false for admin viewing alice's bot (no 'yours' badge)",
+    "directory-clone-btn opens clone-bot-modal with clone-name-input pre-filled '<name> (copy)' and workspace/channel selects populated from the CLONING user's own workspaces (admin's TEST_WS / #general)",
+    "clone-bot-submit creates a bot under admin with a FRESH stbot_ token (different from alice's original — verified via /api/bots endpoint returning admin's own bots list)",
+    "Cloned bot is not shared by default; toggling bot-share flips bot-shared-badge on"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Bots.jsx SetupGuide count: the guide grid renders 4 step tiles + a 5th 'ingest endpoint' tile, so any selector that counts '.neu-pressed' inside bot-guide-body gets 5, not 4. Not a bug per se (spec asks for 4 numbered steps + endpoint card), but future tests should count step tiles by data-testid rather than by generic class.",
+    "Bots.jsx useWorkspaceChannels hook doesn't guard against the case where a user has zero workspaces — modal opens with empty selects and the create/clone submit toasts a generic 'Name and channel required' / 'Pick a channel'. Consider showing an inline empty-state (e.g. 'Create or join a workspace first') so users like bob@stitches.app aren't dead-ended."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "n/a (frontend-only run)", "frontend": "100%" },
+  "seed_data_creation": "Created 2 test bots during the run (TEST_alice_share_1785197859 under alice, TEST_admin_clone_1785197979 under admin). Both were DELETEd via /api/bots/{id} at end of run (both returned 200). No residual TEST_ data left behind.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "alice@stitches.app / Alice@123, admin@stitches.app / Admin@123",
+  "context_for_next_testing_agent": "Bot Directory feature is fully working end-to-end from the UI. All data-testids in the spec are present and functional. If re-testing, note that (a) the ws/channel selects in create+clone modals populate asynchronously — add a wait_for_timeout(1500) after opening the modal before reading input_value(); (b) the setup guide expanded body contains 5 .neu-pressed tiles (4 steps + endpoint), so don't assert exactly 4. bots-empty state was NOT exercised in this run because alice/admin both have workspaces + existing bots; a fresh signup would be needed to test that.",
+  "rca_of_the_issue": "N/A — no defects found."
+}
