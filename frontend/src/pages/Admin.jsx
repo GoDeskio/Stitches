@@ -950,6 +950,8 @@ function MeetingsTab() {
         </button>
       </div>
 
+      <TurnSetupGuide />
+
       <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="turn-config-card">
         <h3 className="font-head font-bold text-xl mb-1" style={{ color: "var(--text)" }}>Call quality — TURN server</h3>
         <p className="text-sm text-muted-stitch mb-4">Calls use free STUN by default. For rock-solid connectivity behind strict firewalls, run your own <span className="font-mono-stitch">coturn</span> server and enter its details here (no third party required). Applies to all calls instantly.</p>

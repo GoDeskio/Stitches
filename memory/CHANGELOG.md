@@ -326,3 +326,8 @@
 - New `scripts/restore.sh`: rolls code back to the recorded sha, restores .env files, and restores MongoDB (mongorestore --drop) from the snapshot, then rebuilds + restarts.
 - Backend `routers/updates.py`: GET /api/admin/updates/backups (lists snapshots via manifest), POST /api/admin/updates/restore/{stamp} (self-hosted only; managed preview returns a safe message; validates stamp; 404 on missing; shares update_jobs status/log polling).
 - Admin → Updates now has a **Backups & rollback** section listing each snapshot (date, pre-sha, DB/.env badges) with a one-click Restore. Verified: list, managed-guard message, 404 on bad stamp, UI render.
+
+## Implemented (2026-06-28) — Guided Coturn TURN server setup (Admin → Meetings)
+- New `frontend/src/pages/admin/TurnSetupGuide.jsx`: collapsible step-by-step guide with **Docker (quickest)** and **From source (Ubuntu/Debian)** tabs, each with copy-to-clipboard command blocks (docker run + docker-compose, deps libevent2/openssl/libmicrohttpd/sqlite3, /etc/turnserver.conf, systemctl enable, firewall ports).
+- Ends with a "paste these values below" hint mapping the generated secret/IP to the TURN URLs/username/credential fields, then Test connectivity.
+- Rendered inside `MeetingsTab` above the TURN config card. Also FIXED a broken build: previous session imported `TurnSetupGuide` without creating the file (webpack module-not-found). Verified via screenshot.
