@@ -81,7 +81,7 @@ async def _ensure_signing_secret(bot: dict) -> str:
 
 
 async def _post_callback(bot: dict, webhook: str, payload: dict):
-    """POST a signed callback to the bot's external tool. Returns (delivered, detail)."""
+    """POST a signed callback to the bot's external tool. Returns (delivered, detail, response_snippet)."""
     import httpx
     import json as _json
     secret = await _ensure_signing_secret(bot)
@@ -92,9 +92,17 @@ async def _post_callback(bot: dict, webhook: str, payload: dict):
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.post(webhook, content=body, headers=headers)
-            return r.status_code < 400, f"HTTP {r.status_code}"
+            return r.status_code < 400, f"HTTP {r.status_code}", (r.text or "")[:500]
     except Exception as e:
-        return False, str(e)[:200]
+        return False, str(e)[:200], ""
+
+
+# Auto-retry backoff (seconds) for the 1st, 2nd, 3rd background attempt.
+RETRY_BACKOFF = [60, 600, 3600]
+
+
+def _retry_at(after_seconds: int) -> str:
+    return (datetime.now(timezone.utc) + timedelta(seconds=after_seconds)).isoformat()
 
 
 def _action_payload(a: dict, extra: dict = None) -> dict:
@@ -109,20 +117,30 @@ def _action_payload(a: dict, extra: dict = None) -> dict:
 
 
 async def scan_failed_callbacks():
-    """Auto-retry failed card-action callbacks (transient-outage self-heal), up to 3 background attempts."""
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    """Auto-retry failed card-action callbacks with backoff (~1m, ~10m, ~1h) — up to 3 background attempts."""
+    now = now_iso()
     count = 0
-    cur = db.bot_actions.find({"delivered": False, "auto_retries": {"$lt": 3}, "created_at": {"$gte": cutoff}})
+    cur = db.bot_actions.find({"delivered": False, "auto_retries": {"$lt": 3}, "next_retry_at": {"$lte": now}})
     async for a in cur:
         b = await db.bots.find_one({"bot_id": a.get("bot_id")})
         webhook = _dec(b.get("outbound_webhook_enc")) if b else None
+        n = a.get("auto_retries", 0) + 1
         if not webhook:
-            await db.bot_actions.update_one({"action_uid": a["action_uid"]}, {"$inc": {"auto_retries": 1}})
+            upd = {"$inc": {"auto_retries": 1}}
+            if n >= 3:
+                upd["$unset"] = {"next_retry_at": ""}
+            else:
+                upd.setdefault("$set", {})["next_retry_at"] = _retry_at(RETRY_BACKOFF[min(n, len(RETRY_BACKOFF) - 1)])
+            await db.bot_actions.update_one({"action_uid": a["action_uid"]}, upd)
             continue
-        delivered, detail = await _post_callback(b, webhook, _action_payload(a, {"auto_retry": True}))
-        await db.bot_actions.update_one({"action_uid": a["action_uid"]},
-                                        {"$set": {"delivered": delivered, "detail": detail, "last_retry_at": now_iso()},
-                                         "$inc": {"auto_retries": 1}})
+        delivered, detail, resp = await _post_callback(b, webhook, _action_payload(a, {"auto_retry": True}))
+        sets = {"delivered": delivered, "detail": detail, "last_response": resp, "last_retry_at": now}
+        upd = {"$set": sets, "$inc": {"auto_retries": 1}}
+        if delivered or n >= 3:
+            upd["$unset"] = {"next_retry_at": ""}
+        else:
+            sets["next_retry_at"] = _retry_at(RETRY_BACKOFF[min(n, len(RETRY_BACKOFF) - 1)])
+        await db.bot_actions.update_one({"action_uid": a["action_uid"]}, upd)
         count += 1
     return count
 
@@ -281,10 +299,12 @@ async def admin_resend_action(action_uid: str, user: dict = Depends(require_admi
     if not webhook:
         raise HTTPException(status_code=400, detail="This bot has no callback URL set.")
     payload = _action_payload(a, {"resent_by": user.get("name"), "resent_at": now_iso()})
-    delivered, detail = await _post_callback(b, webhook, payload)
-    await db.bot_actions.update_one({"action_uid": action_uid},
-                                    {"$set": {"delivered": delivered, "detail": detail, "last_retry_at": now_iso()},
-                                     "$inc": {"retry_count": 1}})
+    delivered, detail, resp = await _post_callback(b, webhook, payload)
+    sets = {"delivered": delivered, "detail": detail, "last_response": resp, "last_retry_at": now_iso()}
+    upd = {"$set": sets, "$inc": {"retry_count": 1}}
+    if delivered:
+        upd["$unset"] = {"next_retry_at": ""}
+    await db.bot_actions.update_one({"action_uid": action_uid}, upd)
     return {"ok": True, "delivered": delivered, "detail": detail}
 
 
@@ -465,13 +485,14 @@ async def bot_card_action(bot_id: str, body: dict = Body(...), user: dict = Depe
         raise HTTPException(status_code=409,
                             detail=f"This card was already actioned by {prev[0].get('user_name', 'someone')}.")
     # We hold the lock — now call back the external tool (signed).
-    delivered, detail = await _post_callback(b, webhook, payload)
+    delivered, detail, resp = await _post_callback(b, webhook, payload)
     await db.bot_actions.insert_one({
         "action_uid": uuid.uuid4().hex, "bot_id": bot_id, "bot_name": b.get("name"), "action_id": action_id, "action_label": action["label"],
         "message_id": message_id, "channel_id": msg["channel_id"], "channel_name": ch.get("name") if (ch := await db.channels.find_one({"channel_id": msg["channel_id"]}, {"_id": 0, "name": 1})) else None,
         "card_title": card.get("title", ""),
         "user_id": user["user_id"], "user_name": user.get("name"), "user_email": user.get("email"),
-        "delivered": delivered, "detail": detail, "retry_count": 0, "auto_retries": 0, "created_at": now_iso()})
+        "delivered": delivered, "detail": detail, "last_response": resp, "retry_count": 0, "auto_retries": 0,
+        "next_retry_at": None if delivered else _retry_at(RETRY_BACKOFF[0]), "created_at": now_iso()})
     updated = await db.messages.find_one({"message_id": message_id}, {"_id": 0, "card_receipts": 1})
     receipts = (updated or {}).get("card_receipts", [])
     await ws_manager.broadcast(msg["channel_id"], {"type": "card_receipt", "message_id": message_id, "card_receipts": receipts, "locked": True})

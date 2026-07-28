@@ -127,6 +127,16 @@ async def startup():
     except Exception as e:
         logger.error(f"Storage init failed: {e}")
     asyncio.create_task(_reminder_loop())
+    asyncio.create_task(_callback_retry_loop())
+
+
+async def _callback_retry_loop():
+    while True:
+        try:
+            await scan_failed_callbacks()
+        except Exception as e:
+            logger.warning(f"callback retry scan failed: {e}")
+        await asyncio.sleep(60)
 
 
 async def _reminder_loop():
@@ -138,7 +148,6 @@ async def _reminder_loop():
             await scan_subscription_renewals()
             await scan_updates()
             await scan_bot_health()
-            await scan_failed_callbacks()
         except Exception as e:
             logger.warning(f"reminder scan failed: {e}")
         await asyncio.sleep(1800)

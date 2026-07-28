@@ -1,5 +1,11 @@
 # Stitches Changelog
 
+## 2026-06 — Retry backoff + callback logs
+- **Retry backoff**: auto-retries are now spaced out (~1 min → ~10 min → ~1 hr) via a per-action `next_retry_at`, so a longer outage still gets a late attempt instead of burning all 3 in 90 min. Added a dedicated **60s callback-retry loop** (separate from the 30-min business loop) so the fine-grained schedule is actually honoured; after the 3rd attempt the schedule is cleared. Verified the exact progression (attempt1→600s, attempt2→3600s, attempt3→give up) and that success clears the schedule.
+- **Callback logs**: `_post_callback` now returns the response body; each trail row stores `last_response`. Trail rows are expandable to show STATUS (detail), the RESPONSE body snippet, and the NEXT AUTO-RETRY time — so admins can debug a failing endpoint. Rows also show `·N manual` / `·N auto` retry counts.
+- **Verified**: delivered action captured the real response body (`{"status":"received"...}`); failed action scheduled `next_retry_at` ~60s out; backoff progression + give-up; expandable log panel renders in the UI. Test data purged.
+
+
 ## 2026-06 — Signed callbacks (HMAC) + background auto-retry
 - **Signed callbacks**: every bot has a `signing_secret` (`whsec_…`, generated at create/clone, encrypted at rest, owner-visible). All card-action callbacks are POSTed with `X-Stitches-Signature: sha256=HMAC(secret, "{timestamp}.{body}")` plus `X-Stitches-Timestamp` and `X-Stitches-Bot` headers so the receiving tool can verify authenticity. Owner UI shows/copies/rotates the secret (`POST /bots/{id}/rotate-secret`) with the exact verification formula.
 - **Auto-retry**: `scan_failed_callbacks()` (added to the 30-min reminder loop) re-attempts each failed callback up to 3 background times within 24h, self-healing transient outages; tracked via `auto_retries` (separate from manual `retry_count`). Centralized all callback sending in a signed `_post_callback` helper shared by the action, manual resend, and auto-retry paths.

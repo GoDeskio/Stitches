@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ShieldCheck, Search, CheckCircle2, XCircle, ChevronLeft, ChevronRight, Bot, Download, RotateCw } from "lucide-react";
+import { ShieldCheck, Search, CheckCircle2, XCircle, ChevronLeft, ChevronRight, ChevronDown, Bot, Download, RotateCw } from "lucide-react";
 import api from "@/lib/api";
 import { Loader } from "@/components/Stitch";
 
@@ -10,6 +10,7 @@ export function BotActionsTab() {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(null);
+  const [open, setOpen] = useState({});
 
   const load = () => {
     setData(null);
@@ -79,25 +80,37 @@ export function BotActionsTab() {
               <span>Approver</span><span>Bot</span><span>Action</span><span>Card</span><span>Delivered</span><span>When</span>
             </div>
             {data.actions.map((a, i) => (
-              <div key={a.action_uid || i} data-testid="bot-action-row" className="grid grid-cols-2 md:grid-cols-[1.3fr_1fr_1fr_1.2fr_1.1fr_1fr] gap-x-3 gap-y-1 px-5 py-3.5 border-t items-center" style={{ borderColor: "var(--neu-dark)" }}>
-                <span className="text-sm font-semibold truncate" style={{ color: "var(--text)" }} title={a.user_email}>{a.user_name || "—"}</span>
-                <span className="text-sm text-muted-stitch truncate" title={a.bot_name}>{a.bot_name || "—"}</span>
-                <span className="text-sm truncate" style={{ color: "var(--text)" }}>{a.action_label || a.action_id}</span>
-                <span className="text-sm text-muted-stitch truncate" title={a.card_title}>{a.card_title || "—"}{a.channel_name ? ` · #${a.channel_name}` : ""}</span>
-                <span className="text-sm inline-flex items-center gap-2" title={a.detail}>
-                  {a.delivered ? <><CheckCircle2 className="w-4 h-4 text-green-500" /> <span className="text-green-500 font-semibold">Yes</span></>
-                    : <>
-                        <XCircle className="w-4 h-4 text-red-500" /> <span className="text-red-500 font-semibold">No</span>
-                        {a.action_uid && (
-                          <button data-testid="bot-action-resend" disabled={busy === a.action_uid} onClick={() => resend(a.action_uid)}
-                            className="neu-btn rounded-lg px-2 py-1 text-[11px] font-semibold text-primary-stitch inline-flex items-center gap-1 disabled:opacity-50">
-                            <RotateCw className={`w-3 h-3 ${busy === a.action_uid ? "animate-spin" : ""}`} /> Resend
-                          </button>
-                        )}
-                      </>}
-                  {a.retry_count > 0 && <span className="text-[10px] text-muted-stitch">·{a.retry_count} retry</span>}
-                </span>
-                <span className="text-xs text-muted-stitch">{fmt(a.created_at)}</span>
+              <div key={a.action_uid || i} className="border-t" style={{ borderColor: "var(--neu-dark)" }}>
+                <div data-testid="bot-action-row" className="grid grid-cols-2 md:grid-cols-[1.3fr_1fr_1fr_1.2fr_1.1fr_1fr] gap-x-3 gap-y-1 px-5 py-3.5 items-center cursor-pointer" onClick={() => setOpen((o) => ({ ...o, [a.action_uid]: !o[a.action_uid] }))} data-testid-row="row">
+                  <span className="text-sm font-semibold truncate" style={{ color: "var(--text)" }} title={a.user_email}>{a.user_name || "—"}</span>
+                  <span className="text-sm text-muted-stitch truncate" title={a.bot_name}>{a.bot_name || "—"}</span>
+                  <span className="text-sm truncate" style={{ color: "var(--text)" }}>{a.action_label || a.action_id}</span>
+                  <span className="text-sm text-muted-stitch truncate" title={a.card_title}>{a.card_title || "—"}{a.channel_name ? ` · #${a.channel_name}` : ""}</span>
+                  <span className="text-sm inline-flex items-center gap-2" title={a.detail}>
+                    {a.delivered ? <><CheckCircle2 className="w-4 h-4 text-green-500" /> <span className="text-green-500 font-semibold">Yes</span></>
+                      : <>
+                          <XCircle className="w-4 h-4 text-red-500" /> <span className="text-red-500 font-semibold">No</span>
+                          {a.action_uid && (
+                            <button data-testid="bot-action-resend" disabled={busy === a.action_uid} onClick={(e) => { e.stopPropagation(); resend(a.action_uid); }}
+                              className="neu-btn rounded-lg px-2 py-1 text-[11px] font-semibold text-primary-stitch inline-flex items-center gap-1 disabled:opacity-50">
+                              <RotateCw className={`w-3 h-3 ${busy === a.action_uid ? "animate-spin" : ""}`} /> Resend
+                            </button>
+                          )}
+                        </>}
+                    {a.retry_count > 0 && <span className="text-[10px] text-muted-stitch">·{a.retry_count} manual</span>}
+                    {a.auto_retries > 0 && <span className="text-[10px] text-muted-stitch">·{a.auto_retries} auto</span>}
+                  </span>
+                  <span className="text-xs text-muted-stitch inline-flex items-center gap-1.5 justify-between">{fmt(a.created_at)}<ChevronDown className={`w-3.5 h-3.5 transition-transform ${open[a.action_uid] ? "rotate-180" : ""}`} /></span>
+                </div>
+                {open[a.action_uid] && (
+                  <div className="px-5 pb-4 -mt-1" data-testid="bot-action-log">
+                    <div className="neu-pressed rounded-2xl p-3.5 text-xs space-y-1.5">
+                      <p><span className="font-bold text-muted-stitch uppercase text-[10px]">Status</span> <span className="font-mono-stitch" style={{ color: "var(--text)" }}>{a.detail || "—"}</span></p>
+                      <p><span className="font-bold text-muted-stitch uppercase text-[10px]">Response</span> <span className="font-mono-stitch break-all" style={{ color: "var(--text)" }}>{a.last_response || "(empty)"}</span></p>
+                      {a.next_retry_at && !a.delivered && <p><span className="font-bold text-muted-stitch uppercase text-[10px]">Next auto-retry</span> <span style={{ color: "var(--text)" }}>{fmt(a.next_retry_at)}</span></p>}
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
