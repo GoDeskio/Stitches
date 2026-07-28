@@ -126,6 +126,8 @@ export default function Messages() {
           typingTimerRef.current = setTimeout(() => setTypingName(null), 3000);
         } else if (data.type === "reaction") {
           setMessages((prev) => prev.map((mm) => mm.message_id === data.message_id ? { ...mm, reactions: data.reactions } : mm));
+        } else if (data.type === "card_receipt") {
+          setMessages((prev) => prev.map((mm) => mm.message_id === data.message_id ? { ...mm, card_receipts: data.card_receipts } : mm));
         }
       };
       wsRef.current = ws;
@@ -400,7 +402,7 @@ export default function Messages() {
                         <div className={`flex items-center gap-2 ${mine ? "flex-row-reverse" : ""}`}>
                           <div className="rounded-2xl px-4 py-2.5 inline-block text-left" style={{ background: mine ? "var(--primary)" : "var(--neu-light)", color: mine ? "#fff" : "var(--text)" }}>
                             {m.text && <MentionText text={m.text} light={mine} />}
-                            {m.card && <BotMessageCard card={m.card} botId={m.user_id} messageId={m.message_id} />}
+                            {m.card && <BotMessageCard card={m.card} botId={m.user_id} messageId={m.message_id} receipts={m.card_receipts} />}
                           </div>
                           <div className={`flex items-center gap-1 ${mine ? "flex-row-reverse" : ""}`}>
                             <ReactionPicker onPick={(e) => react(m.message_id, e)} />

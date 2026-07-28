@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { X, Send, Mail, UserPlus, UserMinus, Smile, ExternalLink } from "lucide-react";
+import { X, Send, Mail, UserPlus, UserMinus, Smile, ExternalLink, Check } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 
@@ -28,11 +28,12 @@ const ACTION_CLASSES = {
   danger: "neu-btn text-red-500",
 };
 
-export function BotMessageCard({ card, botId, messageId }) {
+export function BotMessageCard({ card, botId, messageId, receipts }) {
   const [busy, setBusy] = useState(null);
   const [done, setDone] = useState({});
   if (!card) return null;
   const accent = CARD_COLORS[card.status] || CARD_COLORS.info;
+  const fmtTime = (iso) => { try { return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); } catch { return ""; } };
   const runAction = async (a) => {
     if (!botId || !messageId) return;
     setBusy(a.id);
@@ -73,6 +74,17 @@ export function BotMessageCard({ card, botId, messageId }) {
                 className={`rounded-xl px-3 py-1.5 text-xs font-semibold disabled:opacity-60 ${ACTION_CLASSES[a.style] || ACTION_CLASSES.default}`}>
                 {busy === a.id ? "…" : done[a.id] ? `✓ ${a.label}` : a.label}
               </button>
+            ))}
+          </div>
+        )}
+        {receipts?.length > 0 && (
+          <div className="mt-2.5 pt-2.5 border-t space-y-1" style={{ borderColor: "var(--neu-dark)" }} data-testid="bot-card-receipts">
+            {receipts.map((r, i) => (
+              <p key={i} data-testid="bot-card-receipt" className="text-[11px] text-muted-stitch flex items-center gap-1.5">
+                <Check className="w-3 h-3" style={{ color: accent }} />
+                <span className="font-semibold" style={{ color: "var(--text)" }}>{r.user_name}</span> {r.label.toLowerCase()}
+                <span className="opacity-60">· {fmtTime(r.at)}</span>
+              </p>
             ))}
           </div>
         )}

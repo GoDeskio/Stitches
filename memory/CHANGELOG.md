@@ -1,5 +1,11 @@
 # Stitches Changelog
 
+## 2026-06 — Card action receipts (channel-wide outcome line)
+- **Action receipts**: when a teammate taps a bot-card button, `POST /api/bots/{bot_id}/action` now records a receipt on the message (`card_receipts: [{action_id,label,user_id,user_name,at}]`) and broadcasts a `card_receipt` WebSocket event to the channel. Everyone sees a subtle "✓ Alice approved · 1:45 AM" line under the card in real time (also survives reloads/polling).
+- Frontend: `BotMessageCard` accepts `receipts` and renders them; Messages WS handler updates `card_receipts` on the `card_receipt` event.
+- **Verified end-to-end**: curl (receipt persisted + returned + present on the message) and a full UI click that rendered the receipt line channel-wide via WebSocket. Test data purged.
+
+
 ## 2026-06 — Bot card actions (callbacks) + bot-health email pings
 - **Card action buttons**: bot cards can include `actions: [{id,label,style(primary/default/danger)}]` (max 4). They render as tappable buttons in the chat card. Tapping one calls `POST /api/bots/{bot_id}/action {message_id, action_id}` which validates the user's channel access, then POSTs a `card_action` payload (action_id, label, bot, message/channel, acting user, timestamp) to the bot's **callback URL** and records it in `bot_actions`. Owners set/clear the callback URL per bot on the Bots page (`outbound_webhook`, Fernet-encrypted, masked).
   - Access-gated: non-members → 403; unknown action → 400; no callback set → 400 with guidance.

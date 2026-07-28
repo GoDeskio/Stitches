@@ -298,7 +298,13 @@ async def bot_card_action(bot_id: str, body: dict = Body(...), user: dict = Depe
     await db.bot_actions.insert_one({
         "bot_id": bot_id, "action_id": action_id, "message_id": message_id,
         "user_id": user["user_id"], "delivered": delivered, "detail": detail, "created_at": now_iso()})
-    return {"ok": True, "delivered": delivered, "detail": detail}
+    receipt = {"action_id": action_id, "label": action["label"],
+               "user_id": user["user_id"], "user_name": user.get("name"), "at": now_iso()}
+    await db.messages.update_one({"message_id": message_id}, {"$push": {"card_receipts": receipt}})
+    updated = await db.messages.find_one({"message_id": message_id}, {"_id": 0, "card_receipts": 1})
+    receipts = (updated or {}).get("card_receipts", [])
+    await ws_manager.broadcast(msg["channel_id"], {"type": "card_receipt", "message_id": message_id, "card_receipts": receipts})
+    return {"ok": True, "delivered": delivered, "detail": detail, "card_receipts": receipts}
 
 
 @router.post("/bots/ingest")
