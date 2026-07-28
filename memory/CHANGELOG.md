@@ -1,5 +1,13 @@
 # Stitches Changelog
 
+## 2026-06 — Bot usage stats (sparklines) + categories/filter + Featured Bots strip (iteration_41)
+- **Bot usage stats**: each bot now tracks per-day message counts (`daily.<YYYY-MM-DD>`, incremented on ingest, auto-pruned >30d). `_spark()` returns a 14-day series rendered as an SVG **sparkline** (`components/Sparkline.jsx`) on every My-bots and Directory card.
+- **Bot categories**: creators tag bots (general/ci/alerts/support/monitoring/marketing/sales/ops) via a picker in the New-bot modal and an inline `bot-category-select` on existing cards. The **Directory** has category **filter pills** with live counts. `create`/`patch`/`clone` accept `category`; clones inherit the source category.
+- **Featured Bots dashboard strip** (`components/FeaturedBots.jsx`, mounted in Dashboard): surfaces up to 6 most-active shared bots (ranked by 7-day activity via `GET /api/bots/featured`) with category badge, owner, "N this week" and a sparkline; hidden entirely when there are no shared bots.
+- Backend: `GET /api/bots/directory` now also returns `activity[14]` + `categories`; `GET /api/bots/featured` added. Token is still **never** exposed in directory/featured payloads.
+- **Verified (iteration_41: backend 8/8 pytest + frontend 100%, zero defects)**: category create/edit/persist, sparkline reflects ingests, directory filter, featured strip renders + hides when empty, cross-user clone inherits category with a fresh token, no token leak.
+
+
 ## 2026-06 — Bot Directory (share + reuse) + LiveKit/TURN readiness verified (iteration_40)
 - **Bot Directory**: bots can now be **shared to a team directory** so every member can discover and reuse them. New `GET /api/bots/directory` returns all shared bots with the owner's name — and **never exposes the token** (public-safe `_directory_bot` view). Bots gained a `shared` flag + optional `description`.
 - **Clone & reuse**: `POST /api/bots/{id}/clone` lets any member copy a shared bot into their **own** bot with a **fresh token**, pointed at a channel they have access to (membership-gated; cloning a non-shared bot → 404).
