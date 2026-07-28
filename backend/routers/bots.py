@@ -1,11 +1,27 @@
 from fastapi import APIRouter, HTTPException, Depends, Body, Request
 from core import *
 from core import _create_message, ws_manager, _fernet
+from datetime import datetime, timezone, timedelta
 import uuid
 import hashlib
 import secrets
 
 router = APIRouter()
+
+# Suggested categories surfaced in the UI (creators may also type a custom one)
+BOT_CATEGORIES = ["general", "ci", "alerts", "support", "monitoring", "marketing", "sales", "ops"]
+
+
+def _clean_category(v):
+    v = (v or "general").strip().lower()[:24]
+    return v or "general"
+
+
+def _spark(b: dict, days: int = 14):
+    """Oldest→newest daily message counts for a sparkline."""
+    daily = b.get("daily") or {}
+    today = datetime.now(timezone.utc).date()
+    return [int(daily.get((today - timedelta(days=(days - 1 - i))).isoformat(), 0)) for i in range(days)]
 
 
 def _hash(t: str) -> str:
@@ -24,11 +40,11 @@ def _dec(enc: str):
 def _public_bot(b: dict) -> dict:
     return {
         "bot_id": b["bot_id"], "name": b["name"], "enabled": b.get("enabled", True),
-        "shared": bool(b.get("shared")),
+        "shared": bool(b.get("shared")), "category": b.get("category", "general"),
         "target_channel_id": b.get("target_channel_id"), "target_channel_name": b.get("target_channel_name"),
         "outbound_webhook_set": bool(b.get("outbound_webhook_enc")),
         "message_count": b.get("message_count", 0), "last_used_at": b.get("last_used_at"),
-        "created_at": b.get("created_at"), "token": _dec(b.get("token_enc")),
+        "activity": _spark(b), "created_at": b.get("created_at"), "token": _dec(b.get("token_enc")),
     }
 
 
@@ -36,9 +52,10 @@ def _directory_bot(b: dict, owner_name: str, is_owner: bool) -> dict:
     # public-safe view for the shared directory — NEVER exposes the token
     return {
         "bot_id": b["bot_id"], "name": b["name"], "enabled": b.get("enabled", True),
+        "category": b.get("category", "general"),
         "target_channel_name": b.get("target_channel_name"),
         "message_count": b.get("message_count", 0), "last_used_at": b.get("last_used_at"),
-        "created_at": b.get("created_at"), "description": b.get("description", ""),
+        "activity": _spark(b), "created_at": b.get("created_at"), "description": b.get("description", ""),
         "owner_name": owner_name or "A teammate", "is_owner": is_owner,
     }
 
@@ -68,9 +85,10 @@ async def create_bot(body: dict = Body(...), user: dict = Depends(get_current_us
     doc = {
         "bot_id": f"bot_{uuid.uuid4().hex[:12]}", "owner_id": user["user_id"], "name": name,
         "enabled": True, "shared": bool(body.get("shared")), "description": (body.get("description") or "").strip()[:280],
+        "category": _clean_category(body.get("category")),
         "target_channel_id": channel_id, "target_channel_name": ch.get("name"),
         "token_hash": _hash(token), "token_enc": _fernet.encrypt(token.encode()).decode(),
-        "outbound_webhook_enc": "", "message_count": 0, "last_used_at": None, "created_at": now_iso(),
+        "outbound_webhook_enc": "", "message_count": 0, "daily": {}, "last_used_at": None, "created_at": now_iso(),
     }
     await db.bots.insert_one(doc)
     await log_activity(user["user_id"], "bot_create", {"bot_id": doc["bot_id"], "name": name})
@@ -83,13 +101,33 @@ async def list_bots(user: dict = Depends(get_current_user)):
     return {"bots": [_public_bot(b) for b in items]}
 
 
+async def _owner_names(items):
+    owner_ids = list({b.get("owner_id") for b in items})
+    users = await db.users.find({"user_id": {"$in": owner_ids}}, {"_id": 0, "user_id": 1, "name": 1}).to_list(len(owner_ids) or 1)
+    return {u["user_id"]: u.get("name") for u in users}
+
+
 @router.get("/bots/directory")
 async def bot_directory(user: dict = Depends(get_current_user)):
     items = await db.bots.find({"shared": True}).sort("message_count", -1).to_list(300)
-    owner_ids = list({b.get("owner_id") for b in items})
-    users = await db.users.find({"user_id": {"$in": owner_ids}}, {"_id": 0, "user_id": 1, "name": 1}).to_list(len(owner_ids) or 1)
-    names = {u["user_id"]: u.get("name") for u in users}
-    return {"bots": [_directory_bot(b, names.get(b.get("owner_id")), b.get("owner_id") == user["user_id"]) for b in items]}
+    names = await _owner_names(items)
+    cats = sorted({b.get("category", "general") for b in items})
+    return {"bots": [_directory_bot(b, names.get(b.get("owner_id")), b.get("owner_id") == user["user_id"]) for b in items],
+            "categories": cats}
+
+
+@router.get("/bots/featured")
+async def featured_bots(user: dict = Depends(get_current_user)):
+    items = await db.bots.find({"shared": True, "enabled": True}).to_list(300)
+    items.sort(key=lambda b: (sum(_spark(b, 7)), b.get("message_count", 0)), reverse=True)
+    top = items[:6]
+    names = await _owner_names(top)
+    out = []
+    for b in top:
+        d = _directory_bot(b, names.get(b.get("owner_id")), b.get("owner_id") == user["user_id"])
+        d["recent"] = sum(_spark(b, 7))
+        out.append(d)
+    return {"bots": out}
 
 
 @router.patch("/bots/{bot_id}")
@@ -104,6 +142,8 @@ async def update_bot(bot_id: str, body: dict = Body(...), user: dict = Depends(g
         sets["shared"] = bool(body["shared"])
     if "description" in body:
         sets["description"] = (body.get("description") or "").strip()[:280]
+    if "category" in body:
+        sets["category"] = _clean_category(body.get("category"))
     if body.get("name", "").strip():
         sets["name"] = body["name"].strip()
     if "target_channel_id" in body:
@@ -149,9 +189,10 @@ async def clone_bot(bot_id: str, body: dict = Body(...), user: dict = Depends(ge
     doc = {
         "bot_id": f"bot_{uuid.uuid4().hex[:12]}", "owner_id": user["user_id"], "name": name,
         "enabled": True, "shared": False, "description": src.get("description", ""),
+        "category": src.get("category", "general"),
         "cloned_from": src["bot_id"], "target_channel_id": channel_id, "target_channel_name": ch.get("name"),
         "token_hash": _hash(token), "token_enc": _fernet.encrypt(token.encode()).decode(),
-        "outbound_webhook_enc": "", "message_count": 0, "last_used_at": None, "created_at": now_iso(),
+        "outbound_webhook_enc": "", "message_count": 0, "daily": {}, "last_used_at": None, "created_at": now_iso(),
     }
     await db.bots.insert_one(doc)
     await log_activity(user["user_id"], "bot_clone", {"bot_id": doc["bot_id"], "from": src["bot_id"], "name": name})
@@ -187,6 +228,12 @@ async def bot_ingest(request: Request, body: dict = Body(...)):
     doc = await _create_message(b["target_channel_id"], bot_user, text[:4000])
     doc["is_bot"] = True
     await ws_manager.broadcast(b["target_channel_id"], {"type": "message", "message": doc})
-    await db.bots.update_one({"bot_id": b["bot_id"]},
-                             {"$set": {"last_used_at": now_iso()}, "$inc": {"message_count": 1}})
+    day = datetime.now(timezone.utc).date().isoformat()
+    daily = b.get("daily") or {}
+    cutoff = (datetime.now(timezone.utc).date() - timedelta(days=30)).isoformat()
+    update = {"$set": {"last_used_at": now_iso()}, "$inc": {"message_count": 1, f"daily.{day}": 1}}
+    stale = {f"daily.{k}": "" for k in daily if k < cutoff}
+    if stale:
+        update["$unset"] = stale
+    await db.bots.update_one({"bot_id": b["bot_id"]}, update)
     return {"ok": True, "message_id": doc["message_id"], "channel_id": b["target_channel_id"]}

@@ -1,0 +1,46 @@
+{
+  "summary": "Full backend + frontend E2E for Bot Directory extensions (categories, sparklines, featured strip). Backend: 8/8 pytest cases pass (create with category, defaults to 'general', PATCH category persistence, /api/bots/directory returns activity[14]+categories with NO token, ingest bumps today's daily bucket (activity[-1] rises), /api/bots/featured ranks by 7d activity + excludes disabled bots + no token exposed, clone inherits source category with fresh unique token and shared=False). Frontend: alice creates a bot via /bots New-bot modal with the bot-category-picker set to 'ci' + share=on → card shows bot-category-select='ci' + shared badge + sparkline; ingesting 3 msgs pushes activity to [0,...,0,3]; inline bot-category-select change to 'alerts' PATCHes and persists (verified via API). Directory tab shows dir-filter-all + dir-filter-alerts pills with counts ('alerts (1)'); clicking alerts filters to 1 directory-card carrying directory-category-badge 'ALERTS' + a bot-sparkline; 'All' restores full list. Admin logs in, dashboard shows featured-bots-widget with featured-bot-card for alice's bot + featured-view-all link navigates to /bots. Admin sees alice's card in Directory with NO 'yours' badge and NO 'stbot_' string anywhere in DOM (token never leaked). directory-clone-btn → clone-bot-modal → submit clones with category='alerts' inherited, shared=False, fresh distinct token. After deleting all shared bots, featured-bots-widget correctly returns null on the dashboard (component count = 0). All TEST_ bots cleaned up.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/bots create modal + inline bot-category-select on cards", "issues": ["React dev warning '<span> cannot be a child of <option>' printed on the console when <option> children get wrapped by the dev-tooling instrumentation span. Cosmetic only — values submit correctly (previously called out in iteration_40; still present)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_bots_iter41.py",
+    "/app/test_reports/pytest/iter41_bots.xml"
+  ],
+  "verified": [
+    "POST /api/bots accepts 'category' and defaults to 'general' when omitted",
+    "PATCH /api/bots/{id} {category} persists and is reflected in list + directory",
+    "GET /api/bots/directory returns activity array of length 14, categories list, owner_name, is_owner, and NEVER a token",
+    "GET /api/bots/featured returns ≤6 bots ranked by 7-day activity sum, includes 'recent' count, excludes disabled bots, and NEVER exposes a token",
+    "POST /api/bots/ingest increments daily.<today> — sparkline's last bucket matches the ingest count",
+    "POST /api/bots/{id}/clone inherits source category, sets shared=False, mints a fresh unique stbot_ token",
+    "UI bot-category-picker with 8 pills (bot-cat-<name>); selected pill gets neu-pressed style",
+    "UI inline bot-category-select on My-bots cards PATCHes and updates directory badge on reload",
+    "Directory filter pills (directory-filters: dir-filter-all + dir-filter-<cat>) show counts and correctly filter directory-card list",
+    "directory-category-badge renders the current category (e.g. 'alerts') on every directory-card",
+    "bot-sparkline renders on both My-bots and Directory cards",
+    "FeaturedBots widget on /dashboard renders featured-bot-card(s) with name, category, 'by <owner> · N this week', and a sparkline; featured-view-all navigates to /bots",
+    "FeaturedBots returns null (widget not in DOM) when there are 0 shared+enabled bots",
+    "Cross-user reuse: admin sees alice's shared bot in Directory with correct owner_name, category, and sparkline, no 'yours' badge, no 'stbot_' anywhere in DOM; clone inherits category='alerts', mints its own token"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "bots.py _clean_category truncates to 24 chars and lowercases — good. However BOT_CATEGORIES is exported but never returned to the client via any endpoint; the frontend duplicates the same list in Bots.jsx (CATEGORIES). Consider surfacing a GET /api/bots/categories to keep the taxonomy in one place.",
+    "FeaturedBots ranking uses sum(_spark(b,7)) — bots with equal recent activity fall back to lifetime message_count; that's sensible but might surprise users if a very-old bot ranks above a fresher one on ties. Non-blocking."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_bots_iter41.py"
+  ],
+  "success_rate": { "backend": "100% (8/8)", "frontend": "100%" },
+  "seed_data_creation": "Test-run only: created ~7 TEST_* bots via API + 1 via UI across two users, all deleted at end of run. Final state: 0 shared bots (matches starting condition noted in the review request).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "alice@stitches.app / Alice@123, admin@stitches.app / Admin@123",
+  "context_for_next_testing_agent": "Feature is fully working end-to-end. Backend regression file at /app/backend/tests/test_bots_iter41.py covers categories, sparkline, directory shape, featured ranking + disabled exclusion, clone inheritance. NOTE (a) The 'daily' bucket updates use UTC date — sparkline's last cell = today UTC; if you run near a UTC-day rollover you may see the +1 land in the 'previous' cell. (b) The React warning '<span> cannot be a child of <option>' comes from dev-time instrumentation wrapping <option> children, not from product code. (c) Always clean up TEST_ bots before asserting the null-render of FeaturedBots — leftovers will keep the widget mounted.",
+  "rca_of_the_issue": "N/A — no defects. The single transient FAIL during UI runs was caused by leftover TEST_ bots from a prior iteration that were still shared+enabled, keeping FeaturedBots mounted; after direct API cleanup the widget correctly returned null."
+}

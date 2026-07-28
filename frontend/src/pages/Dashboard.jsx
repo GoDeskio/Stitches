@@ -7,6 +7,7 @@ import { PageShell, PageHeader, Loader } from "@/components/Stitch";
 import MeetingLaunchButtons from "@/components/MeetingLaunchButtons";
 import QrLoginCard from "@/components/QrLoginCard";
 import WeekCalendar from "@/components/WeekCalendar";
+import FeaturedBots from "@/components/FeaturedBots";
 
 const STATS = [
   { key: "workspaces", label: "Workspaces", icon: Layers },
@@ -128,6 +129,8 @@ export default function Dashboard() {
       </div>
 
       <WeekCalendar />
+
+      <FeaturedBots />
 
       <div className="mt-6">
         <QrLoginCard />
