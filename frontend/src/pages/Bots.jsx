@@ -104,7 +104,9 @@ function BotCard({ bot, onChange }) {
   const [showToken, setShowToken] = useState(false);
   const [showCard, setShowCard] = useState(false);
   const curl = `curl -X POST ${INGEST_URL} \\\n  -H "Authorization: Bearer ${bot.token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"text":"Hello from my app","sender_name":"CI bot"}'`;
-  const cardCurl = `curl -X POST ${INGEST_URL} \\\n  -H "Authorization: Bearer ${bot.token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "card": {\n      "title": "Build #128 passed",\n      "status": "success",\n      "fields": [{"label":"Branch","value":"main"},{"label":"Duration","value":"2m 14s"}],\n      "link": "https://ci.example.com/128"\n    }\n  }'`;
+  const cardCurl = `curl -X POST ${INGEST_URL} \\\n  -H "Authorization: Bearer ${bot.token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "card": {\n      "title": "Deploy approval needed",\n      "status": "warn",\n      "fields": [{"label":"Service","value":"api"},{"label":"Env","value":"prod"}],\n      "link": "https://ci.example.com/128",\n      "actions": [\n        {"id":"approve","label":"Approve","style":"primary"},\n        {"id":"retry","label":"Retry","style":"default"}\n      ]\n    }\n  }'`;
+  const [callback, setCallback] = useState("");
+  const [savingCb, setSavingCb] = useState(false);
   const patch = async (body, msg) => { try { await api.patch(`/bots/${bot.bot_id}`, body); if (msg) toast.success(msg); onChange(); } catch { toast.error("Failed"); } };
   const toggle = () => patch({ enabled: !bot.enabled });
   const toggleShare = () => patch({ shared: !bot.shared }, bot.shared ? "Removed from directory" : "Shared to directory");
@@ -160,6 +162,23 @@ function BotCard({ bot, onChange }) {
           <button data-testid="bot-copy-card-curl" onClick={() => copy(cardCurl, "Card cURL")} className="neu-btn rounded-lg px-2.5 py-1.5 text-primary-stitch absolute top-3 right-3"><Copy className="w-3.5 h-3.5" /></button>
         </div>
       )}
+      <div className="mt-3">
+        <label className="text-xs font-semibold text-muted-stitch flex items-center gap-1.5">
+          Callback URL for card buttons
+          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${bot.outbound_webhook_set ? "text-green-500" : "text-muted-stitch"}`} style={{ background: "var(--neu-dark)" }}>{bot.outbound_webhook_set ? "set" : "not set"}</span>
+        </label>
+        <p className="text-[11px] text-muted-stitch mt-0.5 mb-1.5">When a teammate taps an Approve/Retry button, we POST the action to this URL so your tool can react.</p>
+        <div className="flex items-center gap-2">
+          <input data-testid="bot-callback-input" value={callback} onChange={(e) => setCallback(e.target.value)}
+            placeholder={bot.outbound_webhook_set ? "•••••••• (set — enter a new URL to replace)" : "https://your-tool.example.com/stitches-callback"}
+            className="neu-input flex-1 rounded-2xl py-2.5 px-3 text-sm" />
+          <button data-testid="bot-callback-save" onClick={async () => { setSavingCb(true); await patch({ outbound_webhook: callback.trim() }, "Callback saved"); setCallback(""); setSavingCb(false); }}
+            disabled={savingCb} className="neu-btn rounded-xl px-3 py-2.5 text-xs font-semibold text-primary-stitch shrink-0">{savingCb ? "…" : "Save"}</button>
+          {bot.outbound_webhook_set && (
+            <button data-testid="bot-callback-clear" onClick={() => patch({ outbound_webhook: "" }, "Callback cleared")} className="neu-btn rounded-xl px-3 py-2.5 text-xs font-semibold text-red-500 shrink-0">Clear</button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

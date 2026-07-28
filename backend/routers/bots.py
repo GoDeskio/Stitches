@@ -223,6 +223,18 @@ async def _auth_bot(request: Request, body_token: str):
 
 
 CARD_STATUSES = ("info", "success", "warn", "error")
+ACTION_STYLES = ("primary", "default", "danger")
+
+
+def _clean_action(a):
+    if not isinstance(a, dict):
+        return None
+    aid = str(a.get("id") or a.get("action_id") or "").strip()[:60]
+    label = str(a.get("label") or "").strip()[:40]
+    if not aid or not label:
+        return None
+    style = a.get("style") if a.get("style") in ACTION_STYLES else "default"
+    return {"id": aid, "label": label, "style": style}
 
 
 def _clean_card(card):
@@ -232,15 +244,61 @@ def _clean_card(card):
     for f in (card.get("fields") or [])[:8]:
         if isinstance(f, dict) and (f.get("label") or f.get("value")):
             fields.append({"label": str(f.get("label") or "")[:60], "value": str(f.get("value") or "")[:300]})
+    actions = []
+    for a in (card.get("actions") or [])[:4]:
+        ca = _clean_action(a)
+        if ca:
+            actions.append(ca)
     clean = {
         "title": str(card.get("title") or "")[:200],
         "link": str(card.get("link") or "")[:800],
         "status": card.get("status") if card.get("status") in CARD_STATUSES else "info",
         "fields": fields,
+        "actions": actions,
     }
-    if not (clean["title"] or clean["link"] or clean["fields"]):
+    if not (clean["title"] or clean["link"] or clean["fields"] or clean["actions"]):
         return None
     return clean
+
+
+@router.post("/bots/{bot_id}/action")
+async def bot_card_action(bot_id: str, body: dict = Body(...), user: dict = Depends(get_current_user)):
+    import httpx
+    message_id = body.get("message_id")
+    action_id = body.get("action_id")
+    msg = await db.messages.find_one({"message_id": message_id})
+    if not msg or msg.get("user_id") != bot_id:
+        raise HTTPException(status_code=404, detail="Message not found")
+    b = await db.bots.find_one({"bot_id": bot_id})
+    if not b:
+        raise HTTPException(status_code=404, detail="Bot not found")
+    await _resolve_channel(user, msg["channel_id"])  # 403 if no access
+    card = msg.get("card") or {}
+    action = next((a for a in (card.get("actions") or []) if a["id"] == action_id), None)
+    if not action:
+        raise HTTPException(status_code=400, detail="Unknown action")
+    webhook = _dec(b.get("outbound_webhook_enc"))
+    if not webhook:
+        raise HTTPException(status_code=400, detail="This bot has no callback URL set. Ask the owner to add one on the Bots page.")
+    payload = {
+        "type": "card_action", "action_id": action_id, "label": action["label"],
+        "bot_id": bot_id, "bot_name": b.get("name"), "message_id": message_id,
+        "channel_id": msg["channel_id"], "card_title": card.get("title", ""),
+        "user": {"user_id": user["user_id"], "name": user.get("name"), "email": user.get("email")},
+        "at": now_iso(),
+    }
+    delivered, detail = False, ""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.post(webhook, json=payload)
+            delivered = r.status_code < 400
+            detail = f"HTTP {r.status_code}"
+    except Exception as e:
+        detail = str(e)[:200]
+    await db.bot_actions.insert_one({
+        "bot_id": bot_id, "action_id": action_id, "message_id": message_id,
+        "user_id": user["user_id"], "delivered": delivered, "detail": detail, "created_at": now_iso()})
+    return {"ok": True, "delivered": delivered, "detail": detail}
 
 
 @router.post("/bots/ingest")

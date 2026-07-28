@@ -427,6 +427,17 @@ async def scan_bot_health():
             when = "hasn't posted yet" if not b.get("last_used_at") else "has been quiet for over 7 days"
             await create_notification(owner, "bot", "Bot went quiet",
                                       f"Your bot '{b.get('name')}' {when}. Check the integration that feeds it.", "/bots")
+            try:
+                u = await db.users.find_one({"user_id": owner}, {"_id": 0, "email": 1, "name": 1})
+                if u and u.get("email"):
+                    from services.email import send_email_detailed
+                    html = (f"<p>Hi {u.get('name') or 'there'},</p>"
+                            f"<p>Your Stitches bot <strong>{b.get('name')}</strong> {when}.</p>"
+                            f"<p>If that integration should be posting, check whatever feeds the bot. "
+                            f"Otherwise you can disable or delete it on the Bots page.</p>")
+                    await send_email_detailed(u["email"], f"Your bot '{b.get('name')}' went quiet", html)
+            except Exception:
+                pass
         await db.bots.update_one({"bot_id": b["bot_id"]}, {"$set": {"stale_alerted": True}})
         count += 1
     return count

@@ -1,5 +1,13 @@
 # Stitches Changelog
 
+## 2026-06 — Bot card actions (callbacks) + bot-health email pings
+- **Card action buttons**: bot cards can include `actions: [{id,label,style(primary/default/danger)}]` (max 4). They render as tappable buttons in the chat card. Tapping one calls `POST /api/bots/{bot_id}/action {message_id, action_id}` which validates the user's channel access, then POSTs a `card_action` payload (action_id, label, bot, message/channel, acting user, timestamp) to the bot's **callback URL** and records it in `bot_actions`. Owners set/clear the callback URL per bot on the Bots page (`outbound_webhook`, Fernet-encrypted, masked).
+  - Access-gated: non-members → 403; unknown action → 400; no callback set → 400 with guidance.
+  - **Verified end-to-end**: curl (deliver HTTP 200 to a local catcher, 400/403/unknown paths) AND a full UI flow (click "Approve" → toast + callback received by the external tool).
+- **Bot-health email pings** (improvement): `scan_bot_health()` now also emails the bot owner (best-effort via `send_email_detailed`) in addition to the in-app "Bot went quiet" notification. Delivers once Mailgun/SMTP is configured; no-ops gracefully otherwise.
+- Card sanitizer `_clean_card` extended with `actions`; `BotMessageCard` renders buttons with busy/done states. Bots page rich-card example now shows an `actions` array.
+
+
 ## 2026-06 — Bot health alerts + rich bot cards (iteration_42)
 - **Bot health alerts**: `scan_bot_health()` (in the 30-min reminder loop + manual `POST /api/admin/bots/scan-health`, admin-only) pings a bot's **owner** with an in-app "Bot went quiet" notification when the bot's last activity (`last_used_at`, else `created_at`) is 7+ days old. Idempotent via a `stale_alerted` flag that **re-arms** automatically when the bot next ingests a message.
 - **Rich bot cards**: `POST /api/bots/ingest` now accepts an optional `card` `{title, status(info/success/warn/error), fields:[{label,value}], link}` (sanitized server-side by `_clean_card`; text OR card required, else 400). Messages carry the card (`_create_message(card=...)`) and render as a styled **BotMessageCard** in chat with a status-colored left accent, a key/value field grid (hover shows full values), and an "Open" link. The Bots page shows a "Send a rich card instead" cURL example per bot.

@@ -22,10 +22,28 @@ export function MentionText({ text, light }) {
 const CARD_COLORS = {
   info: "#6366f1", success: "#22c55e", warn: "#f59e0b", error: "#ef4444",
 };
+const ACTION_CLASSES = {
+  primary: "neu-primary text-white",
+  default: "neu-btn text-primary-stitch",
+  danger: "neu-btn text-red-500",
+};
 
-export function BotMessageCard({ card }) {
+export function BotMessageCard({ card, botId, messageId }) {
+  const [busy, setBusy] = useState(null);
+  const [done, setDone] = useState({});
   if (!card) return null;
   const accent = CARD_COLORS[card.status] || CARD_COLORS.info;
+  const runAction = async (a) => {
+    if (!botId || !messageId) return;
+    setBusy(a.id);
+    try {
+      const { data } = await api.post(`/bots/${botId}/action`, { message_id: messageId, action_id: a.id });
+      setDone((d) => ({ ...d, [a.id]: true }));
+      toast.success(data.delivered ? `Sent “${a.label}” to the bot` : `“${a.label}” recorded (callback ${data.detail || "unreachable"})`);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Action failed");
+    } finally { setBusy(null); }
+  };
   return (
     <div data-testid="bot-message-card" className="neu-pressed rounded-2xl overflow-hidden mt-1 min-w-[240px] max-w-[360px]"
       style={{ borderLeft: `4px solid ${accent}` }}>
@@ -46,6 +64,17 @@ export function BotMessageCard({ card }) {
             className="inline-flex items-center gap-1.5 text-xs font-semibold mt-1" style={{ color: accent }}>
             Open <ExternalLink className="w-3.5 h-3.5" />
           </a>
+        )}
+        {card.actions?.length > 0 && (
+          <div className="flex flex-wrap gap-2 mt-3" data-testid="bot-card-actions">
+            {card.actions.map((a) => (
+              <button key={a.id} data-testid={`bot-card-action-${a.id}`} onClick={() => runAction(a)}
+                disabled={busy === a.id || done[a.id]}
+                className={`rounded-xl px-3 py-1.5 text-xs font-semibold disabled:opacity-60 ${ACTION_CLASSES[a.style] || ACTION_CLASSES.default}`}>
+                {busy === a.id ? "…" : done[a.id] ? `✓ ${a.label}` : a.label}
+              </button>
+            ))}
+          </div>
         )}
       </div>
     </div>
