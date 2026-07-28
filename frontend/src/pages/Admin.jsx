@@ -3,9 +3,10 @@ import { useNavigate } from "react-router-dom";
 import {
   Users, Layers, FolderKanban, FolderOpen, Plug, MessagesSquare,
   ToggleRight, Search, Activity, Grid3x3, LayoutDashboard, Bell,
-  Download, Video, Plus, PhoneOff, Users as UsersIcon, Workflow, Megaphone, LifeBuoy, Mail, Check, ShieldCheck, Contact2, CreditCard, Tag, DownloadCloud, AlertTriangle, Database,
+  Download, Video, Plus, PhoneOff, Users as UsersIcon, Workflow, Megaphone, LifeBuoy, Mail, Check, ShieldCheck, Contact2, CreditCard, Tag, DownloadCloud, AlertTriangle, Database, Copy, ChevronDown, Terminal,
 } from "lucide-react";
 import { toast } from "sonner";
+import { TurnSetupGuide } from "@/pages/admin/TurnSetupGuide";
 import api, { API } from "@/lib/api";
 import { PageShell, PageHeader, Loader } from "@/components/Stitch";
 import { IntegrationsManager } from "@/pages/Integrations";
