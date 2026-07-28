@@ -65,12 +65,75 @@ def _dec(enc: str):
         return None
 
 
+def _sign(secret: str, ts: str, body: str) -> str:
+    import hmac
+    return "sha256=" + hmac.new(secret.encode(), f"{ts}.{body}".encode(), hashlib.sha256).hexdigest()
+
+
+async def _ensure_signing_secret(bot: dict) -> str:
+    sec = _dec(bot.get("signing_secret_enc"))
+    if not sec:
+        sec = "whsec_" + secrets.token_urlsafe(24)
+        enc = _fernet.encrypt(sec.encode()).decode()
+        await db.bots.update_one({"bot_id": bot["bot_id"]}, {"$set": {"signing_secret_enc": enc}})
+        bot["signing_secret_enc"] = enc
+    return sec
+
+
+async def _post_callback(bot: dict, webhook: str, payload: dict):
+    """POST a signed callback to the bot's external tool. Returns (delivered, detail)."""
+    import httpx
+    import json as _json
+    secret = await _ensure_signing_secret(bot)
+    body = _json.dumps(payload, separators=(",", ":"))
+    ts = str(int(datetime.now(timezone.utc).timestamp()))
+    headers = {"Content-Type": "application/json", "X-Stitches-Timestamp": ts,
+               "X-Stitches-Signature": _sign(secret, ts, body), "X-Stitches-Bot": bot["bot_id"]}
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.post(webhook, content=body, headers=headers)
+            return r.status_code < 400, f"HTTP {r.status_code}"
+    except Exception as e:
+        return False, str(e)[:200]
+
+
+def _action_payload(a: dict, extra: dict = None) -> dict:
+    p = {"type": "card_action", "action_id": a.get("action_id"), "label": a.get("action_label"),
+         "bot_id": a["bot_id"], "bot_name": a.get("bot_name"), "message_id": a.get("message_id"),
+         "channel_id": a.get("channel_id"), "card_title": a.get("card_title", ""),
+         "user": {"user_id": a.get("user_id"), "name": a.get("user_name"), "email": a.get("user_email")},
+         "at": a.get("created_at")}
+    if extra:
+        p.update(extra)
+    return p
+
+
+async def scan_failed_callbacks():
+    """Auto-retry failed card-action callbacks (transient-outage self-heal), up to 3 background attempts."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    count = 0
+    cur = db.bot_actions.find({"delivered": False, "auto_retries": {"$lt": 3}, "created_at": {"$gte": cutoff}})
+    async for a in cur:
+        b = await db.bots.find_one({"bot_id": a.get("bot_id")})
+        webhook = _dec(b.get("outbound_webhook_enc")) if b else None
+        if not webhook:
+            await db.bot_actions.update_one({"action_uid": a["action_uid"]}, {"$inc": {"auto_retries": 1}})
+            continue
+        delivered, detail = await _post_callback(b, webhook, _action_payload(a, {"auto_retry": True}))
+        await db.bot_actions.update_one({"action_uid": a["action_uid"]},
+                                        {"$set": {"delivered": delivered, "detail": detail, "last_retry_at": now_iso()},
+                                         "$inc": {"auto_retries": 1}})
+        count += 1
+    return count
+
+
 def _public_bot(b: dict) -> dict:
     return {
         "bot_id": b["bot_id"], "name": b["name"], "enabled": b.get("enabled", True),
         "shared": bool(b.get("shared")), "category": b.get("category", "general"),
         "target_channel_id": b.get("target_channel_id"), "target_channel_name": b.get("target_channel_name"),
         "outbound_webhook_set": bool(b.get("outbound_webhook_enc")),
+        "signing_secret": _dec(b.get("signing_secret_enc")),
         "message_count": b.get("message_count", 0), "last_used_at": b.get("last_used_at"),
         "activity": _spark(b), "created_at": b.get("created_at"), "token": _dec(b.get("token_enc")),
     }
@@ -116,6 +179,7 @@ async def create_bot(body: dict = Body(...), user: dict = Depends(get_current_us
         "category": _clean_category(body.get("category")),
         "target_channel_id": channel_id, "target_channel_name": ch.get("name"),
         "token_hash": _hash(token), "token_enc": _fernet.encrypt(token.encode()).decode(),
+        "signing_secret_enc": _fernet.encrypt(("whsec_" + secrets.token_urlsafe(24)).encode()).decode(),
         "outbound_webhook_enc": "", "message_count": 0, "daily": {}, "last_used_at": None, "created_at": now_iso(),
     }
     await db.bots.insert_one(doc)
@@ -207,7 +271,6 @@ async def admin_bot_actions_export(q: str = "", status: str = "", user: dict = D
 
 @router.post("/admin/bots/actions/{action_uid}/resend")
 async def admin_resend_action(action_uid: str, user: dict = Depends(require_admin)):
-    import httpx
     a = await db.bot_actions.find_one({"action_uid": action_uid})
     if not a:
         raise HTTPException(status_code=404, detail="Action not found")
@@ -217,21 +280,8 @@ async def admin_resend_action(action_uid: str, user: dict = Depends(require_admi
     webhook = _dec(b.get("outbound_webhook_enc"))
     if not webhook:
         raise HTTPException(status_code=400, detail="This bot has no callback URL set.")
-    payload = {
-        "type": "card_action", "action_id": a.get("action_id"), "label": a.get("action_label"),
-        "bot_id": a["bot_id"], "bot_name": a.get("bot_name"), "message_id": a.get("message_id"),
-        "channel_id": a.get("channel_id"), "card_title": a.get("card_title", ""),
-        "user": {"user_id": a.get("user_id"), "name": a.get("user_name"), "email": a.get("user_email")},
-        "at": a.get("created_at"), "resent_by": user.get("name"), "resent_at": now_iso(),
-    }
-    delivered, detail = False, ""
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.post(webhook, json=payload)
-            delivered = r.status_code < 400
-            detail = f"HTTP {r.status_code}"
-    except Exception as e:
-        detail = str(e)[:200]
+    payload = _action_payload(a, {"resent_by": user.get("name"), "resent_at": now_iso()})
+    delivered, detail = await _post_callback(b, webhook, payload)
     await db.bot_actions.update_one({"action_uid": action_uid},
                                     {"$set": {"delivered": delivered, "detail": detail, "last_retry_at": now_iso()},
                                      "$inc": {"retry_count": 1}})
@@ -277,6 +327,16 @@ async def rotate_bot(bot_id: str, user: dict = Depends(get_current_user)):
     return _public_bot(await db.bots.find_one({"bot_id": bot_id}))
 
 
+@router.post("/bots/{bot_id}/rotate-secret")
+async def rotate_signing_secret(bot_id: str, user: dict = Depends(get_current_user)):
+    b = await db.bots.find_one({"bot_id": bot_id, "owner_id": user["user_id"]})
+    if not b:
+        raise HTTPException(status_code=404, detail="Bot not found")
+    sec = "whsec_" + secrets.token_urlsafe(24)
+    await db.bots.update_one({"bot_id": bot_id}, {"$set": {"signing_secret_enc": _fernet.encrypt(sec.encode()).decode()}})
+    return _public_bot(await db.bots.find_one({"bot_id": bot_id}))
+
+
 @router.delete("/bots/{bot_id}")
 async def delete_bot(bot_id: str, user: dict = Depends(get_current_user)):
     r = await db.bots.delete_one({"bot_id": bot_id, "owner_id": user["user_id"]})
@@ -300,6 +360,7 @@ async def clone_bot(bot_id: str, body: dict = Body(...), user: dict = Depends(ge
         "category": src.get("category", "general"),
         "cloned_from": src["bot_id"], "target_channel_id": channel_id, "target_channel_name": ch.get("name"),
         "token_hash": _hash(token), "token_enc": _fernet.encrypt(token.encode()).decode(),
+        "signing_secret_enc": _fernet.encrypt(("whsec_" + secrets.token_urlsafe(24)).encode()).decode(),
         "outbound_webhook_enc": "", "message_count": 0, "daily": {}, "last_used_at": None, "created_at": now_iso(),
     }
     await db.bots.insert_one(doc)
@@ -366,7 +427,6 @@ def _clean_card(card):
 
 @router.post("/bots/{bot_id}/action")
 async def bot_card_action(bot_id: str, body: dict = Body(...), user: dict = Depends(get_current_user)):
-    import httpx
     message_id = body.get("message_id")
     action_id = body.get("action_id")
     msg = await db.messages.find_one({"message_id": message_id})
@@ -404,21 +464,14 @@ async def bot_card_action(bot_id: str, body: dict = Body(...), user: dict = Depe
         prev = (cur or {}).get("card_receipts") or [{}]
         raise HTTPException(status_code=409,
                             detail=f"This card was already actioned by {prev[0].get('user_name', 'someone')}.")
-    # We hold the lock — now call back the external tool.
-    delivered, detail = False, ""
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.post(webhook, json=payload)
-            delivered = r.status_code < 400
-            detail = f"HTTP {r.status_code}"
-    except Exception as e:
-        detail = str(e)[:200]
+    # We hold the lock — now call back the external tool (signed).
+    delivered, detail = await _post_callback(b, webhook, payload)
     await db.bot_actions.insert_one({
         "action_uid": uuid.uuid4().hex, "bot_id": bot_id, "bot_name": b.get("name"), "action_id": action_id, "action_label": action["label"],
         "message_id": message_id, "channel_id": msg["channel_id"], "channel_name": ch.get("name") if (ch := await db.channels.find_one({"channel_id": msg["channel_id"]}, {"_id": 0, "name": 1})) else None,
         "card_title": card.get("title", ""),
         "user_id": user["user_id"], "user_name": user.get("name"), "user_email": user.get("email"),
-        "delivered": delivered, "detail": detail, "retry_count": 0, "created_at": now_iso()})
+        "delivered": delivered, "detail": detail, "retry_count": 0, "auto_retries": 0, "created_at": now_iso()})
     updated = await db.messages.find_one({"message_id": message_id}, {"_id": 0, "card_receipts": 1})
     receipts = (updated or {}).get("card_receipts", [])
     await ws_manager.broadcast(msg["channel_id"], {"type": "card_receipt", "message_id": message_id, "card_receipts": receipts, "locked": True})

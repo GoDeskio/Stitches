@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import api, { BACKEND_ORIGIN } from "@/lib/api";
 import { PageShell, PageHeader, Loader } from "@/components/Stitch";
-import { Bot, Plus, Copy, RefreshCw, Trash2, X, Radio, Users, Share2, GitFork, BookOpen, ChevronDown, Tag, Activity, LayoutTemplate } from "lucide-react";
+import { Bot, Plus, Copy, RefreshCw, Trash2, X, Radio, Users, Share2, GitFork, BookOpen, ChevronDown, Tag, Activity, LayoutTemplate, ShieldCheck } from "lucide-react";
 import { Sparkline } from "@/components/Sparkline";
 
 const INGEST_URL = `${BACKEND_ORIGIN}/api/bots/ingest`;
@@ -103,6 +103,7 @@ function SetupGuide() {
 function BotCard({ bot, onChange }) {
   const [showToken, setShowToken] = useState(false);
   const [showCard, setShowCard] = useState(false);
+  const [showSecret, setShowSecret] = useState(false);
   const curl = `curl -X POST ${INGEST_URL} \\\n  -H "Authorization: Bearer ${bot.token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"text":"Hello from my app","sender_name":"CI bot"}'`;
   const cardCurl = `curl -X POST ${INGEST_URL} \\\n  -H "Authorization: Bearer ${bot.token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "card": {\n      "title": "Deploy approval needed",\n      "status": "warn",\n      "fields": [{"label":"Service","value":"api"},{"label":"Env","value":"prod"}],\n      "link": "https://ci.example.com/128",\n      "approvers": ["role:admin", "lead@example.com"],\n      "actions": [\n        {"id":"approve","label":"Approve","style":"primary"},\n        {"id":"retry","label":"Retry","style":"default"}\n      ]\n    }\n  }'`;
   const [callback, setCallback] = useState("");
@@ -111,6 +112,7 @@ function BotCard({ bot, onChange }) {
   const toggle = () => patch({ enabled: !bot.enabled });
   const toggleShare = () => patch({ shared: !bot.shared }, bot.shared ? "Removed from directory" : "Shared to directory");
   const rotate = async () => { if (!window.confirm("Rotate this bot's token? The old token stops working immediately.")) return; try { await api.post(`/bots/${bot.bot_id}/rotate`); toast.success("Token rotated"); onChange(); } catch { toast.error("Failed"); } };
+  const rotateSecret = async () => { if (!window.confirm("Rotate the signing secret? Update your tool's verifier with the new value.")) return; try { await api.post(`/bots/${bot.bot_id}/rotate-secret`); toast.success("Signing secret rotated"); onChange(); } catch { toast.error("Failed"); } };
   const del = async () => { if (!window.confirm(`Delete bot "${bot.name}"?`)) return; try { await api.delete(`/bots/${bot.bot_id}`); toast.success("Bot deleted"); onChange(); } catch { toast.error("Failed"); } };
   return (
     <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="bot-card">
@@ -179,6 +181,18 @@ function BotCard({ bot, onChange }) {
           )}
         </div>
       </div>
+      {bot.signing_secret && (
+        <div className="mt-3">
+          <label className="text-xs font-semibold text-muted-stitch flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-primary-stitch" /> Signing secret</label>
+          <p className="text-[11px] text-muted-stitch mt-0.5 mb-1.5">We sign every callback with this secret. Verify the <code className="font-mono-stitch">X-Stitches-Signature</code> header (<code className="font-mono-stitch">sha256=HMAC(secret, "{`{timestamp}.{body}`}")</code>) to confirm the request is genuinely from Stitches.</p>
+          <div className="flex items-center gap-2">
+            <code data-testid="bot-signing-secret" className="neu-pressed rounded-2xl px-3 py-2.5 text-xs font-mono-stitch flex-1 min-w-0 truncate" style={{ color: "var(--text)" }}>{showSecret ? bot.signing_secret : "whsec_" + "•".repeat(20)}</code>
+            <button onClick={() => setShowSecret((s) => !s)} className="text-xs text-muted-stitch shrink-0">{showSecret ? "Hide" : "Show"}</button>
+            <button data-testid="bot-copy-secret" onClick={() => copy(bot.signing_secret, "Signing secret")} className="neu-btn rounded-lg px-2.5 py-2 text-primary-stitch shrink-0"><Copy className="w-3.5 h-3.5" /></button>
+            <button data-testid="bot-rotate-secret" onClick={rotateSecret} className="neu-btn rounded-lg px-2.5 py-2 text-primary-stitch shrink-0" title="Rotate signing secret"><RefreshCw className="w-3.5 h-3.5" /></button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

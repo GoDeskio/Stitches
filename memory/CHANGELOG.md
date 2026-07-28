@@ -1,5 +1,11 @@
 # Stitches Changelog
 
+## 2026-06 — Signed callbacks (HMAC) + background auto-retry
+- **Signed callbacks**: every bot has a `signing_secret` (`whsec_…`, generated at create/clone, encrypted at rest, owner-visible). All card-action callbacks are POSTed with `X-Stitches-Signature: sha256=HMAC(secret, "{timestamp}.{body}")` plus `X-Stitches-Timestamp` and `X-Stitches-Bot` headers so the receiving tool can verify authenticity. Owner UI shows/copies/rotates the secret (`POST /bots/{id}/rotate-secret`) with the exact verification formula.
+- **Auto-retry**: `scan_failed_callbacks()` (added to the 30-min reminder loop) re-attempts each failed callback up to 3 background times within 24h, self-healing transient outages; tracked via `auto_retries` (separate from manual `retry_count`). Centralized all callback sending in a signed `_post_callback` helper shared by the action, manual resend, and auto-retry paths.
+- **Verified**: receiver-side HMAC check `sig_valid=True`; failed action (auto_retries 0) → after scan with endpoint back up → delivered True, auto_retries 1; signing-secret UI renders with show/copy/rotate. Test data purged.
+
+
 ## 2026-06 — Approval Trail: CSV export + resend failed callbacks
 - **Export CSV**: `GET /api/admin/bots/actions/export` (require_admin, honours the `q`/`status` filters) streams the whole trail as `approval-trail.csv` (When, Approver, Email, Bot, Action, Card, Channel, Delivered, Detail, Retries). Frontend "Export CSV" button downloads it via an authed blob request.
 - **Resend delivery**: each action now carries a stable `action_uid`. `POST /api/admin/bots/actions/{action_uid}/resend` (require_admin) re-POSTs the exact stored payload to the bot's current callback URL, updates the row's `delivered`/`detail` and increments `retry_count`. Failed trail rows show a "Resend" button; the row reflects the new status + "·N retry".
