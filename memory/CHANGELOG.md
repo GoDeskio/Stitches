@@ -1,5 +1,12 @@
 # Stitches Changelog
 
+## 2026-06 — Card approver rules (who can action a card)
+- **Approver rules**: a bot card can include `approvers` — a list of specific emails and/or roles (`role:admin`, `role:superadmin`, `role:owner`). When set, only matching users can tap the card's action buttons; anyone else gets `403 "You're not authorized to action this card."` (enforced server-side in `bot_card_action`, before the action lock).
+- Sanitized by `_clean_approvers` (only valid emails / known role tokens, de-duped, max 20); matching via `_user_matches_approvers` (role/email/owner checks, super-admin resolved against `ADMIN_EMAIL`).
+- Frontend: `BotMessageCard` shows a "🛡 Only <…> can action this" hint and **proactively disables** the buttons for non-approvers (server remains source of truth). Rich-card cURL example now includes an `approvers` field.
+- **Verified**: curl (email approver→200, role:admin as non-admin→403, role:owner→200, webhook fired only for authorized) + UI (hint shown, buttons disabled for non-approver). Test data purged.
+
+
 ## 2026-06 — Card action lock (single-decision, race-safe)
 - **Action lock**: the first action taken on a bot card wins — the callback fires exactly once and all buttons disable for everyone in the channel. Enforced **atomically** server-side (`update_one` guarded by `card_receipts` empty) so concurrent taps can't double-fire; a losing/late tap gets `409 "This card was already actioned by <name>."`. The `card_receipt` WS broadcast carries `locked: true`.
 - Frontend: `BotMessageCard` disables all buttons and shows a "🔒 locked" hint once any receipt exists; the taken action shows "✓ <label>".

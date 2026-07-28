@@ -5,8 +5,36 @@ from datetime import datetime, timezone, timedelta
 import uuid
 import hashlib
 import secrets
+import os
 
 router = APIRouter()
+
+APPROVER_ROLES = ("role:admin", "role:superadmin", "role:owner")
+
+
+def _clean_approvers(raw):
+    out = []
+    for a in (raw or [])[:20]:
+        a = str(a).strip().lower()[:120]
+        if a and (a in APPROVER_ROLES or "@" in a):
+            out.append(a)
+    # de-dupe preserving order
+    return list(dict.fromkeys(out))
+
+
+def _user_matches_approvers(user: dict, approvers: list, bot: dict) -> bool:
+    email = (user.get("email") or "").strip().lower()
+    admin_email = os.environ.get("ADMIN_EMAIL", "").strip().lower()
+    for a in approvers:
+        if a == "role:admin" and user.get("role") == "admin":
+            return True
+        if a == "role:superadmin" and admin_email and email == admin_email:
+            return True
+        if a == "role:owner" and bot.get("owner_id") == user.get("user_id"):
+            return True
+        if "@" in a and a == email:
+            return True
+    return False
 
 # Suggested categories surfaced in the UI (creators may also type a custom one)
 BOT_CATEGORIES = ["general", "ci", "alerts", "support", "monitoring", "marketing", "sales", "ops"]
@@ -255,6 +283,7 @@ def _clean_card(card):
         "status": card.get("status") if card.get("status") in CARD_STATUSES else "info",
         "fields": fields,
         "actions": actions,
+        "approvers": _clean_approvers(card.get("approvers")),
     }
     if not (clean["title"] or clean["link"] or clean["fields"] or clean["actions"]):
         return None
@@ -277,6 +306,9 @@ async def bot_card_action(bot_id: str, body: dict = Body(...), user: dict = Depe
     action = next((a for a in (card.get("actions") or []) if a["id"] == action_id), None)
     if not action:
         raise HTTPException(status_code=400, detail="Unknown action")
+    approvers = card.get("approvers") or []
+    if approvers and not _user_matches_approvers(user, approvers, b):
+        raise HTTPException(status_code=403, detail="You're not authorized to action this card.")
     webhook = _dec(b.get("outbound_webhook_enc"))
     if not webhook:
         raise HTTPException(status_code=400, detail="This bot has no callback URL set. Ask the owner to add one on the Bots page.")

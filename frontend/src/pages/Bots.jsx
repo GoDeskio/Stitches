@@ -104,7 +104,7 @@ function BotCard({ bot, onChange }) {
   const [showToken, setShowToken] = useState(false);
   const [showCard, setShowCard] = useState(false);
   const curl = `curl -X POST ${INGEST_URL} \\\n  -H "Authorization: Bearer ${bot.token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"text":"Hello from my app","sender_name":"CI bot"}'`;
-  const cardCurl = `curl -X POST ${INGEST_URL} \\\n  -H "Authorization: Bearer ${bot.token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "card": {\n      "title": "Deploy approval needed",\n      "status": "warn",\n      "fields": [{"label":"Service","value":"api"},{"label":"Env","value":"prod"}],\n      "link": "https://ci.example.com/128",\n      "actions": [\n        {"id":"approve","label":"Approve","style":"primary"},\n        {"id":"retry","label":"Retry","style":"default"}\n      ]\n    }\n  }'`;
+  const cardCurl = `curl -X POST ${INGEST_URL} \\\n  -H "Authorization: Bearer ${bot.token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "card": {\n      "title": "Deploy approval needed",\n      "status": "warn",\n      "fields": [{"label":"Service","value":"api"},{"label":"Env","value":"prod"}],\n      "link": "https://ci.example.com/128",\n      "approvers": ["role:admin", "lead@example.com"],\n      "actions": [\n        {"id":"approve","label":"Approve","style":"primary"},\n        {"id":"retry","label":"Retry","style":"default"}\n      ]\n    }\n  }'`;
   const [callback, setCallback] = useState("");
   const [savingCb, setSavingCb] = useState(false);
   const patch = async (body, msg) => { try { await api.patch(`/bots/${bot.bot_id}`, body); if (msg) toast.success(msg); onChange(); } catch { toast.error("Failed"); } };
