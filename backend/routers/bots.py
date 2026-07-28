@@ -168,6 +168,14 @@ async def admin_scan_bot_health(user: dict = Depends(require_admin)):
 async def admin_bot_actions(page: int = 1, q: str = "", status: str = "", user: dict = Depends(require_admin)):
     page = max(1, page)
     per = 25
+    query = _actions_query(q, status)
+    total = await db.bot_actions.count_documents(query)
+    cur = db.bot_actions.find(query, {"_id": 0}).sort("created_at", -1).skip((page - 1) * per).limit(per)
+    items = await cur.to_list(per)
+    return {"actions": items, "total": total, "page": page, "per_page": per, "pages": (total + per - 1) // per}
+
+
+def _actions_query(q: str, status: str):
     query = {}
     if status == "delivered":
         query["delivered"] = True
@@ -176,10 +184,58 @@ async def admin_bot_actions(page: int = 1, q: str = "", status: str = "", user: 
     if q.strip():
         rx = {"$regex": q.strip(), "$options": "i"}
         query["$or"] = [{"user_name": rx}, {"user_email": rx}, {"bot_name": rx}, {"card_title": rx}, {"action_label": rx}]
-    total = await db.bot_actions.count_documents(query)
-    cur = db.bot_actions.find(query, {"_id": 0}).sort("created_at", -1).skip((page - 1) * per).limit(per)
-    items = await cur.to_list(per)
-    return {"actions": items, "total": total, "page": page, "per_page": per, "pages": (total + per - 1) // per}
+    return query
+
+
+@router.get("/admin/bots/actions/export")
+async def admin_bot_actions_export(q: str = "", status: str = "", user: dict = Depends(require_admin)):
+    import csv
+    import io
+    from fastapi.responses import StreamingResponse
+    rows = await db.bot_actions.find(_actions_query(q, status), {"_id": 0}).sort("created_at", -1).to_list(5000)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["When", "Approver", "Email", "Bot", "Action", "Card", "Channel", "Delivered", "Detail", "Retries"])
+    for a in rows:
+        w.writerow([a.get("created_at", ""), a.get("user_name", ""), a.get("user_email", ""), a.get("bot_name", ""),
+                    a.get("action_label") or a.get("action_id", ""), a.get("card_title", ""),
+                    a.get("channel_name", ""), "yes" if a.get("delivered") else "no", a.get("detail", ""), a.get("retry_count", 0)])
+    buf.seek(0)
+    return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
+                             headers={"Content-Disposition": "attachment; filename=approval-trail.csv"})
+
+
+@router.post("/admin/bots/actions/{action_uid}/resend")
+async def admin_resend_action(action_uid: str, user: dict = Depends(require_admin)):
+    import httpx
+    a = await db.bot_actions.find_one({"action_uid": action_uid})
+    if not a:
+        raise HTTPException(status_code=404, detail="Action not found")
+    b = await db.bots.find_one({"bot_id": a["bot_id"]})
+    if not b:
+        raise HTTPException(status_code=400, detail="The bot for this action no longer exists.")
+    webhook = _dec(b.get("outbound_webhook_enc"))
+    if not webhook:
+        raise HTTPException(status_code=400, detail="This bot has no callback URL set.")
+    payload = {
+        "type": "card_action", "action_id": a.get("action_id"), "label": a.get("action_label"),
+        "bot_id": a["bot_id"], "bot_name": a.get("bot_name"), "message_id": a.get("message_id"),
+        "channel_id": a.get("channel_id"), "card_title": a.get("card_title", ""),
+        "user": {"user_id": a.get("user_id"), "name": a.get("user_name"), "email": a.get("user_email")},
+        "at": a.get("created_at"), "resent_by": user.get("name"), "resent_at": now_iso(),
+    }
+    delivered, detail = False, ""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.post(webhook, json=payload)
+            delivered = r.status_code < 400
+            detail = f"HTTP {r.status_code}"
+    except Exception as e:
+        detail = str(e)[:200]
+    await db.bot_actions.update_one({"action_uid": action_uid},
+                                    {"$set": {"delivered": delivered, "detail": detail, "last_retry_at": now_iso()},
+                                     "$inc": {"retry_count": 1}})
+    return {"ok": True, "delivered": delivered, "detail": detail}
 
 
 @router.patch("/bots/{bot_id}")
@@ -358,11 +414,11 @@ async def bot_card_action(bot_id: str, body: dict = Body(...), user: dict = Depe
     except Exception as e:
         detail = str(e)[:200]
     await db.bot_actions.insert_one({
-        "bot_id": bot_id, "bot_name": b.get("name"), "action_id": action_id, "action_label": action["label"],
+        "action_uid": uuid.uuid4().hex, "bot_id": bot_id, "bot_name": b.get("name"), "action_id": action_id, "action_label": action["label"],
         "message_id": message_id, "channel_id": msg["channel_id"], "channel_name": ch.get("name") if (ch := await db.channels.find_one({"channel_id": msg["channel_id"]}, {"_id": 0, "name": 1})) else None,
         "card_title": card.get("title", ""),
         "user_id": user["user_id"], "user_name": user.get("name"), "user_email": user.get("email"),
-        "delivered": delivered, "detail": detail, "created_at": now_iso()})
+        "delivered": delivered, "detail": detail, "retry_count": 0, "created_at": now_iso()})
     updated = await db.messages.find_one({"message_id": message_id}, {"_id": 0, "card_receipts": 1})
     receipts = (updated or {}).get("card_receipts", [])
     await ws_manager.broadcast(msg["channel_id"], {"type": "card_receipt", "message_id": message_id, "card_receipts": receipts, "locked": True})

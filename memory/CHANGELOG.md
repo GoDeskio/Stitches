@@ -1,5 +1,11 @@
 # Stitches Changelog
 
+## 2026-06 — Approval Trail: CSV export + resend failed callbacks
+- **Export CSV**: `GET /api/admin/bots/actions/export` (require_admin, honours the `q`/`status` filters) streams the whole trail as `approval-trail.csv` (When, Approver, Email, Bot, Action, Card, Channel, Delivered, Detail, Retries). Frontend "Export CSV" button downloads it via an authed blob request.
+- **Resend delivery**: each action now carries a stable `action_uid`. `POST /api/admin/bots/actions/{action_uid}/resend` (require_admin) re-POSTs the exact stored payload to the bot's current callback URL, updates the row's `delivered`/`detail` and increments `retry_count`. Failed trail rows show a "Resend" button; the row reflects the new status + "·N retry".
+- **Verified**: curl (resend dead→false, then up→true with retry_count incrementing; CSV headers `text/csv` + `attachment` + correct rows; non-admin→403) + UI (Export button, per-row Resend, retry badge, failure toast). Test data purged.
+
+
 ## 2026-06 — Approval Trail (admin audit of card actions)
 - **Approval Trail** admin tab (`admin-tab-botactions`): a searchable, paginated audit of every bot-card action — approver (name/email), bot, action, card title + channel, delivery status (callback delivered Yes/No with the reason on hover), and timestamp.
 - Backend: `GET /api/admin/bots/actions` (require_admin) with pagination + `q` search (approver/bot/card/action) + `status` filter (all/delivered/failed). Action records are now **denormalized at write time** (bot_name, action_label, card_title, channel_name, user_name/email) so the trail stays intact even if the bot/message is later deleted.
