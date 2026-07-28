@@ -1,5 +1,11 @@
 # Stitches Changelog
 
+## 2026-06 — Bot health alerts + rich bot cards (iteration_42)
+- **Bot health alerts**: `scan_bot_health()` (in the 30-min reminder loop + manual `POST /api/admin/bots/scan-health`, admin-only) pings a bot's **owner** with an in-app "Bot went quiet" notification when the bot's last activity (`last_used_at`, else `created_at`) is 7+ days old. Idempotent via a `stale_alerted` flag that **re-arms** automatically when the bot next ingests a message.
+- **Rich bot cards**: `POST /api/bots/ingest` now accepts an optional `card` `{title, status(info/success/warn/error), fields:[{label,value}], link}` (sanitized server-side by `_clean_card`; text OR card required, else 400). Messages carry the card (`_create_message(card=...)`) and render as a styled **BotMessageCard** in chat with a status-colored left accent, a key/value field grid (hover shows full values), and an "Open" link. The Bots page shows a "Send a rich card instead" cURL example per bot.
+- **Verified (iteration_42: backend 8/8 pytest + frontend 100%, zero defects)**: card ingest/persist/render with correct accent colors, empty-body 400, health alert fires once + re-arms after use, non-admin blocked from scan, plus full bot + chat regression. Test data purged.
+
+
 ## 2026-06 — Bot usage stats (sparklines) + categories/filter + Featured Bots strip (iteration_41)
 - **Bot usage stats**: each bot now tracks per-day message counts (`daily.<YYYY-MM-DD>`, incremented on ingest, auto-pruned >30d). `_spark()` returns a 14-day series rendered as an SVG **sparkline** (`components/Sparkline.jsx`) on every My-bots and Directory card.
 - **Bot categories**: creators tag bots (general/ci/alerts/support/monitoring/marketing/sales/ops) via a picker in the New-bot modal and an inline `bot-category-select` on existing cards. The **Directory** has category **filter pills** with live counts. `create`/`patch`/`clone` accept `category`; clones inherit the source category.

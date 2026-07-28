@@ -35,8 +35,8 @@ export function BotMessageCard({ card }) {
           <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 mb-2">
             {card.fields.map((f, i) => (
               <div key={i} className="min-w-0">
-                <p className="text-[10px] uppercase font-bold text-muted-stitch truncate">{f.label}</p>
-                <p className="text-xs truncate" style={{ color: "var(--text)" }}>{f.value}</p>
+                <p className="text-[10px] uppercase font-bold text-muted-stitch truncate" title={f.label}>{f.label}</p>
+                <p className="text-xs truncate" style={{ color: "var(--text)" }} title={f.value}>{f.value}</p>
               </div>
             ))}
           </div>
