@@ -21,6 +21,7 @@ import { AutomationTab } from "@/pages/admin/AutomationTab";
 import { UsersTab } from "@/pages/admin/UsersTab";
 import { Avatar, RolePill } from "@/pages/admin/UserBits";
 import { StorageDbTab } from "@/pages/admin/StorageDbTab";
+import { BotActionsTab } from "@/pages/admin/BotActionsTab";
 
 const CARDS = [
   { key: "total_users", label: "Users", icon: Users },
@@ -48,6 +49,7 @@ const TABS = [
   { id: "sitenote", label: "Site Note", icon: Megaphone },
   { id: "support", label: "Support", icon: LifeBuoy },
   { id: "meetings", label: "Meetings", icon: Video },
+  { id: "botactions", label: "Bot Actions", icon: ShieldCheck },
   { id: "updates", label: "Updates", icon: DownloadCloud },
 ];
 
@@ -138,6 +140,7 @@ export default function Admin() {
       {tab === "sitenote" && <SiteNoteTab />}
       {tab === "support" && <SupportTab />}
       {tab === "meetings" && <MeetingsTab />}
+      {tab === "botactions" && <BotActionsTab />}
       {tab === "storage" && isSuper && <StorageDbTab />}
     </PageShell>
   );

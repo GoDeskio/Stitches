@@ -164,6 +164,24 @@ async def admin_scan_bot_health(user: dict = Depends(require_admin)):
     return {"ok": True, "alerted": n}
 
 
+@router.get("/admin/bots/actions")
+async def admin_bot_actions(page: int = 1, q: str = "", status: str = "", user: dict = Depends(require_admin)):
+    page = max(1, page)
+    per = 25
+    query = {}
+    if status == "delivered":
+        query["delivered"] = True
+    elif status == "failed":
+        query["delivered"] = False
+    if q.strip():
+        rx = {"$regex": q.strip(), "$options": "i"}
+        query["$or"] = [{"user_name": rx}, {"user_email": rx}, {"bot_name": rx}, {"card_title": rx}, {"action_label": rx}]
+    total = await db.bot_actions.count_documents(query)
+    cur = db.bot_actions.find(query, {"_id": 0}).sort("created_at", -1).skip((page - 1) * per).limit(per)
+    items = await cur.to_list(per)
+    return {"actions": items, "total": total, "page": page, "per_page": per, "pages": (total + per - 1) // per}
+
+
 @router.patch("/bots/{bot_id}")
 async def update_bot(bot_id: str, body: dict = Body(...), user: dict = Depends(get_current_user)):
     b = await db.bots.find_one({"bot_id": bot_id, "owner_id": user["user_id"]})
@@ -340,8 +358,11 @@ async def bot_card_action(bot_id: str, body: dict = Body(...), user: dict = Depe
     except Exception as e:
         detail = str(e)[:200]
     await db.bot_actions.insert_one({
-        "bot_id": bot_id, "action_id": action_id, "message_id": message_id,
-        "user_id": user["user_id"], "delivered": delivered, "detail": detail, "created_at": now_iso()})
+        "bot_id": bot_id, "bot_name": b.get("name"), "action_id": action_id, "action_label": action["label"],
+        "message_id": message_id, "channel_id": msg["channel_id"], "channel_name": ch.get("name") if (ch := await db.channels.find_one({"channel_id": msg["channel_id"]}, {"_id": 0, "name": 1})) else None,
+        "card_title": card.get("title", ""),
+        "user_id": user["user_id"], "user_name": user.get("name"), "user_email": user.get("email"),
+        "delivered": delivered, "detail": detail, "created_at": now_iso()})
     updated = await db.messages.find_one({"message_id": message_id}, {"_id": 0, "card_receipts": 1})
     receipts = (updated or {}).get("card_receipts", [])
     await ws_manager.broadcast(msg["channel_id"], {"type": "card_receipt", "message_id": message_id, "card_receipts": receipts, "locked": True})

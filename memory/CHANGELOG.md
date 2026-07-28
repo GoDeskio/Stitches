@@ -1,5 +1,12 @@
 # Stitches Changelog
 
+## 2026-06 — Approval Trail (admin audit of card actions)
+- **Approval Trail** admin tab (`admin-tab-botactions`): a searchable, paginated audit of every bot-card action — approver (name/email), bot, action, card title + channel, delivery status (callback delivered Yes/No with the reason on hover), and timestamp.
+- Backend: `GET /api/admin/bots/actions` (require_admin) with pagination + `q` search (approver/bot/card/action) + `status` filter (all/delivered/failed). Action records are now **denormalized at write time** (bot_name, action_label, card_title, channel_name, user_name/email) so the trail stays intact even if the bot/message is later deleted.
+- **Verified**: curl (enriched rows, failed filter, text search, non-admin→403) + UI (tab renders the table with green/red delivery pills, search + All/Delivered/Failed filters, pagination). Test data purged.
+- Note: dropped the "Bot Leaderboard" idea per user — bots are inbound integration connections, not ranked content.
+
+
 ## 2026-06 — Card approver rules (who can action a card)
 - **Approver rules**: a bot card can include `approvers` — a list of specific emails and/or roles (`role:admin`, `role:superadmin`, `role:owner`). When set, only matching users can tap the card's action buttons; anyone else gets `403 "You're not authorized to action this card."` (enforced server-side in `bot_card_action`, before the action lock).
 - Sanitized by `_clean_approvers` (only valid emails / known role tokens, de-duped, max 20); matching via `_user_matches_approvers` (role/email/owner checks, super-admin resolved against `ADMIN_EMAIL`).
