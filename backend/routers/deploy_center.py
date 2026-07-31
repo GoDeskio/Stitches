@@ -539,52 +539,73 @@ async def scan_auto_diagnostics():
         report = await _run_diagnostics(True, trigger="auto")
         new_alerts = 0
         broke = []
+        recovered = []
         for c in report["checks"]:
             was = prev.get(c["id"], "ok")
             if _RANK.get(c["status"], 0) > _RANK.get(was, 0):  # regressed
                 # Throttle: skip if we alerted on this check within the cooldown window
-                recent = await db.diagnostics_alerts.find_one({"check_id": c["id"], "created_at": {"$gte": cooldown_cut}})
+                recent = await db.diagnostics_alerts.find_one({"check_id": c["id"], "kind": {"$ne": "recovery"}, "created_at": {"$gte": cooldown_cut}})
                 if recent:
                     continue
                 await db.diagnostics_alerts.insert_one({
-                    "alert_id": f"dga_{uuid.uuid4().hex[:10]}", "check_id": c["id"], "label": c["label"],
+                    "alert_id": f"dga_{uuid.uuid4().hex[:10]}", "check_id": c["id"], "label": c["label"], "kind": "regression",
                     "from_status": was, "to_status": c["status"], "detail": c["detail"],
                     "fix_hint": c.get("fix_hint", ""), "created_at": now_iso(), "seen": False})
                 broke.append(f"{c['label']} ({c['status']})")
                 new_alerts += 1
-        if broke:
-            await _dispatch_alerts(broke)
+            elif was in ("warn", "fail") and c["status"] == "ok":  # recovered
+                await db.diagnostics_alerts.insert_one({
+                    "alert_id": f"dga_{uuid.uuid4().hex[:10]}", "check_id": c["id"], "label": c["label"], "kind": "recovery",
+                    "from_status": was, "to_status": "ok", "detail": c["detail"],
+                    "fix_hint": "", "created_at": now_iso(), "seen": False})
+                recovered.append(f"{c['label']}")
+                new_alerts += 1
+        if broke or recovered:
+            await _dispatch_alerts(broke, recovered)
         return new_alerts
     except Exception as e:
         logger.error(f"auto diagnostics error: {e}")
         return 0
 
 
-async def _dispatch_alerts(broke):
-    """Send a health-regression alert to every configured channel (email + Slack + webhook)."""
-    text = "Stitches health alert — these checks newly regressed: " + ", ".join(broke)
+async def _dispatch_alerts(broke=None, recovered=None):
+    """Send health alerts (regressions + recoveries) to every configured channel."""
+    broke = broke or []
+    recovered = recovered or []
+    parts = []
+    if broke:
+        parts.append("Regressed: " + ", ".join(broke))
+    if recovered:
+        parts.append("Recovered: " + ", ".join(recovered))
+    text = "Stitches health update — " + " | ".join(parts)
     # Email admins
     try:
         from services.email import send_email_detailed
         admins = await db.users.find({"role": {"$in": ["admin", "super_admin"]}}, {"email": 1}).to_list(50)
-        html = "<h3>Stitches health alert</h3><p>These checks newly regressed:</p><ul>" + "".join(f"<li>{b}</li>" for b in broke) + "</ul>"
+        html = "<h3>Stitches health update</h3>"
+        if broke:
+            html += "<p><strong>Newly regressed:</strong></p><ul>" + "".join(f"<li>{b}</li>" for b in broke) + "</ul>"
+        if recovered:
+            html += "<p><strong>Recovered ✅:</strong></p><ul>" + "".join(f"<li>{r}</li>" for r in recovered) + "</ul>"
+        subject = "Stitches: subsystem recovered" if (recovered and not broke) else "Stitches: something newly broke"
         for a in admins:
             if a.get("email"):
-                await send_email_detailed(a["email"], "Stitches: something newly broke", html)
+                await send_email_detailed(a["email"], subject, html)
     except Exception as e:
         logger.warning(f"diag alert email failed: {e}")
     # Slack + generic webhook
     ch = ((await db.settings.find_one({"key": "alert_channels"})) or {}).get("value", {})
     import httpx
+    emoji = ":white_check_mark:" if (recovered and not broke) else ":rotating_light:"
     async with httpx.AsyncClient(timeout=10) as client:
         if ch.get("slack_webhook"):
             try:
-                await client.post(ch["slack_webhook"], json={"text": ":rotating_light: " + text})
+                await client.post(ch["slack_webhook"], json={"text": f"{emoji} {text}"})
             except Exception as e:
                 logger.warning(f"slack alert failed: {e}")
         if ch.get("webhook_url"):
             try:
-                await client.post(ch["webhook_url"], json={"event": "stitches.health.regression", "message": text, "checks": broke})
+                await client.post(ch["webhook_url"], json={"event": "stitches.health.update", "message": text, "regressed": broke, "recovered": recovered})
             except Exception as e:
                 logger.warning(f"webhook alert failed: {e}")
 
@@ -637,7 +658,7 @@ async def set_alert_channels(request: Request, user: dict = Depends(require_admi
 
 @router.post("/admin/deploy/alert-channels/test")
 async def test_alert_channels(user: dict = Depends(require_admin)):
-    await _dispatch_alerts(["Test alert — this is a sample health regression"])
+    await _dispatch_alerts(broke=["Test alert — sample regression"], recovered=["Test — sample recovery"])
     ch = ((await db.settings.find_one({"key": "alert_channels"})) or {}).get("value", {})
     return {"ok": True, "sent_to": {"email": True, "slack": bool(ch.get("slack_webhook")), "webhook": bool(ch.get("webhook_url"))}}
 

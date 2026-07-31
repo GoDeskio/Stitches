@@ -401,3 +401,7 @@
 - **Uptime Chart**: the Scan History panel now renders a per-subsystem uptime strip (oldest→newest) built from diagnostics_history statuses — each check is a row of green/amber/red segments so trends (e.g. Email stuck amber) jump out. Legend included.
 - **Alert Throttle**: diagnostics_auto now stores cooldown_min (default 60). scan_auto_diagnostics skips re-firing an alert for a check if one was created within the cooldown window (prevents flapping-check spam). GET state returns cooldown_min; PUT /admin/deploy/diagnose/auto accepts {enabled, cooldown_min}. UI: a cooldown minutes input (shown when Auto is on) with Save.
 - Verified via curl (cooldown set=30/read; throttle query in scan) and screenshot (uptime strip with Email amber trend + cooldown row + history timeline).
+
+## Implemented (2026-07-31, part 14) — Uptime Percentage, Recovery Alerts
+- **Uptime Percentage**: each per-subsystem uptime strip now shows a rolling "% healthy" (share of recorded runs where the check was OK), color-coded green/amber/red. Frontend-computed from diagnostics_history.
+- **Recovery Alerts**: scan_auto_diagnostics now also detects recoveries (warn/fail → ok), logs them as diagnostics_alerts with kind="recovery", and dispatches a recovery notice via _dispatch_alerts(broke, recovered) to email + Slack + webhook. Alerts banner color-codes recovery (green ✓) vs regression (red ▲). Verified by a direct test (TURN fail→ok recovery + Email ok→warn regression both fired).

@@ -282,14 +282,18 @@ export function DeploymentTab() {
         )}
 
         {diagState.alerts?.length > 0 && (
-          <div className="neu-pressed rounded-2xl p-4 mt-4 border-l-4" style={{ borderColor: "#ef4444" }} data-testid="diagnose-alerts">
+          <div className="neu-pressed rounded-2xl p-4 mt-4 border-l-4" style={{ borderColor: "#f59e0b" }} data-testid="diagnose-alerts">
             <div className="flex items-center justify-between gap-3 mb-2">
-              <p className="text-sm font-bold text-red-400 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> {diagState.alerts.length} new issue{diagState.alerts.length > 1 ? "s" : ""} detected since last scan</p>
+              <p className="text-sm font-bold flex items-center gap-2" style={{ color: "var(--text)" }}><AlertTriangle className="w-4 h-4 text-amber-500" /> {diagState.alerts.length} health update{diagState.alerts.length > 1 ? "s" : ""} since last scan</p>
               <button data-testid="dismiss-alerts-btn" onClick={dismissAlerts} className="neu-btn rounded-lg px-3 py-1.5 text-xs font-semibold text-muted-stitch">Dismiss</button>
             </div>
             <ul className="space-y-1">
               {diagState.alerts.map((a) => (
-                <li key={a.alert_id} className="text-xs text-muted-stitch"><span className="font-semibold" style={{ color: "var(--text)" }}>{a.label}</span> — {a.from_status} → <span className="text-red-400 font-semibold">{a.to_status}</span>{a.fix_hint ? ` · ${a.fix_hint}` : ""}</li>
+                <li key={a.alert_id} className="text-xs" data-testid={`alert-${a.kind || "regression"}`}>
+                  {a.kind === "recovery"
+                    ? <><span className="text-green-500 font-bold">✓ recovered</span> <span className="font-semibold" style={{ color: "var(--text)" }}>{a.label}</span> <span className="text-muted-stitch">({a.from_status} → ok)</span></>
+                    : <><span className="text-red-400 font-bold">▲ broke</span> <span className="font-semibold" style={{ color: "var(--text)" }}>{a.label}</span> <span className="text-muted-stitch">({a.from_status} → {a.to_status})</span>{a.fix_hint ? <span className="text-muted-stitch"> · {a.fix_hint}</span> : ""}</>}
+                </li>
               ))}
             </ul>
           </div>
@@ -321,7 +325,11 @@ export function DeploymentTab() {
                     const runs = [...history].reverse();
                     const ids = [...new Set(history.flatMap((r) => Object.keys(r.statuses || {})))];
                     const color = (s) => s === "ok" ? "#22c55e" : s === "warn" ? "#f59e0b" : s === "fail" ? "#ef4444" : "var(--neu-dark)";
-                    return ids.map((id) => (
+                    return ids.map((id) => {
+                      const seen = history.filter((r) => (r.statuses || {})[id]);
+                      const okc = seen.filter((r) => r.statuses[id] === "ok").length;
+                      const pct = seen.length ? Math.round(okc / seen.length * 100) : 100;
+                      return (
                       <div key={id} data-testid={`uptime-row-${id}`} className="flex items-center gap-2 mb-1">
                         <span className="text-[11px] w-24 shrink-0 truncate" style={{ color: "var(--text)" }}>{DIAG_LABEL[id] || id}</span>
                         <div className="flex gap-0.5 flex-1">
@@ -330,8 +338,10 @@ export function DeploymentTab() {
                               className="h-4 flex-1 rounded-sm" style={{ background: color((r.statuses || {})[id]), minWidth: "6px", maxWidth: "20px" }} />
                           ))}
                         </div>
+                        <span data-testid={`uptime-pct-${id}`} className="text-[11px] font-bold w-10 text-right shrink-0" style={{ color: pct >= 90 ? "#22c55e" : pct >= 50 ? "#f59e0b" : "#ef4444" }}>{pct}%</span>
                       </div>
-                    ));
+                      );
+                    });
                   })()}
                   <div className="flex items-center gap-3 mt-2 text-[10px] text-muted-stitch">
                     <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: "#22c55e" }} /> OK</span>
