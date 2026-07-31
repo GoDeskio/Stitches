@@ -116,27 +116,34 @@ export function DeploymentTab() {
       toast.success("Preset code copied — share it to import elsewhere");
     } catch (err) { toast.error("Copy failed"); }
   };
+  const previewPreset = (name, ids, save) => {
+    const clean = ids.filter((i) => cat.catalog.some((c) => c.id === i));
+    const adds = clean.filter((i) => !selected.includes(i));
+    const removes = selected.filter((i) => !clean.includes(i));
+    setImportPreview({ name, ids: clean, adds, removes, save });
+  };
   const importPreset = async () => {
     const code = window.prompt("Paste a preset code to import:");
     if (!code || !code.trim()) return;
     try {
       const obj = JSON.parse(decodeURIComponent(escape(atob(code.trim()))));
       if (!obj.name || !Array.isArray(obj.ids)) throw new Error("bad");
-      const ids = obj.ids.filter((i) => cat.catalog.some((c) => c.id === i));
-      const adds = ids.filter((i) => !selected.includes(i));
-      const removes = selected.filter((i) => !ids.includes(i));
-      setImportPreview({ name: obj.name, ids, adds, removes });
+      previewPreset(obj.name, obj.ids, true);
     } catch (err) { toast.error("Invalid preset code"); }
   };
   const confirmImport = async () => {
     if (!importPreview) return;
     try {
-      await api.post("/admin/deploy/presets", { name: importPreview.name, selected: importPreview.ids });
+      if (importPreview.save) {
+        await api.post("/admin/deploy/presets", { name: importPreview.name, selected: importPreview.ids });
+        toast.success(`Imported "${importPreview.name}"`);
+        load();
+      } else {
+        toast.success(`Applied "${importPreview.name}"`);
+      }
       setSelected(importPreview.ids);
-      toast.success(`Imported "${importPreview.name}"`);
       setImportPreview(null);
-      load();
-    } catch (err) { toast.error(err?.response?.data?.detail || "Import failed"); }
+    } catch (err) { toast.error(err?.response?.data?.detail || "Failed"); }
   };
   const nameOf = (id) => (cat?.catalog.find((c) => c.id === id)?.name) || id;
 
@@ -150,7 +157,7 @@ export function DeploymentTab() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" data-testid="import-preview-modal">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setImportPreview(null)} />
           <div className="relative neu-raised rounded-[1.75rem] p-6 w-full max-w-md" style={{ background: "var(--surface)" }}>
-            <h3 className="font-head font-bold text-xl mb-1" style={{ color: "var(--text)" }}>Import "{importPreview.name}"</h3>
+            <h3 className="font-head font-bold text-xl mb-1" style={{ color: "var(--text)" }}>{importPreview.save ? "Import" : "Apply"} "{importPreview.name}"</h3>
             <p className="text-sm text-muted-stitch mb-4">This preset will change your current selection as follows:</p>
             <div className="space-y-3">
               <div>
@@ -171,7 +178,7 @@ export function DeploymentTab() {
               </div>
             </div>
             <div className="flex gap-3 mt-6">
-              <button data-testid="import-confirm-btn" onClick={confirmImport} className="neu-primary rounded-2xl px-5 py-3 font-semibold flex-1">Apply preset</button>
+              <button data-testid="import-confirm-btn" onClick={confirmImport} className="neu-primary rounded-2xl px-5 py-3 font-semibold flex-1">{importPreview.save ? "Import & apply" : "Apply preset"}</button>
               <button data-testid="import-cancel-btn" onClick={() => setImportPreview(null)} className="neu-btn rounded-2xl px-5 py-3 font-semibold text-muted-stitch">Cancel</button>
             </div>
           </div>
@@ -218,7 +225,7 @@ export function DeploymentTab() {
             ].map((p) => {
               const active = p.ids.length === selected.length && p.ids.every((i) => selected.includes(i));
               return (
-                <button key={p.id} data-testid={`deploy-preset-${p.id}`} onClick={() => setSelected(p.ids)}
+                <button key={p.id} data-testid={`deploy-preset-${p.id}`} onClick={() => previewPreset(p.label, p.ids, false)}
                   className={`rounded-2xl px-4 py-2.5 text-sm font-semibold transition-all ${active ? "neu-primary" : "neu-pressed text-primary-stitch"}`}>
                   {p.label}
                 </button>
@@ -227,7 +234,7 @@ export function DeploymentTab() {
             {(cat.presets || []).map((p) => {
               const active = p.ids.length === selected.length && p.ids.every((i) => selected.includes(i));
               return (
-                <span key={p.id} data-testid={`deploy-custom-preset-${p.id}`} onClick={() => setSelected(p.ids)}
+                <span key={p.id} data-testid={`deploy-custom-preset-${p.id}`} onClick={() => previewPreset(p.name, p.ids, false)}
                   className={`rounded-2xl pl-4 pr-2 py-2.5 text-sm font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${active ? "neu-primary" : "neu-pressed text-primary-stitch"}`}>
                   {p.name}
                   <button data-testid={`deploy-preset-export-${p.id}`} title="Copy shareable code" onClick={(e) => exportPreset(p, e)} className={`rounded-lg p-1 ${active ? "hover:bg-white/20" : "hover:bg-black/10"}`}><Copy className="w-3.5 h-3.5" /></button>

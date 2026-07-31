@@ -184,15 +184,20 @@ async def my_ai_memory(user: dict = Depends(get_current_user)):
         shared = await db.ai_memories.find({"scope": "workspace", "owner_id": _WORKSPACE_OWNER}, {"_id": 0}).sort("created_at", -1).to_list(cfg["max_items"])
     return {"user_enabled": cfg["user_enabled"], "workspace_enabled": cfg["workspace_enabled"],
             "auto_capture": await _user_auto_capture(user["user_id"]),
+            "memory_digest": bool((await db.ai_user_prefs.find_one({"user_id": user["user_id"]}) or {}).get("memory_digest")),
             "user": mine, "workspace": shared}
 
 
 @router.put("/ai/memory/prefs")
 async def set_my_memory_prefs(request: Request, user: dict = Depends(get_current_user)):
     body = await request.json()
-    await db.ai_user_prefs.update_one({"user_id": user["user_id"]},
-                                      {"$set": {"user_id": user["user_id"], "auto_capture": bool(body.get("auto_capture"))}}, upsert=True)
-    return {"ok": True, "auto_capture": bool(body.get("auto_capture"))}
+    updates = {"user_id": user["user_id"]}
+    if "auto_capture" in body:
+        updates["auto_capture"] = bool(body.get("auto_capture"))
+    if "memory_digest" in body:
+        updates["memory_digest"] = bool(body.get("memory_digest"))
+    await db.ai_user_prefs.update_one({"user_id": user["user_id"]}, {"$set": updates}, upsert=True)
+    return {"ok": True, **{k: v for k, v in updates.items() if k != "user_id"}}
 
 
 @router.post("/ai/memory")
@@ -247,15 +252,94 @@ async def forget_my_memory(mem_id: str, user: dict = Depends(get_current_user)):
 @router.patch("/ai/memory/{mem_id}")
 async def edit_my_memory(mem_id: str, request: Request, user: dict = Depends(get_current_user)):
     body = await request.json()
-    content = (body.get("content") or "").strip()
-    if not content:
-        raise HTTPException(status_code=400, detail="content required")
+    updates = {}
+    if "content" in body:
+        content = (body.get("content") or "").strip()
+        if not content:
+            raise HTTPException(status_code=400, detail="content cannot be empty")
+        updates["content"] = content[:400]
+    if "category" in body:
+        updates["category"] = _norm_category(body.get("category"))
+    if not updates:
+        raise HTTPException(status_code=400, detail="nothing to update")
+    updates["edited_at"] = now_iso()
     res = await db.ai_memories.update_one(
-        {"mem_id": mem_id, "scope": "user", "owner_id": user["user_id"]},
-        {"$set": {"content": content[:400], "edited_at": now_iso()}})
+        {"mem_id": mem_id, "scope": "user", "owner_id": user["user_id"]}, {"$set": updates})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Not found or not yours to edit")
-    return {"ok": True, "content": content[:400]}
+    return {"ok": True, **updates}
+
+
+# ---- Monthly "what Stitch remembers" digest ----
+def _build_memory_digest_html(name, groups, prune_url):
+    rows = ""
+    for cat in _MEM_CATEGORIES:
+        items = groups.get(cat) or []
+        if not items:
+            continue
+        lis = "".join(f"<li style='margin:4px 0;color:#1f2937'>{m}</li>" for m in items)
+        rows += (f"<div style='margin:16px 0'><div style='font-size:12px;font-weight:700;text-transform:uppercase;"
+                 f"letter-spacing:.05em;color:#7c3aed;margin-bottom:6px'>{cat.title()}</div>"
+                 f"<ul style='margin:0;padding-left:18px'>{lis}</ul></div>")
+    if not rows:
+        rows = "<p style='color:#6b7280'>Stitch hasn't remembered anything about you yet.</p>"
+    return (f"<div style='font-family:system-ui,Arial,sans-serif;max-width:560px;margin:auto;padding:24px;"
+            f"background:#faf5ff;border-radius:16px'>"
+            f"<h2 style='color:#111827;margin:0 0 4px'>What Stitch remembers about you</h2>"
+            f"<p style='color:#6b7280;margin:0 0 12px'>Hi {name or 'there'}, here's your monthly memory summary. "
+            f"You're always in control.</p>{rows}"
+            f"<a href='{prune_url}' style='display:inline-block;margin-top:16px;background:#7c3aed;color:#fff;"
+            f"text-decoration:none;padding:12px 20px;border-radius:12px;font-weight:600'>Review &amp; prune memories</a>"
+            f"<p style='color:#9ca3af;font-size:12px;margin-top:16px'>Manage this summary in Stitch AI &rarr; Memory.</p></div>")
+
+
+async def _send_memory_digest(user_doc, cfg):
+    from services.email import send_email_detailed
+    uid = user_doc["user_id"]
+    mems = await db.ai_memories.find({"scope": "user", "owner_id": uid}, {"_id": 0}).sort("created_at", -1).to_list(cfg["max_items"])
+    groups = {}
+    for m in mems:
+        groups.setdefault(_norm_category(m.get("category")), []).append(m["content"])
+    frontend = os.environ.get("FRONTEND_URL", "")
+    html = _build_memory_digest_html(user_doc.get("name"), groups, f"{frontend}/assistant?memory=open")
+    to = user_doc.get("email")
+    if not to:
+        return False, "no email on file"
+    ok, detail = await send_email_detailed(to, "What Stitch remembers about you", html)
+    await db.ai_user_prefs.update_one({"user_id": uid}, {"$set": {"last_digest": now_iso()}}, upsert=True)
+    return ok, detail
+
+
+@router.post("/ai/memory/digest/send-now")
+async def send_memory_digest_now(user: dict = Depends(get_current_user)):
+    cfg = await _ai_memory_cfg()
+    doc = await db.users.find_one({"user_id": user["user_id"]}) or user
+    ok, detail = await _send_memory_digest(doc, cfg)
+    return {"ok": ok, "detail": detail}
+
+
+async def scan_memory_digests():
+    """Monthly: email a memory summary to users who opted in (>=30 days since last)."""
+    try:
+        cfg = await _ai_memory_cfg()
+        if not cfg["user_enabled"]:
+            return 0
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+        prefs = await db.ai_user_prefs.find({"memory_digest": True}).to_list(1000)
+        sent = 0
+        for p in prefs:
+            if p.get("last_digest") and p["last_digest"] > cutoff:
+                continue
+            doc = await db.users.find_one({"user_id": p["user_id"]})
+            if not doc:
+                continue
+            ok, _ = await _send_memory_digest(doc, cfg)
+            if ok:
+                sent += 1
+        return sent
+    except Exception as e:
+        logger.error(f"memory digest scan error: {e}")
+        return 0
 
 
 # ---------------- AI Assistant ----------------

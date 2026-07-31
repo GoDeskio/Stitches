@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Sparkles, Send, User, Zap, Brain, Trash2, X, Users, Pin, Search, Pencil, Check } from "lucide-react";
+import { Sparkles, Send, User, Zap, Brain, Trash2, X, Users, Pin, Search, Pencil, Check, Mail } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { PageShell, PageHeader } from "@/components/Stitch";
@@ -45,6 +45,25 @@ function MemoryPanel({ open, onClose }) {
     try { await api.patch(`/ai/memory/${id}`, { content: editText }); setEditId(null); toast.success("Memory updated"); load(); }
     catch (e) { toast.error("Couldn't update that"); }
   };
+  const recategorize = async (id, category) => {
+    try { await api.patch(`/ai/memory/${id}`, { category }); toast.success("Moved to " + category); load(); }
+    catch (e) { toast.error("Couldn't move that"); }
+  };
+  const [savingDigest, setSavingDigest] = useState(false);
+  const toggleDigest = async () => {
+    const next = !data.memory_digest;
+    setData({ ...data, memory_digest: next });
+    try { await api.put("/ai/memory/prefs", { memory_digest: next }); toast.success(next ? "You'll get a monthly memory summary" : "Monthly summary off"); }
+    catch (e) { toast.error("Couldn't update"); load(); }
+  };
+  const sendDigestNow = async () => {
+    setSavingDigest(true);
+    try {
+      const { data: r } = await api.post("/ai/memory/digest/send-now");
+      if (r.ok) toast.success("Summary sent to your email");
+      else toast.error("Email not configured yet — ask your admin to set up email");
+    } catch (e) { toast.error("Couldn't send"); } finally { setSavingDigest(false); }
+  };
   const toggleAuto = async () => {
     const next = !data.auto_capture;
     setData({ ...data, auto_capture: next });
@@ -84,6 +103,11 @@ function MemoryPanel({ open, onClose }) {
             <p className="text-[11px] text-muted-stitch mt-0.5">{m.source === "pinned" ? "Pinned by you · " : m.source === "suggested" ? "Suggested · " : ""}{m.edited_at ? "edited · " : ""}{new Date(m.created_at).toLocaleDateString([], { month: "short", day: "numeric" })}</p>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
+            <select data-testid="my-memory-category" value={m.category || "general"} onChange={(e) => recategorize(m.mem_id, e.target.value)}
+              onClick={(e) => e.stopPropagation()} title="Move to category"
+              className="neu-input rounded-xl text-[11px] font-semibold py-1.5 px-2 cursor-pointer" style={{ color: "var(--text)" }}>
+              {CAT_ORDER.map((c) => <option key={c} value={c}>{CAT_META[c].label}</option>)}
+            </select>
             <button data-testid="my-memory-edit" onClick={() => startEdit(m)} title="Edit" className="neu-btn rounded-xl p-2.5 text-primary-stitch"><Pencil className="w-4 h-4" /></button>
             <button data-testid="my-memory-forget" onClick={() => forget(m.mem_id)} title="Forget this" className="neu-btn rounded-xl p-2.5 text-red-500"><Trash2 className="w-4 h-4" /></button>
           </div>
@@ -121,6 +145,26 @@ function MemoryPanel({ open, onClose }) {
                   style={{ background: data.auto_capture ? "var(--primary)" : "var(--neu-dark)" }}>
                   <span className="w-6 h-6 rounded-full bg-white shadow" />
                 </button>
+              </div>
+            )}
+
+            {data.user_enabled && (
+              <div className="neu-pressed rounded-2xl p-4 mb-4" data-testid="digest-card">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0 pr-2 flex items-center gap-2">
+                    <Mail className="w-5 h-5 text-primary-stitch shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium" style={{ color: "var(--text)" }}>Monthly memory summary</p>
+                      <p className="text-xs text-muted-stitch mt-0.5">Get an email of everything Stitch remembers, with a one-click prune link.</p>
+                    </div>
+                  </div>
+                  <button data-testid="digest-toggle" onClick={toggleDigest}
+                    className={`w-14 h-8 rounded-full flex items-center px-1 transition-all shrink-0 ${data.memory_digest ? "justify-end" : "justify-start"}`}
+                    style={{ background: data.memory_digest ? "var(--primary)" : "var(--neu-dark)" }}>
+                    <span className="w-6 h-6 rounded-full bg-white shadow" />
+                  </button>
+                </div>
+                <button data-testid="digest-send-now" onClick={sendDigestNow} disabled={savingDigest} className="neu-btn rounded-xl px-4 py-2 text-xs font-semibold text-primary-stitch mt-3">{savingDigest ? "Sending…" : "Send me a summary now"}</button>
               </div>
             )}
 
@@ -197,6 +241,10 @@ export default function AiAssistant() {
   const [memOpen, setMemOpen] = useState(false);
   const [suggestion, setSuggestion] = useState(null);
   const bottomRef = useRef(null);
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("memory") === "open") setMemOpen(true);
+  }, []);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, busy, suggestion]);
 
