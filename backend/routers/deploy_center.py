@@ -1,6 +1,8 @@
 import io
 import zipfile
 import secrets as pysecrets
+from email.utils import format_datetime
+from xml.sax.saxutils import escape as _xesc
 from fastapi import APIRouter, Response
 from fastapi.responses import HTMLResponse
 from core import *
@@ -1118,6 +1120,65 @@ async def status_badge(component: str = "", label: str = ""):
     svg = _render_badge(badge_label, value, color)
     return Response(content=svg, media_type="image/svg+xml",
                     headers={"Cache-Control": "public, max-age=60", "Access-Control-Allow-Origin": "*"})
+
+
+# ---------------- Status history feed (RSS) ----------------
+def _rss_date(iso):
+    dt = _parse(iso) or datetime.now(timezone.utc)
+    return format_datetime(dt)
+
+
+@router.get("/status/feed.xml")
+async def status_feed():
+    cfg = await _status_page_cfg()
+    base = (os.environ.get("FRONTEND_URL", "") or "").rstrip("/")
+    title = cfg.get("title") or "Stitches Status"
+    now = datetime.now(timezone.utc)
+    entries = []  # (sort_iso, item_xml)
+    if cfg["enabled"]:
+        incs = await db.status_incidents.find({}, {"_id": 0}).sort("opened_at", -1).to_list(50)
+        for i in incs:
+            resolved = i.get("status") == "resolved"
+            gk = i.get("group_key", "")
+            label = i.get("group_label", "Service")
+            head = "Resolved" if resolved else (i.get("impact") or "incident").title()
+            ups = i.get("updates", [])
+            desc = " | ".join(f"{u.get('text', '')} ({_rss_date(u.get('at'))})" for u in ups) or "Incident update"
+            last = (ups[-1]["at"] if ups else i.get("opened_at")) or ""
+            link = f"{base}/status/{gk}" if base else ""
+            guid = f"incident-{i.get('opened_at', '')}-{gk}"
+            entries.append((last, f"<item><title>{_xesc(label + ' — ' + head)}</title>"
+                                  f"<link>{_xesc(link)}</link>"
+                                  f"<guid isPermaLink=\"false\">{_xesc(guid)}</guid>"
+                                  f"<pubDate>{_rss_date(last)}</pubDate>"
+                                  f"<description>{_xesc(desc)}</description></item>"))
+        mwin = await db.maintenance_windows.find({"status": {"$ne": "cancelled"}}, {"_id": 0}).sort("starts_at", -1).to_list(50)
+        for m in mwin:
+            state = _maint_status(m, now)
+            comps = ", ".join(g["label"] for g in PUBLIC_GROUPS if g["key"] in (m.get("group_keys") or [])) or "the platform"
+            desc = (f"{m.get('message', '')} — Affects {comps}. "
+                    f"{_rss_date(m.get('starts_at'))} to {_rss_date(m.get('ends_at'))}").strip()
+            link = f"{base}/status" if base else ""
+            guid = f"maint-{m.get('maint_id', '')}"
+            key = m.get("created_at") or m.get("starts_at") or ""
+            entries.append((key, f"<item><title>{_xesc('Maintenance: ' + (m.get('title') or 'Scheduled maintenance') + ' (' + state + ')')}</title>"
+                                 f"<link>{_xesc(link)}</link>"
+                                 f"<guid isPermaLink=\"false\">{_xesc(guid)}</guid>"
+                                 f"<pubDate>{_rss_date(key)}</pubDate>"
+                                 f"<description>{_xesc(desc)}</description></item>"))
+    body = "".join(x[1] for x in sorted(entries, key=lambda e: e[0], reverse=True)[:50])
+    self_link = f"{base}/api/status/feed.xml" if base else ""
+    site_link = f"{base}/status" if base else ""
+    xml = (f'<?xml version="1.0" encoding="UTF-8"?>'
+           f'<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel>'
+           f'<title>{_xesc(title)}</title>'
+           f'<link>{_xesc(site_link)}</link>'
+           f'<atom:link href="{_xesc(self_link)}" rel="self" type="application/rss+xml"/>'
+           f'<description>{_xesc("Incident and maintenance updates for " + title)}</description>'
+           f'<lastBuildDate>{_rss_date(now.isoformat())}</lastBuildDate>'
+           f'{body}</channel></rss>')
+    return Response(content=xml, media_type="application/rss+xml",
+                    headers={"Cache-Control": "public, max-age=120", "Access-Control-Allow-Origin": "*"})
 
 
 

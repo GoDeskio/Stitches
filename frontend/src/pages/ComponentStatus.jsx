@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
+import { toast } from "sonner";
 import axios from "axios";
 import { API } from "@/lib/api";
-import { ArrowLeft, ShieldOff } from "lucide-react";
+import { ArrowLeft, ShieldOff, Copy } from "lucide-react";
 
 const CELL = { ok: "#22c55e", warn: "#f59e0b", fail: "#ef4444" };
 const GROUP_META = {
@@ -45,6 +46,12 @@ export default function ComponentStatus() {
   }
 
   const gm = GROUP_META[data.status] || GROUP_META.ok;
+  const origin = window.location.origin;
+  const badgeUrl = `${origin}/api/status/badge.svg?component=${key}`;
+  const pageUrl = `${origin}/status/${key}`;
+  const htmlSnippet = `<a href="${pageUrl}"><img src="${badgeUrl}" alt="${data.label} status" height="20" /></a>`;
+  const mdSnippet = `[![${data.label} status](${badgeUrl})](${pageUrl})`;
+  const copyText = async (t, msg) => { try { await navigator.clipboard.writeText(t); toast.success(msg); } catch (e) { toast.error("Copy failed"); } };
 
   return (
     <div className="stitch-wallpaper min-h-screen py-12 px-4" data-testid="component-status-page">
@@ -113,6 +120,25 @@ export default function ComponentStatus() {
               })}
             </div>
           )}
+        </div>
+
+        <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="component-embed">
+          <h2 className="font-head font-bold text-lg mb-1" style={{ color: "var(--text)" }}>Embed this component</h2>
+          <p className="text-sm text-muted-stitch mb-4">A live badge for {data.label} you can drop anywhere — it links back to this page.</p>
+          <div className="flex items-center gap-3 mb-4">
+            <img data-testid="component-badge-preview" src={badgeUrl} alt={`${data.label} status`} className="h-5" />
+            <span className="text-[11px] text-muted-stitch">live preview</span>
+          </div>
+          <label className="text-[11px] text-muted-stitch">HTML</label>
+          <div className="flex gap-2 mb-2">
+            <code data-testid="component-embed-html" className="neu-pressed rounded-xl py-2 px-3 text-[11px] font-mono-stitch flex-1 overflow-x-auto whitespace-nowrap" style={{ color: "var(--text)" }}>{htmlSnippet}</code>
+            <button data-testid="component-embed-html-copy" onClick={() => copyText(htmlSnippet, "HTML snippet copied")} className="neu-btn rounded-xl px-3 py-2 text-xs font-semibold text-primary-stitch shrink-0"><Copy className="w-3.5 h-3.5" /></button>
+          </div>
+          <label className="text-[11px] text-muted-stitch">Markdown</label>
+          <div className="flex gap-2">
+            <code data-testid="component-embed-md" className="neu-pressed rounded-xl py-2 px-3 text-[11px] font-mono-stitch flex-1 overflow-x-auto whitespace-nowrap" style={{ color: "var(--text)" }}>{mdSnippet}</code>
+            <button data-testid="component-embed-md-copy" onClick={() => copyText(mdSnippet, "Markdown snippet copied")} className="neu-btn rounded-xl px-3 py-2 text-xs font-semibold text-primary-stitch shrink-0"><Copy className="w-3.5 h-3.5" /></button>
+          </div>
         </div>
 
         <p className="text-center text-xs text-muted-stitch pt-2">Powered by Stitches</p>

@@ -212,7 +212,9 @@ export default function StatusPage() {
           </div>
         )}
 
-        <p className="text-center text-xs text-muted-stitch pt-2">Powered by Stitches</p>
+        <p className="text-center text-xs text-muted-stitch pt-2">
+          Powered by Stitches · <a data-testid="status-rss-link" href={`${window.location.origin}/api/status/feed.xml`} target="_blank" rel="noreferrer" className="text-primary-stitch font-semibold hover:underline">Subscribe via RSS</a>
+        </p>
       </div>
     </div>
   );
