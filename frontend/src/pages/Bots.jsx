@@ -127,12 +127,19 @@ function BotCard({ bot, onChange }) {
                 {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
               {bot.shared && <span data-testid="bot-shared-badge" className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full text-primary-stitch inline-flex items-center gap-1" style={{ background: "var(--neu-dark)" }}><Users className="w-2.5 h-2.5" /> shared</span>}
-              {bot.callback_health && (
+              {bot.callback_health && bot.callback_health.rate != null && (
                 <span data-testid="bot-health-badge"
                   title={`${bot.callback_health.delivered}/${bot.callback_health.total} callbacks delivered in the last 24h`}
                   className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1"
                   style={{ background: "var(--neu-dark)", color: bot.callback_health.rate >= 90 ? "#22c55e" : bot.callback_health.rate >= 50 ? "#f59e0b" : "#ef4444" }}>
                   <Activity className="w-2.5 h-2.5" /> {bot.callback_health.rate}% · 24h
+                </span>
+              )}
+              {bot.callback_health?.trend?.some((v) => v > 0) && (
+                <span data-testid="bot-reliability-trend" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full" style={{ background: "var(--neu-dark)" }}
+                  title={`7-day callback reliability: ${bot.callback_health.trend.join("% → ")}%`}>
+                  <Sparkline data={bot.callback_health.trend} w={54} h={16} />
+                  <span className="text-[9px] uppercase font-bold text-muted-stitch">7d</span>
                 </span>
               )}
             </p>

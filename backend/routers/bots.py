@@ -248,6 +248,23 @@ async def list_bots(user: dict = Depends(get_current_user)):
             t = row["total"]
             stats[row["_id"]] = {"total": t, "delivered": row["delivered"],
                                  "rate": round(row["delivered"] / t * 100) if t else None}
+        # 7-day daily reliability trend (success rate per day, oldest -> newest)
+        days = [(datetime.now(timezone.utc) - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6, -1, -1)]
+        week_since = days[0]
+        trend = {bid: {d: {"t": 0, "d": 0} for d in days} for bid in ids}
+        tpipe = [
+            {"$match": {"bot_id": {"$in": ids}, "created_at": {"$gte": week_since}}},
+            {"$group": {"_id": {"bot_id": "$bot_id", "day": {"$substr": ["$created_at", 0, 10]}},
+                        "total": {"$sum": 1},
+                        "delivered": {"$sum": {"$cond": [{"$eq": ["$delivered", True]}, 1, 0]}}}},
+        ]
+        async for row in db.bot_actions.aggregate(tpipe):
+            bid, day = row["_id"]["bot_id"], row["_id"]["day"]
+            if bid in trend and day in trend[bid]:
+                trend[bid][day] = {"t": row["total"], "d": row["delivered"]}
+        for bid in ids:
+            series = [round(v["d"] / v["t"] * 100) if v["t"] else 0 for v in (trend[bid][d] for d in days)]
+            stats.setdefault(bid, {"total": 0, "delivered": 0, "rate": None})["trend"] = series
     for b in bots:
         b["callback_health"] = stats.get(b["bot_id"])
     return {"bots": bots}

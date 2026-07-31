@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Users, Layers, FolderKanban, FolderOpen, Plug, MessagesSquare,
   ToggleRight, Search, Activity, Grid3x3, LayoutDashboard, Bell,
-  Download, Video, Plus, PhoneOff, Users as UsersIcon, Workflow, Megaphone, LifeBuoy, Mail, Check, ShieldCheck, Contact2, CreditCard, Tag, DownloadCloud, AlertTriangle, Database, Copy, ChevronDown, Terminal,
+  Download, Video, Plus, PhoneOff, Users as UsersIcon, Workflow, Megaphone, LifeBuoy, Mail, Check, ShieldCheck, Contact2, CreditCard, Tag, DownloadCloud, AlertTriangle, Database, Copy, ChevronDown, Terminal, Rocket, Brain,
 } from "lucide-react";
 import { toast } from "sonner";
 import { TurnSetupGuide } from "@/pages/admin/TurnSetupGuide";
@@ -18,6 +18,8 @@ import { UpdatesTab } from "@/pages/admin/UpdatesTab";
 import { EmailTab } from "@/pages/admin/EmailTab";
 import { StatCard } from "@/pages/admin/StatCard";
 import { SiteNoteTab } from "@/pages/admin/SiteNoteTab";
+import { DeploymentTab } from "@/pages/admin/DeploymentTab";
+import { AiMemoryTab } from "@/pages/admin/AiMemoryTab";
 import { AutomationTab } from "@/pages/admin/AutomationTab";
 import { UsersTab } from "@/pages/admin/UsersTab";
 import { Avatar, RolePill } from "@/pages/admin/UserBits";
@@ -50,6 +52,8 @@ const TABS = [
   { id: "sitenote", label: "Site Note", icon: Megaphone },
   { id: "support", label: "Support", icon: LifeBuoy },
   { id: "meetings", label: "Meetings", icon: Video },
+  { id: "deploy", label: "Deployment", icon: Rocket },
+  { id: "aimemory", label: "AI Memory", icon: Brain },
   { id: "botactions", label: "Bot Actions", icon: ShieldCheck },
   { id: "updates", label: "Updates", icon: DownloadCloud },
 ];
@@ -141,6 +145,8 @@ export default function Admin() {
       {tab === "sitenote" && <SiteNoteTab />}
       {tab === "support" && <SupportTab />}
       {tab === "meetings" && <MeetingsTab />}
+      {tab === "deploy" && <DeploymentTab />}
+      {tab === "aimemory" && <AiMemoryTab />}
       {tab === "botactions" && <BotActionsTab />}
       {tab === "storage" && isSuper && <StorageDbTab />}
     </PageShell>
@@ -899,8 +905,9 @@ function MeetingsTab() {
     setSavingTurn(true);
     try {
       await api.put("/admin/rtc-config", { urls: turn.urls, username: turn.username, credential: turn.credential || "" });
-      toast.success("TURN server saved — calls will use it for reliable connectivity");
+      toast.success("TURN server saved — testing connectivity…");
       const { data } = await api.get("/admin/rtc-config"); setTurn(data);
+      if (data.urls) { await testRtc(); }
     } catch (e) { toast.error("Save failed"); } finally { setSavingTurn(false); }
   };
   const saveSfu = async () => {
