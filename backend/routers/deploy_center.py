@@ -2,6 +2,7 @@ import io
 import zipfile
 import secrets as pysecrets
 from fastapi import APIRouter
+from fastapi.responses import HTMLResponse
 from core import *
 from core import _fernet
 
@@ -479,6 +480,7 @@ async def _run_diagnostics(autofix: bool, trigger: str = "manual"):
     old = await db.diagnostics_history.find({}, {"_id": 1}).sort("generated_at", -1).skip(100).to_list(500)
     if old:
         await db.diagnostics_history.delete_many({"_id": {"$in": [o["_id"] for o in old]}})
+    await _sync_public_incidents(report)
     return report
 
 
@@ -694,12 +696,16 @@ _ID_TO_GROUP = {i: g["label"] for g in PUBLIC_GROUPS for i in g["ids"]}
 
 async def _status_page_cfg():
     v = ((await db.settings.find_one({"key": "status_page"})) or {}).get("value", {})
-    return {"enabled": bool(v.get("enabled", False)), "title": v.get("title", "Stitches Status")}
+    return {"enabled": bool(v.get("enabled", False)), "title": v.get("title", "Stitches Status"),
+            "auto_incidents": bool(v.get("auto_incidents", True))}
 
 
 @router.get("/admin/deploy/status-page")
 async def get_status_page(user: dict = Depends(require_admin)):
-    return await _status_page_cfg()
+    cfg = await _status_page_cfg()
+    subs = await db.status_subscribers.count_documents({"active": True})
+    open_inc = await db.status_incidents.count_documents({"status": "investigating"})
+    return {**cfg, "subscribers": subs, "open_incidents": open_inc}
 
 
 @router.put("/admin/deploy/status-page")
@@ -708,7 +714,8 @@ async def set_status_page(request: Request, user: dict = Depends(require_admin))
     cur = await _status_page_cfg()
     title = (body.get("title") if body.get("title") is not None else cur["title"]) or ""
     val = {"enabled": bool(body.get("enabled", cur["enabled"])),
-           "title": title.strip()[:60] or "Stitches Status"}
+           "title": title.strip()[:60] or "Stitches Status",
+           "auto_incidents": bool(body.get("auto_incidents", cur["auto_incidents"]))}
     await db.settings.update_one({"key": "status_page"},
                                  {"$set": {"key": "status_page", "value": val}}, upsert=True)
     return {"ok": True, **val}
@@ -723,32 +730,172 @@ def _worst(ids, statuses):
     return {0: "ok", 1: "warn", 2: "fail"}[r]
 
 
+# ---------------- Status subscribers (email updates) ----------------
+async def _notify_subscribers(subject, html):
+    """Best-effort email to everyone subscribed to the public status page."""
+    try:
+        from services.email import send_email_detailed
+        subs = await db.status_subscribers.find({"active": True}, {"email": 1, "token": 1, "_id": 0}).to_list(2000)
+        if not subs:
+            return
+        base = (os.environ.get("FRONTEND_URL", "") or "").rstrip("/")
+        for s in subs:
+            foot = (f'<p style="font-size:11px;color:#888;margin-top:24px">You are subscribed to Stitches status updates. '
+                    f'<a href="{base}/api/status/unsubscribe?token={s.get("token","")}">Unsubscribe</a>.</p>') if base else ""
+            await send_email_detailed(s["email"], subject, html + foot)
+    except Exception as e:
+        logger.warning(f"status subscriber notify failed: {e}")
+
+
+@router.post("/status/subscribe")
+async def status_subscribe(request: Request):
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+    if "@" not in email or "." not in email.split("@")[-1] or len(email) > 200:
+        raise HTTPException(status_code=400, detail="Enter a valid email")
+    cfg = await _status_page_cfg()
+    if not cfg["enabled"]:
+        raise HTTPException(status_code=404, detail="Status page not available")
+    existing = await db.status_subscribers.find_one({"email": email})
+    if existing:
+        if not existing.get("active"):
+            await db.status_subscribers.update_one({"_id": existing["_id"]}, {"$set": {"active": True}})
+        return {"ok": True, "already": True}
+    await db.status_subscribers.insert_one({"email": email, "token": pysecrets.token_urlsafe(18),
+                                            "active": True, "created_at": now_iso()})
+    return {"ok": True}
+
+
+@router.get("/status/unsubscribe")
+async def status_unsubscribe(token: str = ""):
+    if token:
+        await db.status_subscribers.update_one({"token": token}, {"$set": {"active": False}})
+    return HTMLResponse("<html><body style='font-family:system-ui,sans-serif;text-align:center;padding:64px;background:#1a0d10;color:#f3e9ea'>"
+                        "<h2>You're unsubscribed</h2><p>You will no longer receive Stitches status updates.</p></body></html>")
+
+
+# ---------------- Public incidents (auto + manual) ----------------
+async def _sync_public_incidents(report):
+    """Open a public incident when a subsystem breaks; resolve it when it recovers."""
+    cfg = await _status_page_cfg()
+    if not cfg.get("auto_incidents", True):
+        return
+    latest = {c["id"]: c["status"] for c in report.get("checks", [])}
+    for g in PUBLIC_GROUPS:
+        st = _worst(g["ids"], latest)
+        openinc = await db.status_incidents.find_one({"group_key": g["key"], "status": "investigating"})
+        if st != "ok" and not openinc:
+            impact = "outage" if st == "fail" else "degraded"
+            word = "down" if st == "fail" else "degraded"
+            inc = {"incident_id": f"inc_{uuid.uuid4().hex[:10]}", "group_key": g["key"],
+                   "group_label": g["label"], "status": "investigating", "impact": impact,
+                   "opened_at": now_iso(), "resolved_at": None, "auto": True,
+                   "updates": [{"at": now_iso(), "kind": "opened",
+                                "text": f"Auto-detected: {g['label']} is {word}. We're investigating."}]}
+            await db.status_incidents.insert_one(inc)
+            await _notify_subscribers(
+                f"[Stitches] Incident opened — {g['label']} {impact}",
+                f"<h3>{g['label']} — {impact.title()}</h3>"
+                f"<p>We're investigating an issue affecting <strong>{g['label']}</strong>.</p>")
+        elif st == "ok" and openinc:
+            await db.status_incidents.update_one({"_id": openinc["_id"]},
+                {"$set": {"status": "resolved", "resolved_at": now_iso()},
+                 "$push": {"updates": {"at": now_iso(), "kind": "resolved",
+                                       "text": f"{g['label']} has recovered — all checks passing."}}})
+            await _notify_subscribers(
+                f"[Stitches] Resolved — {g['label']}",
+                f"<h3>{g['label']} — Resolved ✅</h3>"
+                f"<p>The issue affecting <strong>{g['label']}</strong> has been resolved.</p>")
+
+
+@router.get("/admin/deploy/status-incidents")
+async def list_status_incidents(user: dict = Depends(require_admin)):
+    incs = await db.status_incidents.find({}, {"_id": 0}).sort("opened_at", -1).to_list(50)
+    incs = sorted(incs, key=lambda x: x.get("status") == "resolved")
+    return {"incidents": incs, "groups": [{"key": g["key"], "label": g["label"]} for g in PUBLIC_GROUPS]}
+
+
+@router.post("/admin/deploy/status-incidents")
+async def create_status_incident(request: Request, user: dict = Depends(require_admin)):
+    body = await request.json()
+    gk = body.get("group_key")
+    g = next((x for x in PUBLIC_GROUPS if x["key"] == gk), None)
+    label = g["label"] if g else (body.get("label") or "Platform")
+    impact = body.get("impact") if body.get("impact") in ("degraded", "outage") else "degraded"
+    text = (body.get("text") or f"Investigating an issue affecting {label}.").strip()[:400]
+    inc = {"incident_id": f"inc_{uuid.uuid4().hex[:10]}", "group_key": gk or "platform",
+           "group_label": label, "status": "investigating", "impact": impact,
+           "opened_at": now_iso(), "resolved_at": None, "auto": False,
+           "updates": [{"at": now_iso(), "kind": "opened", "text": text}]}
+    await db.status_incidents.insert_one(inc)
+    await log_activity(user["user_id"], "incident_open")
+    await _notify_subscribers(f"[Stitches] Incident opened — {label} {impact}",
+                              f"<h3>{label} — {impact.title()}</h3><p>{text}</p>")
+    return {"ok": True, "incident_id": inc["incident_id"]}
+
+
+@router.post("/admin/deploy/status-incidents/{incident_id}/update")
+async def update_status_incident(incident_id: str, request: Request, user: dict = Depends(require_admin)):
+    body = await request.json()
+    inc = await db.status_incidents.find_one({"incident_id": incident_id})
+    if not inc:
+        raise HTTPException(status_code=404, detail="incident not found")
+    resolve = bool(body.get("resolve"))
+    text = (body.get("text") or ("Resolved." if resolve else "Update posted.")).strip()[:400]
+    upd = {"at": now_iso(), "kind": "resolved" if resolve else "note", "text": text}
+    setter = {"status": "resolved", "resolved_at": now_iso()} if resolve else {}
+    await db.status_incidents.update_one({"incident_id": incident_id},
+                                         {"$push": {"updates": upd}, **({"$set": setter} if setter else {})})
+    await log_activity(user["user_id"], "incident_update")
+    label = inc.get("group_label", "Service")
+    subj = f"[Stitches] Resolved — {label}" if resolve else f"[Stitches] Update — {label}"
+    head = f"<h3>{label} — {'Resolved ✅' if resolve else 'Update'}</h3><p>{text}</p>"
+    await _notify_subscribers(subj, head)
+    return {"ok": True}
+
+
 @router.get("/status/public")
 async def public_status():
     """Public, unauthenticated status page data — only served when an admin enables it."""
     cfg = await _status_page_cfg()
     if not cfg["enabled"]:
         return {"enabled": False}
-    runs = await db.diagnostics_history.find({}, {"_id": 0}).sort("generated_at", -1).to_list(100)
+    runs = await db.diagnostics_history.find({}, {"_id": 0}).sort("generated_at", -1).to_list(200)
     latest = (runs[0].get("statuses") or {}) if runs else {}
+    now = datetime.now(timezone.utc)
+    WINDOWS = [("24h", 24), ("7d", 24 * 7), ("90d", 24 * 90)]
+
+    def uptime_for(ids, wruns):
+        seen = [r for r in wruns if any(i in (r.get("statuses") or {}) for i in ids)]
+        okc = sum(1 for r in seen if _worst(ids, r.get("statuses") or {}) == "ok")
+        pct = round(okc / len(seen) * 100) if seen else 100
+        strip = [_worst(ids, r.get("statuses") or {}) for r in reversed(wruns)][-60:]
+        return pct, strip
+
     groups = []
     for g in PUBLIC_GROUPS:
         cur = _worst(g["ids"], latest) if latest else "ok"
-        seen = [r for r in runs if any(i in (r.get("statuses") or {}) for i in g["ids"])]
-        okc = sum(1 for r in seen if _worst(g["ids"], r.get("statuses") or {}) == "ok")
-        pct = round(okc / len(seen) * 100) if seen else 100
-        strip = [_worst(g["ids"], r.get("statuses") or {}) for r in reversed(runs)][-40:]
-        groups.append({"key": g["key"], "label": g["label"], "status": cur, "uptime": pct, "strip": strip})
+        windows = {}
+        for wk, hrs in WINDOWS:
+            cut = (now - timedelta(hours=hrs)).isoformat()
+            wruns = [r for r in runs if (r.get("generated_at") or "") >= cut]
+            pct, strip = uptime_for(g["ids"], wruns)
+            windows[wk] = {"pct": pct, "strip": strip}
+        groups.append({"key": g["key"], "label": g["label"], "status": cur,
+                       "windows": windows, "uptime": windows["90d"]["pct"]})
     overall = "operational"
     if any(x["status"] == "fail" for x in groups):
         overall = "outage"
     elif any(x["status"] == "warn" for x in groups):
         overall = "degraded"
-    inc = await db.diagnostics_alerts.find({"note": {"$exists": True, "$ne": ""}}, {"_id": 0}).sort("created_at", -1).to_list(20)
-    incidents = [{"label": _ID_TO_GROUP.get(a.get("check_id"), a.get("label")),
-                  "note": a.get("note"), "created_at": a.get("created_at"),
-                  "resolved": a.get("kind") == "recovery" or a.get("to_status") == "ok"} for a in inc]
+
+    raw = await db.status_incidents.find({}, {"_id": 0}).sort("opened_at", -1).to_list(30)
+    raw = sorted(raw, key=lambda x: x.get("status") == "resolved")
+    incidents = [{"label": i.get("group_label"), "status": i.get("status"), "impact": i.get("impact"),
+                  "opened_at": i.get("opened_at"), "resolved_at": i.get("resolved_at"),
+                  "updates": i.get("updates", []), "auto": i.get("auto", False)} for i in raw]
     return {"enabled": True, "title": cfg["title"], "overall": overall,
+            "windows": [w[0] for w in WINDOWS],
             "generated_at": runs[0]["generated_at"] if runs else now_iso(),
             "groups": groups, "incidents": incidents}
 

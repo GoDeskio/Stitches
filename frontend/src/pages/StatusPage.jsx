@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { API } from "@/lib/api";
-import { CheckCircle2, AlertTriangle, XCircle, Activity, ShieldOff } from "lucide-react";
+import { CheckCircle2, AlertTriangle, XCircle, Activity, ShieldOff, Bell, Loader2 } from "lucide-react";
 
 const CELL = { ok: "#22c55e", warn: "#f59e0b", fail: "#ef4444" };
 const GROUP_META = {
@@ -14,10 +14,55 @@ const OVERALL = {
   degraded: { color: "#f59e0b", text: "Some systems are degraded", Icon: AlertTriangle },
   outage: { color: "#ef4444", text: "We're experiencing an outage", Icon: XCircle },
 };
+const WIN_LABEL = { "24h": "24 hours", "7d": "7 days", "90d": "90 days" };
+
+function SubscribeBox() {
+  const [email, setEmail] = useState("");
+  const [state, setState] = useState("idle"); // idle | loading | done | error
+  const [msg, setMsg] = useState("");
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!email.trim()) return;
+    setState("loading");
+    try {
+      const { data } = await axios.post(`${API}/status/subscribe`, { email: email.trim() });
+      setState("done");
+      setMsg(data.already ? "You're already subscribed — we'll keep you posted." : "Subscribed! You'll get an email on every incident update.");
+    } catch (err) {
+      setState("error");
+      setMsg(err?.response?.data?.detail || "Couldn't subscribe. Try again.");
+    }
+  };
+  return (
+    <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="status-subscribe">
+      <div className="flex items-center gap-3 mb-1">
+        <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center"><Bell className="w-5 h-5 text-primary-stitch" /></div>
+        <div>
+          <h2 className="font-head font-bold text-lg" style={{ color: "var(--text)" }}>Get status updates</h2>
+          <p className="text-sm text-muted-stitch">Subscribe to be emailed the moment we open or resolve an incident.</p>
+        </div>
+      </div>
+      {state === "done" ? (
+        <p className="neu-pressed rounded-2xl px-4 py-3 mt-4 text-sm text-green-500 font-semibold" data-testid="subscribe-success">{msg}</p>
+      ) : (
+        <form onSubmit={submit} className="flex gap-2 mt-4">
+          <input data-testid="subscribe-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@company.com" className="neu-input rounded-2xl py-3 px-4 text-sm flex-1" style={{ color: "var(--text)" }} />
+          <button data-testid="subscribe-submit" type="submit" disabled={state === "loading"}
+            className="neu-primary rounded-2xl px-5 py-3 font-semibold flex items-center gap-2 shrink-0">
+            {state === "loading" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bell className="w-4 h-4" />} Subscribe
+          </button>
+        </form>
+      )}
+      {state === "error" && <p className="text-xs text-red-400 mt-2" data-testid="subscribe-error">{msg}</p>}
+    </div>
+  );
+}
 
 export default function StatusPage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [win, setWin] = useState("90d");
 
   useEffect(() => {
     axios.get(`${API}/status/public`)
@@ -49,6 +94,8 @@ export default function StatusPage() {
   }
 
   const ov = OVERALL[data.overall] || OVERALL.operational;
+  const windows = data.windows || ["24h", "7d", "90d"];
+  const activeWin = windows.includes(win) ? win : windows[windows.length - 1];
 
   return (
     <div className="stitch-wallpaper min-h-screen py-12 px-4" data-testid="status-page">
@@ -71,8 +118,18 @@ export default function StatusPage() {
         </div>
 
         <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="status-groups">
+          <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+            <span className="text-xs font-bold uppercase tracking-wide text-muted-stitch">Uptime over the last {WIN_LABEL[activeWin]}</span>
+            <div className="neu-pressed rounded-2xl p-1 inline-flex gap-1" data-testid="uptime-window-tabs">
+              {windows.map((w) => (
+                <button key={w} data-testid={`window-tab-${w}`} onClick={() => setWin(w)}
+                  className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition-all ${activeWin === w ? "neu-primary" : "text-muted-stitch"}`}>{w}</button>
+              ))}
+            </div>
+          </div>
           {data.groups.map((g) => {
             const gm = GROUP_META[g.status] || GROUP_META.ok;
+            const wv = (g.windows && g.windows[activeWin]) || { pct: g.uptime ?? 100, strip: g.strip || [] };
             return (
               <div key={g.key} className="py-3.5 border-b last:border-b-0" style={{ borderColor: "var(--neu-dark)" }} data-testid={`status-group-${g.key}`}>
                 <div className="flex items-center justify-between gap-3 mb-2">
@@ -83,34 +140,51 @@ export default function StatusPage() {
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="flex gap-0.5 flex-1">
-                    {g.strip.map((s, i) => (
+                    {(wv.strip || []).map((s, i) => (
                       <span key={i} className="h-6 flex-1 rounded-sm" style={{ background: CELL[s] || "var(--neu-dark)", minWidth: "3px", maxWidth: "12px" }} />
                     ))}
+                    {(!wv.strip || wv.strip.length === 0) && <span className="text-xs text-muted-stitch">No data in this window yet.</span>}
                   </div>
                   <span className="text-xs font-bold w-14 text-right shrink-0" data-testid={`status-uptime-${g.key}`}
-                    style={{ color: g.uptime >= 90 ? "#22c55e" : g.uptime >= 50 ? "#f59e0b" : "#ef4444" }}>{g.uptime}% up</span>
+                    style={{ color: wv.pct >= 90 ? "#22c55e" : wv.pct >= 50 ? "#f59e0b" : "#ef4444" }}>{wv.pct}% up</span>
                 </div>
               </div>
             );
           })}
         </div>
 
+        <SubscribeBox />
+
         {data.incidents?.length > 0 && (
           <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="status-incidents">
             <h2 className="font-head font-bold text-lg mb-4" style={{ color: "var(--text)" }}>Incident history</h2>
             <div className="space-y-3">
-              {data.incidents.map((inc, i) => (
-                <div key={i} className="neu-pressed rounded-2xl p-4" data-testid="status-incident-row">
-                  <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ color: inc.resolved ? "#22c55e" : "#f59e0b", background: "var(--neu-dark)" }}>
-                      {inc.resolved ? "Resolved" : "Investigating"}
-                    </span>
-                    <span className="font-semibold text-sm" style={{ color: "var(--text)" }}>{inc.label}</span>
-                    <span className="text-xs text-muted-stitch ml-auto">{new Date(inc.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+              {data.incidents.map((inc, i) => {
+                const resolved = inc.status === "resolved";
+                return (
+                  <div key={i} className="neu-pressed rounded-2xl p-4" data-testid="status-incident-row">
+                    <div className="flex items-center gap-2 flex-wrap mb-2">
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ color: resolved ? "#22c55e" : "#f59e0b", background: "var(--neu-dark)" }}>
+                        {resolved ? "Resolved" : "Investigating"}
+                      </span>
+                      {inc.impact && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide" style={{ color: inc.impact === "outage" ? "#ef4444" : "#f59e0b", background: "var(--neu-dark)" }}>{inc.impact}</span>}
+                      <span className="font-semibold text-sm" style={{ color: "var(--text)" }}>{inc.label}</span>
+                      <span className="text-xs text-muted-stitch ml-auto">{new Date(inc.opened_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                    </div>
+                    <div className="space-y-1.5 pl-1">
+                      {(inc.updates || []).map((u, j) => (
+                        <div key={j} className="flex gap-2 text-sm">
+                          <span className="mt-1 w-1.5 h-1.5 rounded-full shrink-0" style={{ background: u.kind === "resolved" ? "#22c55e" : u.kind === "opened" ? "#ef4444" : "var(--primary)" }} />
+                          <div>
+                            <span className="text-muted-stitch">{u.text}</span>
+                            <span className="text-[10px] text-muted-stitch/70 ml-2">{new Date(u.at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <p className="text-sm text-muted-stitch">{inc.note}</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

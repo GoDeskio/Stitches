@@ -99,6 +99,34 @@ export function DeploymentTab() {
     try { await navigator.clipboard.writeText(statusUrl); toast.success("Status page link copied"); }
     catch (e) { toast.error("Copy failed"); }
   };
+  const refreshStatusMeta = () => api.get("/admin/deploy/status-page").then(({ data }) => setStatusPage(data)).catch(() => {});
+  const toggleAutoInc = () => saveStatusPage({ auto_incidents: !statusPage.auto_incidents });
+
+  const [pubIncidents, setPubIncidents] = useState([]);
+  const [pubGroups, setPubGroups] = useState([]);
+  const [showPubInc, setShowPubInc] = useState(false);
+  const [incDrafts, setIncDrafts] = useState({});
+  const [newInc, setNewInc] = useState({ group_key: "platform", impact: "degraded", text: "" });
+  const loadPubIncidents = async () => {
+    try { const { data } = await api.get("/admin/deploy/status-incidents"); setPubIncidents(data.incidents); setPubGroups(data.groups); }
+    catch (e) {}
+  };
+  const togglePubInc = () => { const n = !showPubInc; setShowPubInc(n); if (n) loadPubIncidents(); };
+  const postIncUpdate = async (id, resolve) => {
+    try {
+      await api.post(`/admin/deploy/status-incidents/${id}/update`, { text: incDrafts[id] || "", resolve });
+      toast.success(resolve ? "Incident resolved" : "Update posted");
+      setIncDrafts({ ...incDrafts, [id]: "" }); loadPubIncidents(); refreshStatusMeta();
+    } catch (e) { toast.error("Couldn't post"); }
+  };
+  const createInc = async () => {
+    if (!newInc.text.trim()) { toast.error("Add a short message"); return; }
+    try {
+      await api.post("/admin/deploy/status-incidents", newInc);
+      toast.success("Incident posted — subscribers notified");
+      setNewInc({ ...newInc, text: "" }); loadPubIncidents(); refreshStatusMeta();
+    } catch (e) { toast.error("Couldn't post incident"); }
+  };
 
   const [showIncidents, setShowIncidents] = useState(false);
   const [allAlerts, setAllAlerts] = useState([]);
@@ -491,6 +519,67 @@ export function DeploymentTab() {
           </div>
         </div>
         {!statusPage.enabled && <p className="text-xs text-amber-500 mt-3">Turn this on to make <span className="font-mono-stitch break-all">{statusUrl}</span> viewable by anyone.</p>}
+
+        <div className="neu-pressed rounded-2xl p-4 mt-4 flex items-center justify-between gap-3 flex-wrap" data-testid="auto-incident-row">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>Auto-post incidents</p>
+            <p className="text-xs text-muted-stitch">When a subsystem breaks, automatically open a public incident and mark it resolved once it recovers. Subscribers are emailed on every change.</p>
+          </div>
+          <button data-testid="auto-incident-toggle" onClick={toggleAutoInc} disabled={savingStatus}
+            className="neu-btn rounded-2xl px-4 py-2.5 font-semibold text-xs flex items-center gap-2 shrink-0" style={{ color: statusPage.auto_incidents ? "var(--primary)" : "var(--muted)" }}>
+            <span className="w-2 h-2 rounded-full" style={{ background: statusPage.auto_incidents ? "#22c55e" : "var(--neu-dark)" }} />
+            {statusPage.auto_incidents ? "Auto on" : "Auto off"}
+          </button>
+        </div>
+
+        <div className="flex items-center gap-3 mt-4 flex-wrap">
+          <span data-testid="subscriber-count" className="neu-pressed rounded-xl px-3 py-1.5 text-xs font-semibold text-primary-stitch">{statusPage.subscribers ?? 0} subscriber{(statusPage.subscribers ?? 0) === 1 ? "" : "s"}</span>
+          <span data-testid="open-incident-count" className="neu-pressed rounded-xl px-3 py-1.5 text-xs font-semibold" style={{ color: (statusPage.open_incidents ?? 0) > 0 ? "#f59e0b" : "var(--muted)" }}>{statusPage.open_incidents ?? 0} open incident{(statusPage.open_incidents ?? 0) === 1 ? "" : "s"}</span>
+          <button data-testid="manage-incidents-btn" onClick={togglePubInc} className="neu-btn rounded-xl px-4 py-1.5 text-xs font-semibold text-primary-stitch ml-auto">{showPubInc ? "Hide incidents" : "Manage incidents"}</button>
+        </div>
+
+        {showPubInc && (
+          <div className="neu-pressed rounded-2xl p-4 mt-3" data-testid="manage-incidents-panel">
+            <p className="text-xs font-bold uppercase tracking-wide text-muted-stitch mb-2">Post a new incident</p>
+            <div className="grid sm:grid-cols-[1fr_1fr] gap-2 mb-2">
+              <select data-testid="new-incident-group" value={newInc.group_key} onChange={(e) => setNewInc({ ...newInc, group_key: e.target.value })} className="neu-input rounded-xl py-2 px-3 text-sm" style={{ color: "var(--text)" }}>
+                {(pubGroups.length ? pubGroups : [{ key: "platform", label: "Platform" }]).map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
+              </select>
+              <select data-testid="new-incident-impact" value={newInc.impact} onChange={(e) => setNewInc({ ...newInc, impact: e.target.value })} className="neu-input rounded-xl py-2 px-3 text-sm" style={{ color: "var(--text)" }}>
+                <option value="degraded">Degraded</option>
+                <option value="outage">Outage</option>
+              </select>
+            </div>
+            <div className="flex gap-2">
+              <input data-testid="new-incident-text" value={newInc.text} onChange={(e) => setNewInc({ ...newInc, text: e.target.value })} placeholder="What's happening? (shown publicly)" className="neu-input rounded-xl py-2 px-3 text-sm flex-1" style={{ color: "var(--text)" }} />
+              <button data-testid="new-incident-post" onClick={createInc} className="neu-primary rounded-xl px-4 py-2 text-xs font-semibold shrink-0">Post</button>
+            </div>
+
+            <p className="text-xs font-bold uppercase tracking-wide text-muted-stitch mt-4 mb-2">Incidents</p>
+            {pubIncidents.length === 0 ? <p className="text-xs text-muted-stitch">No incidents yet — auto-post will create them when something breaks.</p> : (
+              <div className="space-y-2 max-h-80 overflow-y-auto">
+                {pubIncidents.map((inc) => (
+                  <div key={inc.incident_id} data-testid="pub-incident-row" className="rounded-xl p-3" style={{ background: "var(--neu-dark)" }}>
+                    <div className="flex items-center gap-2 flex-wrap text-xs mb-1">
+                      <span className="font-bold px-2 py-0.5 rounded-full" style={{ color: inc.status === "resolved" ? "#22c55e" : "#f59e0b", background: "var(--surface)" }}>{inc.status === "resolved" ? "Resolved" : "Investigating"}</span>
+                      {inc.auto && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-primary-stitch" style={{ background: "var(--surface)" }}>AUTO</span>}
+                      <span className="font-semibold" style={{ color: "var(--text)" }}>{inc.group_label}</span>
+                      <span className="text-muted-stitch ml-auto">{new Date(inc.opened_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                    </div>
+                    <p className="text-xs text-muted-stitch mb-2">{(inc.updates || []).slice(-1)[0]?.text}</p>
+                    {inc.status !== "resolved" && (
+                      <div className="flex gap-2">
+                        <input data-testid={`incident-update-input-${inc.incident_id}`} value={incDrafts[inc.incident_id] ?? ""} onChange={(e) => setIncDrafts({ ...incDrafts, [inc.incident_id]: e.target.value })} placeholder="Post an update…" className="neu-input rounded-lg py-1.5 px-3 text-xs flex-1" style={{ color: "var(--text)" }} />
+                        <button data-testid={`incident-update-btn-${inc.incident_id}`} onClick={() => postIncUpdate(inc.incident_id, false)} className="neu-btn rounded-lg px-3 py-1.5 text-xs font-semibold text-primary-stitch">Update</button>
+                        <button data-testid={`incident-resolve-btn-${inc.incident_id}`} onClick={() => postIncUpdate(inc.incident_id, true)} className="neu-btn rounded-lg px-3 py-1.5 text-xs font-semibold text-green-500">Resolve</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up">
