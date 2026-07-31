@@ -40,6 +40,20 @@ export function DeploymentTab() {
   const [importPreview, setImportPreview] = useState(null);
   const [diag, setDiag] = useState(null);
   const [diagRunning, setDiagRunning] = useState(false);
+  const [diagState, setDiagState] = useState({ auto_enabled: false, alerts: [] });
+
+  const loadDiagState = () => api.get("/admin/deploy/diagnose/state").then(({ data }) => setDiagState(data)).catch(() => {});
+  useEffect(() => { loadDiagState(); }, []);
+  const toggleAuto = async () => {
+    const next = !diagState.auto_enabled;
+    setDiagState({ ...diagState, auto_enabled: next });
+    try { await api.put("/admin/deploy/diagnose/auto", { enabled: next }); toast.success(next ? "Auto re-scan on — admins get alerted when something breaks" : "Auto re-scan off"); }
+    catch (e) { toast.error("Couldn't update"); loadDiagState(); }
+  };
+  const dismissAlerts = async () => {
+    try { await api.post("/admin/deploy/diagnose/alerts/seen"); setDiagState({ ...diagState, alerts: [] }); toast.success("Alerts cleared"); }
+    catch (e) { toast.error("Couldn't clear"); }
+  };
 
   const runDiagnostics = async () => {
     setDiagRunning(true);
@@ -217,10 +231,29 @@ export function DeploymentTab() {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            <button data-testid="auto-rescan-toggle" onClick={toggleAuto} title="Auto re-scan & alert admins"
+              className="neu-btn rounded-2xl px-3 py-3 font-semibold text-xs flex items-center gap-2" style={{ color: diagState.auto_enabled ? "var(--primary)" : "var(--muted)" }}>
+              <span className={`w-2 h-2 rounded-full`} style={{ background: diagState.auto_enabled ? "#22c55e" : "var(--neu-dark)" }} />
+              Auto {diagState.auto_enabled ? "on" : "off"}
+            </button>
             {diag && <button data-testid="diagnose-download-btn" onClick={downloadDiag} className="neu-btn rounded-2xl px-4 py-3 font-semibold text-primary-stitch flex items-center gap-2"><Download className="w-4 h-4" /> Report</button>}
             <button data-testid="run-diagnose-btn" onClick={runDiagnostics} disabled={diagRunning} className="neu-primary rounded-2xl px-5 py-3 font-semibold flex items-center gap-2"><Stethoscope className="w-4 h-4" />{diagRunning ? "Scanning…" : "Run diagnostics"}</button>
           </div>
         </div>
+
+        {diagState.alerts?.length > 0 && (
+          <div className="neu-pressed rounded-2xl p-4 mt-4 border-l-4" style={{ borderColor: "#ef4444" }} data-testid="diagnose-alerts">
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <p className="text-sm font-bold text-red-400 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> {diagState.alerts.length} new issue{diagState.alerts.length > 1 ? "s" : ""} detected since last scan</p>
+              <button data-testid="dismiss-alerts-btn" onClick={dismissAlerts} className="neu-btn rounded-lg px-3 py-1.5 text-xs font-semibold text-muted-stitch">Dismiss</button>
+            </div>
+            <ul className="space-y-1">
+              {diagState.alerts.map((a) => (
+                <li key={a.alert_id} className="text-xs text-muted-stitch"><span className="font-semibold" style={{ color: "var(--text)" }}>{a.label}</span> — {a.from_status} → <span className="text-red-400 font-semibold">{a.to_status}</span>{a.fix_hint ? ` · ${a.fix_hint}` : ""}</li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {diag && (
           <div className="mt-5" data-testid="diagnose-results">

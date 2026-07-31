@@ -515,6 +515,65 @@ async def deploy_diagnose_download(user: dict = Depends(require_admin)):
                              headers={"Content-Disposition": "attachment; filename=stitches-diagnostics.md"})
 
 
+_RANK = {"ok": 0, "warn": 1, "fail": 2}
+
+
+async def scan_auto_diagnostics():
+    """Scheduled: re-scan the app and alert admins about anything that newly broke."""
+    try:
+        auto = ((await db.settings.find_one({"key": "diagnostics_auto"})) or {}).get("value", {})
+        if not auto.get("enabled", False):
+            return 0
+        prev_doc = await db.settings.find_one({"key": "last_diagnostics"})
+        prev = {c["id"]: c["status"] for c in ((prev_doc or {}).get("value", {}) or {}).get("checks", [])}
+        report = await _run_diagnostics(True)
+        new_alerts = 0
+        for c in report["checks"]:
+            was = prev.get(c["id"], "ok")
+            if _RANK.get(c["status"], 0) > _RANK.get(was, 0):  # regressed
+                await db.diagnostics_alerts.insert_one({
+                    "alert_id": f"dga_{uuid.uuid4().hex[:10]}", "check_id": c["id"], "label": c["label"],
+                    "from_status": was, "to_status": c["status"], "detail": c["detail"],
+                    "fix_hint": c.get("fix_hint", ""), "created_at": now_iso(), "seen": False})
+                new_alerts += 1
+        if new_alerts:
+            try:
+                from services.email import send_email_detailed
+                admins = await db.users.find({"role": {"$in": ["admin", "super_admin"]}}, {"email": 1}).to_list(50)
+                broke = [f"{c['label']} ({c['status']})" for c in report["checks"] if _RANK.get(c["status"], 0) > _RANK.get(prev.get(c["id"], "ok"), 0)]
+                html = "<h3>Stitches health alert</h3><p>These checks newly regressed:</p><ul>" + "".join(f"<li>{b}</li>" for b in broke) + "</ul>"
+                for a in admins:
+                    if a.get("email"):
+                        await send_email_detailed(a["email"], "Stitches: something newly broke", html)
+            except Exception as e:
+                logger.warning(f"diag alert email failed: {e}")
+        return new_alerts
+    except Exception as e:
+        logger.error(f"auto diagnostics error: {e}")
+        return 0
+
+
+@router.get("/admin/deploy/diagnose/state")
+async def diagnose_state(user: dict = Depends(require_admin)):
+    auto = ((await db.settings.find_one({"key": "diagnostics_auto"})) or {}).get("value", {})
+    alerts = await db.diagnostics_alerts.find({"seen": False}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    return {"auto_enabled": bool(auto.get("enabled", False)), "alerts": alerts}
+
+
+@router.put("/admin/deploy/diagnose/auto")
+async def set_diagnose_auto(request: Request, user: dict = Depends(require_admin)):
+    body = await request.json()
+    await db.settings.update_one({"key": "diagnostics_auto"},
+                                 {"$set": {"key": "diagnostics_auto", "value": {"enabled": bool(body.get("enabled"))}}}, upsert=True)
+    return {"ok": True, "enabled": bool(body.get("enabled"))}
+
+
+@router.post("/admin/deploy/diagnose/alerts/seen")
+async def mark_alerts_seen(user: dict = Depends(require_admin)):
+    res = await db.diagnostics_alerts.update_many({"seen": False}, {"$set": {"seen": True}})
+    return {"ok": True, "cleared": res.modified_count}
+
+
 
 def _build_compose(sel, domain):
     blocks = ["services:"]

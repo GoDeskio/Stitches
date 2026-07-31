@@ -286,6 +286,33 @@ async def export_memories(format: str = "json", user: dict = Depends(get_current
                     headers={"Content-Disposition": "attachment; filename=stitch-memories.json"})
 
 
+@router.post("/ai/memory/import")
+async def import_memories(request: Request, user: dict = Depends(get_current_user)):
+    """Restore/import a previously exported memory set (JSON/CSV parsed to a list). New IDs, own scope."""
+    cfg = await _ai_memory_cfg()
+    if not cfg["user_enabled"]:
+        raise HTTPException(status_code=400, detail="Memory is turned off by your admin")
+    body = await request.json()
+    rows = body.get("memories") or []
+    if not isinstance(rows, list):
+        raise HTTPException(status_code=400, detail="expected a list of memories")
+    imported = 0
+    for r in rows[:2000]:
+        content = str((r or {}).get("content", "")).strip() if isinstance(r, dict) else str(r).strip()
+        if not content:
+            continue
+        exists = await db.ai_memories.find_one({"scope": "user", "owner_id": user["user_id"], "content": content})
+        if exists:
+            continue
+        await db.ai_memories.insert_one({
+            "mem_id": f"mem_{uuid.uuid4().hex[:12]}", "scope": "user", "owner_id": user["user_id"],
+            "content": content[:400], "category": _norm_category((r or {}).get("category") if isinstance(r, dict) else None),
+            "created_at": now_iso(), "source": "imported"})
+        imported += 1
+    await _prune_memory("user", user["user_id"], cfg)
+    return {"ok": True, "imported": imported}
+
+
 @router.post("/ai/memory")
 async def pin_my_memory(request: Request, user: dict = Depends(get_current_user)):
     cfg = await _ai_memory_cfg()

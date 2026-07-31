@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Sparkles, Send, User, Zap, Brain, Trash2, X, Users, Pin, Search, Pencil, Check, Mail, Download } from "lucide-react";
+import { Sparkles, Send, User, Zap, Brain, Trash2, X, Users, Pin, Search, Pencil, Check, Mail, Download, Upload } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { PageShell, PageHeader } from "@/components/Stitch";
@@ -109,6 +109,38 @@ function MemoryPanel({ open, onClose }) {
       a.remove(); window.URL.revokeObjectURL(url);
       toast.success(`Exported as ${format.toUpperCase()}`);
     } catch (e) { toast.error("Export failed"); }
+  };
+  const importRef = useRef(null);
+  const parseCsv = (text) => {
+    const lines = text.split(/\r?\n/).filter((l) => l.trim());
+    if (lines.length === 0) return [];
+    const parseLine = (line) => {
+      const out = []; let cur = ""; let q = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (q) { if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+        else if (ch === '"') q = true; else if (ch === ",") { out.push(cur); cur = ""; } else cur += ch;
+      }
+      out.push(cur); return out;
+    };
+    const header = parseLine(lines[0]).map((h) => h.trim().toLowerCase());
+    const ci = header.indexOf("content"), cat = header.indexOf("category");
+    if (ci < 0) return [];
+    return lines.slice(1).map((l) => { const c = parseLine(l); return { content: c[ci], category: cat >= 0 ? c[cat] : "general" }; }).filter((r) => r.content);
+  };
+  const onImportFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    let mems = [];
+    try {
+      const text = await file.text();
+      if (file.name.toLowerCase().endsWith(".json")) { const j = JSON.parse(text); mems = Array.isArray(j) ? j : (j.memories || []); }
+      else mems = parseCsv(text);
+    } catch (err) { toast.error("Couldn't read that file"); e.target.value = ""; return; }
+    if (mems.length === 0) { toast.error("No memories found in that file"); e.target.value = ""; return; }
+    try { const { data: r } = await api.post("/ai/memory/import", { memories: mems }); toast.success(`Imported ${r.imported}`); load(); }
+    catch (err) { toast.error("Import failed"); }
+    e.target.value = "";
   };
   const toggleAuto = async () => {
     const next = !data.auto_capture;
@@ -243,6 +275,8 @@ function MemoryPanel({ open, onClose }) {
                   <span className="text-xs text-muted-stitch flex items-center gap-1.5"><Download className="w-3.5 h-3.5" /> Export my memories:</span>
                   <button data-testid="export-json-btn" onClick={() => exportMemories("json")} className="neu-btn rounded-xl px-3 py-1.5 text-xs font-semibold text-primary-stitch">JSON</button>
                   <button data-testid="export-csv-btn" onClick={() => exportMemories("csv")} className="neu-btn rounded-xl px-3 py-1.5 text-xs font-semibold text-primary-stitch">CSV</button>
+                  <button data-testid="import-memories-btn" onClick={() => importRef.current?.click()} className="neu-btn rounded-xl px-3 py-1.5 text-xs font-semibold text-primary-stitch flex items-center gap-1.5"><Upload className="w-3.5 h-3.5" /> Import</button>
+                  <input ref={importRef} data-testid="import-memories-input" type="file" accept=".json,.csv" onChange={onImportFile} className="hidden" />
                 </div>
               </div>
             )}
