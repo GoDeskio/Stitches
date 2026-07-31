@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import api from "@/lib/api";
-import { Rocket, Github, Copy, Check, Download, Server, ShieldCheck, Zap, AlertTriangle, X, Plus, Stethoscope, Wand2 } from "lucide-react";
+import { Rocket, Github, Copy, Check, Download, Server, ShieldCheck, Zap, AlertTriangle, X, Plus, Stethoscope, Wand2, History, Bell } from "lucide-react";
 
 const CAT_ICON = { Calls: Zap, Gateway: Server, Monitoring: Server };
 
@@ -53,6 +53,23 @@ export function DeploymentTab() {
   const dismissAlerts = async () => {
     try { await api.post("/admin/deploy/diagnose/alerts/seen"); setDiagState({ ...diagState, alerts: [] }); toast.success("Alerts cleared"); }
     catch (e) { toast.error("Couldn't clear"); }
+  };
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState([]);
+  const toggleHistory = async () => {
+    const next = !showHistory; setShowHistory(next);
+    if (next) { try { const { data } = await api.get("/admin/deploy/diagnose/history"); setHistory(data.runs); } catch (e) {} }
+  };
+  const [showChannels, setShowChannels] = useState(false);
+  const [channels, setChannels] = useState({ slack_webhook: "", webhook_url: "" });
+  useEffect(() => { api.get("/admin/deploy/alert-channels").then(({ data }) => setChannels(data)).catch(() => {}); }, []);
+  const saveChannels = async () => {
+    try { await api.put("/admin/deploy/alert-channels", channels); toast.success("Alert channels saved"); }
+    catch (e) { toast.error("Save failed"); }
+  };
+  const testChannels = async () => {
+    try { const { data } = await api.post("/admin/deploy/alert-channels/test"); const to = Object.entries(data.sent_to).filter(([, v]) => v).map(([k]) => k).join(", "); toast.success(`Test alert dispatched to: ${to}`); }
+    catch (e) { toast.error("Test failed"); }
   };
 
   const runDiagnostics = async () => {
@@ -236,6 +253,8 @@ export function DeploymentTab() {
               <span className={`w-2 h-2 rounded-full`} style={{ background: diagState.auto_enabled ? "#22c55e" : "var(--neu-dark)" }} />
               Auto {diagState.auto_enabled ? "on" : "off"}
             </button>
+            <button data-testid="history-toggle-btn" onClick={toggleHistory} className="neu-btn rounded-2xl px-4 py-3 font-semibold text-primary-stitch flex items-center gap-2"><History className="w-4 h-4" /> History</button>
+            <button data-testid="channels-toggle-btn" onClick={() => setShowChannels((v) => !v)} className="neu-btn rounded-2xl px-4 py-3 font-semibold text-primary-stitch flex items-center gap-2"><Bell className="w-4 h-4" /> Channels</button>
             {diag && <button data-testid="diagnose-download-btn" onClick={downloadDiag} className="neu-btn rounded-2xl px-4 py-3 font-semibold text-primary-stitch flex items-center gap-2"><Download className="w-4 h-4" /> Report</button>}
             <button data-testid="run-diagnose-btn" onClick={runDiagnostics} disabled={diagRunning} className="neu-primary rounded-2xl px-5 py-3 font-semibold flex items-center gap-2"><Stethoscope className="w-4 h-4" />{diagRunning ? "Scanning…" : "Run diagnostics"}</button>
           </div>
@@ -252,6 +271,42 @@ export function DeploymentTab() {
                 <li key={a.alert_id} className="text-xs text-muted-stitch"><span className="font-semibold" style={{ color: "var(--text)" }}>{a.label}</span> — {a.from_status} → <span className="text-red-400 font-semibold">{a.to_status}</span>{a.fix_hint ? ` · ${a.fix_hint}` : ""}</li>
               ))}
             </ul>
+          </div>
+        )}
+
+        {showChannels && (
+          <div className="neu-pressed rounded-2xl p-4 mt-4" data-testid="alert-channels-panel">
+            <p className="text-sm font-semibold mb-1 flex items-center gap-2" style={{ color: "var(--text)" }}><Bell className="w-4 h-4 text-primary-stitch" /> Alert channels</p>
+            <p className="text-xs text-muted-stitch mb-3">Route health-regression alerts to Slack and/or a webhook, in addition to admin email.</p>
+            <div className="space-y-2">
+              <input data-testid="slack-webhook-input" value={channels.slack_webhook} onChange={(e) => setChannels({ ...channels, slack_webhook: e.target.value })} placeholder="Slack incoming webhook URL" className="neu-input rounded-2xl py-2.5 px-4 text-sm w-full font-mono-stitch" />
+              <input data-testid="webhook-url-input" value={channels.webhook_url} onChange={(e) => setChannels({ ...channels, webhook_url: e.target.value })} placeholder="Generic webhook URL (JSON POST)" className="neu-input rounded-2xl py-2.5 px-4 text-sm w-full font-mono-stitch" />
+            </div>
+            <div className="flex gap-2 mt-3">
+              <button data-testid="save-channels-btn" onClick={saveChannels} className="neu-primary rounded-xl px-4 py-2 text-xs font-semibold">Save channels</button>
+              <button data-testid="test-channels-btn" onClick={testChannels} className="neu-btn rounded-xl px-4 py-2 text-xs font-semibold text-primary-stitch">Send test alert</button>
+            </div>
+          </div>
+        )}
+
+        {showHistory && (
+          <div className="neu-pressed rounded-2xl p-4 mt-4" data-testid="scan-history-panel">
+            <p className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: "var(--text)" }}><History className="w-4 h-4 text-primary-stitch" /> Scan history</p>
+            {history.length === 0 ? <p className="text-xs text-muted-stitch">No scans recorded yet.</p> : (
+              <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                {history.map((r) => (
+                  <div key={r.run_id} data-testid="scan-history-row" className="flex items-center justify-between gap-3 text-xs py-1.5 px-2 rounded-lg" style={{ background: "var(--neu-dark)" }}>
+                    <span className="text-muted-stitch">{new Date(r.generated_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                    <span className={`font-bold uppercase tracking-wide ${r.trigger === "auto" ? "text-primary-stitch" : "text-muted-stitch"}`}>{r.trigger}</span>
+                    <span className="flex items-center gap-2 ml-auto">
+                      <span className="text-green-500 font-bold">{r.summary.ok} ok</span>
+                      <span className="text-amber-500 font-bold">{r.summary.warn} warn</span>
+                      <span className="text-red-400 font-bold">{r.summary.fail} fail</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

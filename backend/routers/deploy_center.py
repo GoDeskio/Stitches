@@ -360,7 +360,7 @@ Then hit **Test connectivity** to confirm the relay is reachable.
     return files
 
 
-async def _run_diagnostics(autofix: bool):
+async def _run_diagnostics(autofix: bool, trigger: str = "manual"):
     checks = []
     fixed = []
 
@@ -471,6 +471,14 @@ async def _run_diagnostics(autofix: bool):
               "auto_fixed": fixed, "checks": checks}
     await db.settings.update_one({"key": "last_diagnostics"},
                                  {"$set": {"key": "last_diagnostics", "value": report}}, upsert=True)
+    # Append to scan history (compact) and prune to last 100
+    await db.diagnostics_history.insert_one({
+        "run_id": f"run_{uuid.uuid4().hex[:10]}", "generated_at": report["generated_at"],
+        "trigger": trigger, "summary": summary, "auto_fixed": len(fixed),
+        "statuses": {c["id"]: c["status"] for c in checks}})
+    old = await db.diagnostics_history.find({}, {"_id": 1}).sort("generated_at", -1).skip(100).to_list(500)
+    if old:
+        await db.diagnostics_history.delete_many({"_id": {"$in": [o["_id"] for o in old]}})
     return report
 
 
@@ -526,7 +534,7 @@ async def scan_auto_diagnostics():
             return 0
         prev_doc = await db.settings.find_one({"key": "last_diagnostics"})
         prev = {c["id"]: c["status"] for c in ((prev_doc or {}).get("value", {}) or {}).get("checks", [])}
-        report = await _run_diagnostics(True)
+        report = await _run_diagnostics(True, trigger="auto")
         new_alerts = 0
         for c in report["checks"]:
             was = prev.get(c["id"], "ok")
@@ -537,20 +545,41 @@ async def scan_auto_diagnostics():
                     "fix_hint": c.get("fix_hint", ""), "created_at": now_iso(), "seen": False})
                 new_alerts += 1
         if new_alerts:
-            try:
-                from services.email import send_email_detailed
-                admins = await db.users.find({"role": {"$in": ["admin", "super_admin"]}}, {"email": 1}).to_list(50)
-                broke = [f"{c['label']} ({c['status']})" for c in report["checks"] if _RANK.get(c["status"], 0) > _RANK.get(prev.get(c["id"], "ok"), 0)]
-                html = "<h3>Stitches health alert</h3><p>These checks newly regressed:</p><ul>" + "".join(f"<li>{b}</li>" for b in broke) + "</ul>"
-                for a in admins:
-                    if a.get("email"):
-                        await send_email_detailed(a["email"], "Stitches: something newly broke", html)
-            except Exception as e:
-                logger.warning(f"diag alert email failed: {e}")
+            broke = [f"{c['label']} ({c['status']})" for c in report["checks"] if _RANK.get(c["status"], 0) > _RANK.get(prev.get(c["id"], "ok"), 0)]
+            await _dispatch_alerts(broke)
         return new_alerts
     except Exception as e:
         logger.error(f"auto diagnostics error: {e}")
         return 0
+
+
+async def _dispatch_alerts(broke):
+    """Send a health-regression alert to every configured channel (email + Slack + webhook)."""
+    text = "Stitches health alert — these checks newly regressed: " + ", ".join(broke)
+    # Email admins
+    try:
+        from services.email import send_email_detailed
+        admins = await db.users.find({"role": {"$in": ["admin", "super_admin"]}}, {"email": 1}).to_list(50)
+        html = "<h3>Stitches health alert</h3><p>These checks newly regressed:</p><ul>" + "".join(f"<li>{b}</li>" for b in broke) + "</ul>"
+        for a in admins:
+            if a.get("email"):
+                await send_email_detailed(a["email"], "Stitches: something newly broke", html)
+    except Exception as e:
+        logger.warning(f"diag alert email failed: {e}")
+    # Slack + generic webhook
+    ch = ((await db.settings.find_one({"key": "alert_channels"})) or {}).get("value", {})
+    import httpx
+    async with httpx.AsyncClient(timeout=10) as client:
+        if ch.get("slack_webhook"):
+            try:
+                await client.post(ch["slack_webhook"], json={"text": ":rotating_light: " + text})
+            except Exception as e:
+                logger.warning(f"slack alert failed: {e}")
+        if ch.get("webhook_url"):
+            try:
+                await client.post(ch["webhook_url"], json={"event": "stitches.health.regression", "message": text, "checks": broke})
+            except Exception as e:
+                logger.warning(f"webhook alert failed: {e}")
 
 
 @router.get("/admin/deploy/diagnose/state")
@@ -572,6 +601,37 @@ async def set_diagnose_auto(request: Request, user: dict = Depends(require_admin
 async def mark_alerts_seen(user: dict = Depends(require_admin)):
     res = await db.diagnostics_alerts.update_many({"seen": False}, {"$set": {"seen": True}})
     return {"ok": True, "cleared": res.modified_count}
+
+
+@router.get("/admin/deploy/diagnose/history")
+async def diagnose_history(user: dict = Depends(require_admin)):
+    runs = await db.diagnostics_history.find({}, {"_id": 0}).sort("generated_at", -1).to_list(50)
+    return {"runs": runs}
+
+
+@router.get("/admin/deploy/alert-channels")
+async def get_alert_channels(user: dict = Depends(require_admin)):
+    ch = ((await db.settings.find_one({"key": "alert_channels"})) or {}).get("value", {})
+    return {"slack_webhook": ch.get("slack_webhook", ""), "webhook_url": ch.get("webhook_url", "")}
+
+
+@router.put("/admin/deploy/alert-channels")
+async def set_alert_channels(request: Request, user: dict = Depends(require_admin)):
+    body = await request.json()
+    val = {"slack_webhook": (body.get("slack_webhook") or "").strip(),
+           "webhook_url": (body.get("webhook_url") or "").strip()}
+    await db.settings.update_one({"key": "alert_channels"},
+                                 {"$set": {"key": "alert_channels", "value": val}}, upsert=True)
+    return {"ok": True, **val}
+
+
+@router.post("/admin/deploy/alert-channels/test")
+async def test_alert_channels(user: dict = Depends(require_admin)):
+    await _dispatch_alerts(["Test alert — this is a sample health regression"])
+    ch = ((await db.settings.find_one({"key": "alert_channels"})) or {}).get("value", {})
+    return {"ok": True, "sent_to": {"email": True, "slack": bool(ch.get("slack_webhook")), "webhook": bool(ch.get("webhook_url"))}}
+
+
 
 
 
