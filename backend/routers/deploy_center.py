@@ -894,10 +894,144 @@ async def public_status():
     incidents = [{"label": i.get("group_label"), "status": i.get("status"), "impact": i.get("impact"),
                   "opened_at": i.get("opened_at"), "resolved_at": i.get("resolved_at"),
                   "updates": i.get("updates", []), "auto": i.get("auto", False)} for i in raw]
+    mwin = await db.maintenance_windows.find({"status": {"$ne": "cancelled"}}, {"_id": 0}).sort("starts_at", 1).to_list(50)
+    maintenance = []
+    for m in mwin:
+        st = _maint_status(m, now)
+        if st in ("scheduled", "in_progress"):
+            maintenance.append({"title": m.get("title"), "message": m.get("message"),
+                                "starts_at": m.get("starts_at"), "ends_at": m.get("ends_at"), "state": st,
+                                "components": [g["label"] for g in PUBLIC_GROUPS if g["key"] in (m.get("group_keys") or [])]})
     return {"enabled": True, "title": cfg["title"], "overall": overall,
             "windows": [w[0] for w in WINDOWS],
             "generated_at": runs[0]["generated_at"] if runs else now_iso(),
-            "groups": groups, "incidents": incidents}
+            "groups": groups, "incidents": incidents, "maintenance": maintenance}
+
+
+def _parse(iso):
+    try:
+        return datetime.fromisoformat((iso or "").replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _maint_status(m, now):
+    if m.get("status") == "cancelled":
+        return "cancelled"
+    s = _parse(m.get("starts_at")); e = _parse(m.get("ends_at"))
+    if e and now > e:
+        return "completed"
+    if s and now >= s:
+        return "in_progress"
+    return "scheduled"
+
+
+@router.get("/admin/deploy/maintenance")
+async def list_maintenance(user: dict = Depends(require_admin)):
+    now = datetime.now(timezone.utc)
+    items = await db.maintenance_windows.find({}, {"_id": 0}).sort("starts_at", -1).to_list(100)
+    for m in items:
+        m["state"] = _maint_status(m, now)
+    return {"maintenance": items, "groups": [{"key": g["key"], "label": g["label"]} for g in PUBLIC_GROUPS]}
+
+
+@router.post("/admin/deploy/maintenance")
+async def create_maintenance(request: Request, user: dict = Depends(require_admin)):
+    body = await request.json()
+    starts = (body.get("starts_at") or "").strip()
+    ends = (body.get("ends_at") or "").strip()
+    ps, pe = _parse(starts), _parse(ends)
+    if not ps or not pe:
+        raise HTTPException(status_code=400, detail="Valid start and end time required")
+    if pe <= ps:
+        raise HTTPException(status_code=400, detail="End must be after start")
+    gks = [k for k in (body.get("group_keys") or []) if any(g["key"] == k for g in PUBLIC_GROUPS)]
+    m = {"maint_id": f"mnt_{uuid.uuid4().hex[:10]}",
+         "title": (body.get("title") or "Scheduled maintenance").strip()[:100],
+         "message": (body.get("message") or "").strip()[:500],
+         "group_keys": gks, "starts_at": starts, "ends_at": ends,
+         "notify_lead_min": max(0, min(10080, int(body.get("notify_lead_min", 60)))),
+         "status": "scheduled", "reminder_sent": False, "created_at": now_iso()}
+    await db.maintenance_windows.insert_one(m)
+    await log_activity(user["user_id"], "maintenance_create")
+    return {"ok": True, "maint_id": m["maint_id"]}
+
+
+@router.delete("/admin/deploy/maintenance/{maint_id}")
+async def delete_maintenance(maint_id: str, user: dict = Depends(require_admin)):
+    await db.maintenance_windows.delete_one({"maint_id": maint_id})
+    return {"ok": True}
+
+
+async def scan_maintenance():
+    """Email subscribers a heads-up before a scheduled maintenance window begins."""
+    try:
+        now = datetime.now(timezone.utc)
+        items = await db.maintenance_windows.find(
+            {"reminder_sent": {"$ne": True}, "status": {"$ne": "cancelled"}}).to_list(100)
+        sent = 0
+        for m in items:
+            s = _parse(m.get("starts_at"))
+            if not s:
+                continue
+            lead = m.get("notify_lead_min", 60)
+            if s - timedelta(minutes=lead) <= now < s:
+                gk = m.get("group_keys") or []
+                labels = ", ".join(g["label"] for g in PUBLIC_GROUPS if g["key"] in gk) or "the platform"
+                when = s.strftime("%b %d, %Y %H:%M UTC")
+                await _notify_subscribers(
+                    f"[Stitches] Upcoming maintenance — {m.get('title', 'Scheduled maintenance')}",
+                    f"<h3>{m.get('title', 'Scheduled maintenance')}</h3>"
+                    f"<p>Planned maintenance affecting <strong>{labels}</strong> begins at <strong>{when}</strong>.</p>"
+                    f"<p>{m.get('message', '')}</p>")
+                await db.maintenance_windows.update_one({"maint_id": m["maint_id"]}, {"$set": {"reminder_sent": True}})
+                sent += 1
+        return sent
+    except Exception as e:
+        logger.warning(f"maintenance scan failed: {e}")
+        return 0
+
+
+# ---------------- Per-component detail ----------------
+@router.get("/status/public/component/{key}")
+async def public_component(key: str):
+    cfg = await _status_page_cfg()
+    if not cfg["enabled"]:
+        return {"enabled": False}
+    g = next((x for x in PUBLIC_GROUPS if x["key"] == key), None)
+    if not g:
+        raise HTTPException(status_code=404, detail="unknown component")
+    runs = await db.diagnostics_history.find({}, {"_id": 0}).sort("generated_at", -1).to_list(500)
+    latest = (runs[0].get("statuses") or {}) if runs else {}
+    cur = _worst(g["ids"], latest) if latest else "ok"
+    now = datetime.now(timezone.utc)
+    windows = {}
+    for wk, hrs in [("24h", 24), ("7d", 24 * 7), ("90d", 24 * 90)]:
+        cut = (now - timedelta(hours=hrs)).isoformat()
+        wruns = [r for r in runs if (r.get("generated_at") or "") >= cut]
+        seen = [r for r in wruns if any(i in (r.get("statuses") or {}) for i in g["ids"])]
+        okc = sum(1 for r in seen if _worst(g["ids"], r.get("statuses") or {}) == "ok")
+        windows[wk] = {"pct": round(okc / len(seen) * 100) if seen else 100}
+    buckets = {}
+    for r in runs:
+        d = (r.get("generated_at") or "")[:10]
+        if not d:
+            continue
+        st = _worst(g["ids"], r.get("statuses") or {})
+        b = buckets.setdefault(d, {"ok": 0, "total": 0, "worst": "ok"})
+        b["total"] += 1
+        if st == "ok":
+            b["ok"] += 1
+        if _RANK.get(st, 0) > _RANK.get(b["worst"], 0):
+            b["worst"] = st
+    daily = [{"date": d, "pct": round(v["ok"] / v["total"] * 100) if v["total"] else 100, "status": v["worst"]}
+             for d, v in sorted(buckets.items())][-90:]
+    raw = await db.status_incidents.find({"group_key": key}, {"_id": 0}).sort("opened_at", -1).to_list(50)
+    incidents = [{"status": i.get("status"), "impact": i.get("impact"), "opened_at": i.get("opened_at"),
+                  "resolved_at": i.get("resolved_at"), "updates": i.get("updates", []), "auto": i.get("auto", False)}
+                 for i in raw]
+    return {"enabled": True, "title": cfg["title"], "key": key, "label": g["label"],
+            "status": cur, "windows": windows, "daily": daily, "incidents": incidents}
 
 
 

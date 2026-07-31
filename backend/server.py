@@ -19,6 +19,7 @@ from routers.updates import scan_updates
 from routers.bots import scan_failed_callbacks
 from routers.ai import scan_memory_digests
 from routers.deploy_center import scan_auto_diagnostics
+from routers.deploy_center import scan_maintenance
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -153,6 +154,7 @@ async def _reminder_loop():
             await scan_bot_health()
             await scan_memory_digests()
             await scan_auto_diagnostics()
+            await scan_maintenance()
         except Exception as e:
             logger.warning(f"reminder scan failed: {e}")
         await asyncio.sleep(1800)

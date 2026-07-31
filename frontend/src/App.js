@@ -30,6 +30,7 @@ import Settings from "@/pages/Settings";
 import Admin from "@/pages/Admin";
 import VerifyEmail from "@/pages/VerifyEmail";
 import StatusPage from "@/pages/StatusPage";
+import ComponentStatus from "@/pages/ComponentStatus";
 import Tracker from "@/components/Tracker";
 
 function FullLoader() {
@@ -59,6 +60,7 @@ function AppRouter() {
       <Route path="/qr-login/claim" element={<QrClaim />} />
       <Route path="/verify-email" element={<VerifyEmail />} />
       <Route path="/status" element={<StatusPage />} />
+      <Route path="/status/:key" element={<ComponentStatus />} />
       <Route path="/call/:roomId" element={<Protected><Call /></Protected>} />
       <Route
         element={

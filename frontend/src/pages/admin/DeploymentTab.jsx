@@ -128,6 +128,34 @@ export function DeploymentTab() {
     } catch (e) { toast.error("Couldn't post incident"); }
   };
 
+  const [showMaint, setShowMaint] = useState(false);
+  const [maintList, setMaintList] = useState([]);
+  const [maintGroups, setMaintGroups] = useState([]);
+  const [newMaint, setNewMaint] = useState({ title: "", message: "", group_keys: [], starts_at: "", ends_at: "", notify_lead_min: 60 });
+  const loadMaint = async () => {
+    try { const { data } = await api.get("/admin/deploy/maintenance"); setMaintList(data.maintenance); setMaintGroups(data.groups); }
+    catch (e) {}
+  };
+  const toggleMaint = () => { const n = !showMaint; setShowMaint(n); if (n) loadMaint(); };
+  const toggleMaintGroup = (k) => setNewMaint((m) => ({ ...m, group_keys: m.group_keys.includes(k) ? m.group_keys.filter((x) => x !== k) : [...m.group_keys, k] }));
+  const createMaint = async () => {
+    if (!newMaint.starts_at || !newMaint.ends_at) { toast.error("Set a start and end time"); return; }
+    try {
+      await api.post("/admin/deploy/maintenance", {
+        ...newMaint,
+        starts_at: new Date(newMaint.starts_at).toISOString(),
+        ends_at: new Date(newMaint.ends_at).toISOString(),
+      });
+      toast.success("Maintenance scheduled — subscribers will be reminded before it starts");
+      setNewMaint({ title: "", message: "", group_keys: [], starts_at: "", ends_at: "", notify_lead_min: 60 });
+      loadMaint();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Couldn't schedule"); }
+  };
+  const deleteMaint = async (id) => {
+    try { await api.delete(`/admin/deploy/maintenance/${id}`); toast.success("Maintenance removed"); loadMaint(); }
+    catch (e) { toast.error("Couldn't remove"); }
+  };
+
   const [showIncidents, setShowIncidents] = useState(false);
   const [allAlerts, setAllAlerts] = useState([]);
   const [noteDrafts, setNoteDrafts] = useState({});
@@ -535,7 +563,10 @@ export function DeploymentTab() {
         <div className="flex items-center gap-3 mt-4 flex-wrap">
           <span data-testid="subscriber-count" className="neu-pressed rounded-xl px-3 py-1.5 text-xs font-semibold text-primary-stitch">{statusPage.subscribers ?? 0} subscriber{(statusPage.subscribers ?? 0) === 1 ? "" : "s"}</span>
           <span data-testid="open-incident-count" className="neu-pressed rounded-xl px-3 py-1.5 text-xs font-semibold" style={{ color: (statusPage.open_incidents ?? 0) > 0 ? "#f59e0b" : "var(--muted)" }}>{statusPage.open_incidents ?? 0} open incident{(statusPage.open_incidents ?? 0) === 1 ? "" : "s"}</span>
-          <button data-testid="manage-incidents-btn" onClick={togglePubInc} className="neu-btn rounded-xl px-4 py-1.5 text-xs font-semibold text-primary-stitch ml-auto">{showPubInc ? "Hide incidents" : "Manage incidents"}</button>
+          <div className="flex gap-2 ml-auto">
+            <button data-testid="manage-incidents-btn" onClick={togglePubInc} className="neu-btn rounded-xl px-4 py-1.5 text-xs font-semibold text-primary-stitch">{showPubInc ? "Hide incidents" : "Manage incidents"}</button>
+            <button data-testid="manage-maintenance-btn" onClick={toggleMaint} className="neu-btn rounded-xl px-4 py-1.5 text-xs font-semibold text-primary-stitch">{showMaint ? "Hide maintenance" : "Schedule maintenance"}</button>
+          </div>
         </div>
 
         {showPubInc && (
@@ -574,6 +605,47 @@ export function DeploymentTab() {
                         <button data-testid={`incident-resolve-btn-${inc.incident_id}`} onClick={() => postIncUpdate(inc.incident_id, true)} className="neu-btn rounded-lg px-3 py-1.5 text-xs font-semibold text-green-500">Resolve</button>
                       </div>
                     )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {showMaint && (
+          <div className="neu-pressed rounded-2xl p-4 mt-3" data-testid="manage-maintenance-panel">
+            <p className="text-xs font-bold uppercase tracking-wide text-muted-stitch mb-2">Schedule a maintenance window</p>
+            <input data-testid="maint-title" value={newMaint.title} onChange={(e) => setNewMaint({ ...newMaint, title: e.target.value })} placeholder="Title (e.g. Database upgrade)" className="neu-input rounded-xl py-2 px-3 text-sm w-full mb-2" style={{ color: "var(--text)" }} />
+            <input data-testid="maint-message" value={newMaint.message} onChange={(e) => setNewMaint({ ...newMaint, message: e.target.value })} placeholder="What to expect (shown publicly)" className="neu-input rounded-xl py-2 px-3 text-sm w-full mb-2" style={{ color: "var(--text)" }} />
+            <div className="grid sm:grid-cols-2 gap-2 mb-2">
+              <div><label className="text-[11px] text-muted-stitch">Starts</label><input data-testid="maint-start" type="datetime-local" value={newMaint.starts_at} onChange={(e) => setNewMaint({ ...newMaint, starts_at: e.target.value })} className="neu-input rounded-xl py-2 px-3 text-sm w-full" style={{ color: "var(--text)" }} /></div>
+              <div><label className="text-[11px] text-muted-stitch">Ends</label><input data-testid="maint-end" type="datetime-local" value={newMaint.ends_at} onChange={(e) => setNewMaint({ ...newMaint, ends_at: e.target.value })} className="neu-input rounded-xl py-2 px-3 text-sm w-full" style={{ color: "var(--text)" }} /></div>
+            </div>
+            <div className="mb-2">
+              <label className="text-[11px] text-muted-stitch">Affected components</label>
+              <div className="flex gap-2 flex-wrap mt-1">
+                {maintGroups.map((g) => (
+                  <button key={g.key} data-testid={`maint-group-${g.key}`} onClick={() => toggleMaintGroup(g.key)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${newMaint.group_keys.includes(g.key) ? "neu-primary" : "neu-pressed text-primary-stitch"}`}>{g.label}</button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              <label className="text-[11px] text-muted-stitch">Email subscribers</label>
+              <input data-testid="maint-lead" type="number" min="0" value={newMaint.notify_lead_min} onChange={(e) => setNewMaint({ ...newMaint, notify_lead_min: parseInt(e.target.value) || 0 })} className="neu-input rounded-lg py-1.5 px-2 text-xs w-20" style={{ color: "var(--text)" }} />
+              <span className="text-[11px] text-muted-stitch">minutes before it starts</span>
+              <button data-testid="maint-schedule-btn" onClick={createMaint} className="neu-primary rounded-xl px-4 py-2 text-xs font-semibold ml-auto">Schedule</button>
+            </div>
+            {maintList.length === 0 ? <p className="text-xs text-muted-stitch">No maintenance windows scheduled.</p> : (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {maintList.map((m) => (
+                  <div key={m.maint_id} data-testid="maint-row" className="rounded-xl p-3 flex items-start gap-2" style={{ background: "var(--neu-dark)" }}>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap text-xs">
+                        <span className="font-bold px-2 py-0.5 rounded-full" style={{ color: m.state === "in_progress" ? "#3b82f6" : m.state === "completed" ? "var(--muted)" : "#22c55e", background: "var(--surface)" }}>{m.state}</span>
+                        <span className="font-semibold" style={{ color: "var(--text)" }}>{m.title}</span>
+                      </div>
+                      <p className="text-[11px] text-muted-stitch mt-1">{new Date(m.starts_at).toLocaleString()} → {new Date(m.ends_at).toLocaleString()}</p>
+                    </div>
+                    <button data-testid={`maint-delete-${m.maint_id}`} onClick={() => deleteMaint(m.maint_id)} className="neu-btn rounded-lg p-1.5 text-muted-stitch shrink-0"><X className="w-3.5 h-3.5" /></button>
                   </div>
                 ))}
               </div>

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import axios from "axios";
 import { API } from "@/lib/api";
-import { CheckCircle2, AlertTriangle, XCircle, Activity, ShieldOff, Bell, Loader2 } from "lucide-react";
+import { CheckCircle2, AlertTriangle, XCircle, Activity, ShieldOff, Bell, Loader2, Wrench, ChevronRight } from "lucide-react";
 
 const CELL = { ok: "#22c55e", warn: "#f59e0b", fail: "#ef4444" };
 const GROUP_META = {
@@ -117,6 +118,28 @@ export default function StatusPage() {
           </div>
         </div>
 
+        {data.maintenance?.length > 0 && (
+          <div className="space-y-3" data-testid="status-maintenance">
+            {data.maintenance.map((m, i) => (
+              <div key={i} className="neu-raised rounded-[1.75rem] p-5 animate-fade-up flex items-start gap-3" data-testid="maintenance-banner"
+                style={{ borderLeft: "4px solid #3b82f6" }}>
+                <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center shrink-0"><Wrench className="w-5 h-5" style={{ color: "#3b82f6" }} /></div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide" style={{ color: "#3b82f6", background: "var(--neu-dark)" }}>{m.state === "in_progress" ? "Maintenance in progress" : "Scheduled maintenance"}</span>
+                    <span className="font-head font-bold text-base" style={{ color: "var(--text)" }}>{m.title}</span>
+                  </div>
+                  {m.message && <p className="text-sm text-muted-stitch mt-1">{m.message}</p>}
+                  <p className="text-xs text-muted-stitch mt-1.5">
+                    {new Date(m.starts_at).toLocaleString()} → {new Date(m.ends_at).toLocaleString()}
+                    {m.components?.length ? ` · ${m.components.join(", ")}` : ""}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="status-groups">
           <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
             <span className="text-xs font-bold uppercase tracking-wide text-muted-stitch">Uptime over the last {WIN_LABEL[activeWin]}</span>
@@ -131,9 +154,9 @@ export default function StatusPage() {
             const gm = GROUP_META[g.status] || GROUP_META.ok;
             const wv = (g.windows && g.windows[activeWin]) || { pct: g.uptime ?? 100, strip: g.strip || [] };
             return (
-              <div key={g.key} className="py-3.5 border-b last:border-b-0" style={{ borderColor: "var(--neu-dark)" }} data-testid={`status-group-${g.key}`}>
+              <Link key={g.key} to={`/status/${g.key}`} className="block py-3.5 border-b last:border-b-0 group" style={{ borderColor: "var(--neu-dark)" }} data-testid={`status-group-${g.key}`}>
                 <div className="flex items-center justify-between gap-3 mb-2">
-                  <span className="font-head font-semibold text-sm sm:text-base" style={{ color: "var(--text)" }}>{g.label}</span>
+                  <span className="font-head font-semibold text-sm sm:text-base flex items-center gap-1.5 group-hover:text-primary-stitch transition-colors" style={{ color: "var(--text)" }}>{g.label}<ChevronRight className="w-3.5 h-3.5 text-muted-stitch opacity-0 group-hover:opacity-100 transition-opacity" /></span>
                   <span className="flex items-center gap-2 text-xs font-bold" style={{ color: gm.color }}>
                     <span className="w-2 h-2 rounded-full" style={{ background: gm.color }} /> {gm.label}
                   </span>
@@ -148,7 +171,7 @@ export default function StatusPage() {
                   <span className="text-xs font-bold w-14 text-right shrink-0" data-testid={`status-uptime-${g.key}`}
                     style={{ color: wv.pct >= 90 ? "#22c55e" : wv.pct >= 50 ? "#f59e0b" : "#ef4444" }}>{wv.pct}% up</span>
                 </div>
-              </div>
+              </Link>
             );
           })}
         </div>
