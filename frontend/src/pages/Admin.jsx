@@ -245,13 +245,25 @@ function SetupStatusStrip({ onNav }) {
 
 function OpsOverview({ onNav }) {
   const [d, setD] = useState(null);
+  const [rescanning, setRescanning] = useState(false);
+  const load = () => api.get("/admin/deploy/ops-overview").then(({ data }) => setD(data)).catch(() => {});
   useEffect(() => {
     let alive = true;
-    const load = () => api.get("/admin/deploy/ops-overview").then(({ data }) => { if (alive) setD(data); }).catch(() => {});
-    load();
-    const id = setInterval(load, 30000);
+    const tick = () => api.get("/admin/deploy/ops-overview").then(({ data }) => { if (alive) setD(data); }).catch(() => {});
+    tick();
+    const id = setInterval(tick, 30000);
     return () => { alive = false; clearInterval(id); };
   }, []);
+  const rescan = async () => {
+    setRescanning(true);
+    try {
+      const { data } = await api.post("/admin/deploy/diagnose", { autofix: false });
+      const s = data?.summary;
+      toast.success(s ? `Scan complete — ${s.ok || 0} ok, ${s.warn || 0} warn, ${s.fail || 0} down` : "Diagnostics complete");
+      await load();
+    } catch (e) { toast.error("Diagnostics failed"); }
+    finally { setRescanning(false); }
+  };
   if (!d) return null;
   const META = { operational: { c: "#16a34a", t: "All systems operational" }, degraded: { c: "#d97706", t: "Some systems degraded" }, outage: { c: "#dc2626", t: "Active outage" } };
   const m = META[d.overall] || META.operational;
@@ -266,7 +278,10 @@ function OpsOverview({ onNav }) {
             <p className="text-sm text-muted-stitch flex items-center gap-1.5"><span data-testid="ops-live-indicator" className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> Live system health · auto-refreshes every 30s.</p>
           </div>
         </div>
-        <button data-testid="ops-open-deploy" onClick={() => onNav && onNav("deploy")} className="neu-btn rounded-2xl px-4 py-2.5 text-xs font-semibold text-primary-stitch flex items-center gap-2"><Rocket className="w-4 h-4" /> Open Deployment</button>
+        <div className="flex gap-2">
+          <button data-testid="ops-rescan-btn" onClick={rescan} disabled={rescanning} className="neu-btn rounded-2xl px-4 py-2.5 text-xs font-semibold text-primary-stitch flex items-center gap-2"><Activity className={`w-4 h-4 ${rescanning ? "animate-spin" : ""}`} /> {rescanning ? "Scanning…" : "Run diagnostics now"}</button>
+          <button data-testid="ops-open-deploy" onClick={() => onNav && onNav("deploy")} className="neu-btn rounded-2xl px-4 py-2.5 text-xs font-semibold text-primary-stitch flex items-center gap-2"><Rocket className="w-4 h-4" /> Open Deployment</button>
+        </div>
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="neu-pressed rounded-2xl p-4" data-testid="ops-status">
