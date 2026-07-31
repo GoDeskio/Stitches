@@ -71,7 +71,7 @@ export function DeploymentTab() {
     if (next) { try { const { data } = await api.get("/admin/deploy/diagnose/history"); setHistory(data.runs); } catch (e) {} }
   };
   const [showChannels, setShowChannels] = useState(false);
-  const [channels, setChannels] = useState({ slack_webhook: "", webhook_url: "" });
+  const [channels, setChannels] = useState({ slack_webhook: "", webhook_url: "", discord_webhook: "", whatsapp_webhook: "" });
   useEffect(() => { api.get("/admin/deploy/alert-channels").then(({ data }) => setChannels(data)).catch(() => {}); }, []);
   const saveChannels = async () => {
     try { await api.put("/admin/deploy/alert-channels", channels); toast.success("Alert channels saved"); }
@@ -105,6 +105,8 @@ export function DeploymentTab() {
   const htmlSnippet = `<a href="${statusUrl}" target="_blank" rel="noreferrer"><img src="${badgeUrl}" alt="Stitches status" height="20" /></a>`;
   const mdSnippet = `[![Stitches status](${badgeUrl})](${statusUrl})`;
   const [showEmbed, setShowEmbed] = useState(false);
+  const [showDomain, setShowDomain] = useState(false);
+  const appHost = window.location.host;
   const copyText = async (t, msg) => { try { await navigator.clipboard.writeText(t); toast.success(msg); } catch (e) { toast.error("Copy failed"); } };
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const uploadLogo = async (e) => {
@@ -417,11 +419,14 @@ export function DeploymentTab() {
         {showChannels && (
           <div className="neu-pressed rounded-2xl p-4 mt-4" data-testid="alert-channels-panel">
             <p className="text-sm font-semibold mb-1 flex items-center gap-2" style={{ color: "var(--text)" }}><Bell className="w-4 h-4 text-primary-stitch" /> Alert channels</p>
-            <p className="text-xs text-muted-stitch mb-3">Route health-regression alerts to Slack and/or a webhook, in addition to admin email.</p>
+            <p className="text-xs text-muted-stitch mb-3">Route health-regression alerts and incident open/resolve events to Slack, Discord, WhatsApp and/or a webhook, in addition to admin email.</p>
             <div className="space-y-2">
               <input data-testid="slack-webhook-input" value={channels.slack_webhook} onChange={(e) => setChannels({ ...channels, slack_webhook: e.target.value })} placeholder="Slack incoming webhook URL" className="neu-input rounded-2xl py-2.5 px-4 text-sm w-full font-mono-stitch" />
+              <input data-testid="discord-webhook-input" value={channels.discord_webhook || ""} onChange={(e) => setChannels({ ...channels, discord_webhook: e.target.value })} placeholder="Discord webhook URL" className="neu-input rounded-2xl py-2.5 px-4 text-sm w-full font-mono-stitch" />
+              <input data-testid="whatsapp-webhook-input" value={channels.whatsapp_webhook || ""} onChange={(e) => setChannels({ ...channels, whatsapp_webhook: e.target.value })} placeholder="WhatsApp webhook URL (Twilio / Zapier / gateway)" className="neu-input rounded-2xl py-2.5 px-4 text-sm w-full font-mono-stitch" />
               <input data-testid="webhook-url-input" value={channels.webhook_url} onChange={(e) => setChannels({ ...channels, webhook_url: e.target.value })} placeholder="Generic webhook URL (JSON POST)" className="neu-input rounded-2xl py-2.5 px-4 text-sm w-full font-mono-stitch" />
             </div>
+            <p className="text-[11px] text-muted-stitch mt-2">WhatsApp has no native incoming webhook — point this at a Twilio Function, Zapier/Make "Catch Hook", or your own WhatsApp gateway that forwards the JSON <span className="font-mono-stitch">{`{message}`}</span> to WhatsApp.</p>
             <div className="flex gap-2 mt-3">
               <button data-testid="save-channels-btn" onClick={saveChannels} className="neu-primary rounded-xl px-4 py-2 text-xs font-semibold">Save channels</button>
               <button data-testid="test-channels-btn" onClick={testChannels} className="neu-btn rounded-xl px-4 py-2 text-xs font-semibold text-primary-stitch">Send test alert</button>
@@ -616,6 +621,7 @@ export function DeploymentTab() {
             <button data-testid="manage-incidents-btn" onClick={togglePubInc} className="neu-btn rounded-xl px-4 py-1.5 text-xs font-semibold text-primary-stitch">{showPubInc ? "Hide incidents" : "Manage incidents"}</button>
             <button data-testid="manage-maintenance-btn" onClick={toggleMaint} className="neu-btn rounded-xl px-4 py-1.5 text-xs font-semibold text-primary-stitch">{showMaint ? "Hide maintenance" : "Schedule maintenance"}</button>
             <button data-testid="embed-toggle-btn" onClick={() => setShowEmbed((v) => !v)} className="neu-btn rounded-xl px-4 py-1.5 text-xs font-semibold text-primary-stitch">{showEmbed ? "Hide embed" : "Embed badge"}</button>
+            <button data-testid="domain-toggle-btn" onClick={() => setShowDomain((v) => !v)} className="neu-btn rounded-xl px-4 py-1.5 text-xs font-semibold text-primary-stitch">{showDomain ? "Hide domain" : "Custom domain"}</button>
           </div>
         </div>
 
@@ -722,6 +728,32 @@ export function DeploymentTab() {
               <button data-testid="embed-md-copy" onClick={() => copyText(mdSnippet, "Markdown snippet copied")} className="neu-btn rounded-xl px-3 py-2 text-xs font-semibold text-primary-stitch shrink-0"><Copy className="w-3.5 h-3.5" /></button>
             </div>
             {!statusPage.enabled && <p className="text-xs text-amber-500 mt-3">The badge shows "unknown" until you make the status page public.</p>}
+          </div>
+        )}
+
+        {showDomain && (
+          <div className="neu-pressed rounded-2xl p-4 mt-3" data-testid="domain-panel">
+            <p className="text-sm font-semibold mb-1 flex items-center gap-2" style={{ color: "var(--text)" }}><Globe className="w-4 h-4 text-primary-stitch" /> Put the status page on your own domain</p>
+            <p className="text-xs text-muted-stitch mb-3">Host it at <span className="font-mono-stitch">status.yourdomain.com</span> so it feels like part of your brand. Two-minute DNS setup:</p>
+            <ol className="space-y-3 text-sm" style={{ color: "var(--text)" }}>
+              <li className="flex gap-3">
+                <span className="neu-sm w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-primary-stitch shrink-0">1</span>
+                <div className="min-w-0">
+                  <p>In your DNS provider, add a <strong>CNAME</strong> record:</p>
+                  <div className="neu-input rounded-xl py-2 px-3 mt-1 text-[11px] font-mono-stitch overflow-x-auto whitespace-nowrap" style={{ color: "var(--text)" }} data-testid="domain-cname">status &nbsp;→&nbsp; {appHost}</div>
+                  <button data-testid="domain-cname-copy" onClick={() => copyText(appHost, "Target host copied")} className="neu-btn rounded-lg px-3 py-1.5 mt-2 text-xs font-semibold text-primary-stitch flex items-center gap-2"><Copy className="w-3.5 h-3.5" /> Copy target host</button>
+                </div>
+              </li>
+              <li className="flex gap-3">
+                <span className="neu-sm w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-primary-stitch shrink-0">2</span>
+                <p className="min-w-0">Wait for DNS to propagate (usually a few minutes). TLS is handled automatically for the mapped host.</p>
+              </li>
+              <li className="flex gap-3">
+                <span className="neu-sm w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-primary-stitch shrink-0">3</span>
+                <p className="min-w-0">Visit <span className="font-mono-stitch">https://status.yourdomain.com/status</span> — your branded status page, live on your own domain.</p>
+              </li>
+            </ol>
+            <p className="text-[11px] text-muted-stitch mt-3">Self-hosting behind your own proxy? Point <span className="font-mono-stitch">status.yourdomain.com</span> at this app and it serves <span className="font-mono-stitch">/status</span> directly.</p>
           </div>
         )}
       </div>
