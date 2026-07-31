@@ -182,9 +182,11 @@ async def my_ai_memory(user: dict = Depends(get_current_user)):
         mine = await db.ai_memories.find({"scope": "user", "owner_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).to_list(cfg["max_items"])
     if cfg["workspace_enabled"]:
         shared = await db.ai_memories.find({"scope": "workspace", "owner_id": _WORKSPACE_OWNER}, {"_id": 0}).sort("created_at", -1).to_list(cfg["max_items"])
+    prefs_doc = await db.ai_user_prefs.find_one({"user_id": user["user_id"]}) or {}
+    cadence = prefs_doc.get("digest_cadence") or ("monthly" if prefs_doc.get("memory_digest") else "off")
     return {"user_enabled": cfg["user_enabled"], "workspace_enabled": cfg["workspace_enabled"],
             "auto_capture": await _user_auto_capture(user["user_id"]),
-            "memory_digest": bool((await db.ai_user_prefs.find_one({"user_id": user["user_id"]}) or {}).get("memory_digest")),
+            "digest_cadence": cadence,
             "user": mine, "workspace": shared}
 
 
@@ -194,10 +196,26 @@ async def set_my_memory_prefs(request: Request, user: dict = Depends(get_current
     updates = {"user_id": user["user_id"]}
     if "auto_capture" in body:
         updates["auto_capture"] = bool(body.get("auto_capture"))
-    if "memory_digest" in body:
-        updates["memory_digest"] = bool(body.get("memory_digest"))
+    if "digest_cadence" in body:
+        cad = str(body.get("digest_cadence") or "off").lower()
+        updates["digest_cadence"] = cad if cad in ("off", "weekly", "monthly") else "off"
+    if not updates.get("digest_cadence") and "memory_digest" in body:
+        updates["digest_cadence"] = "monthly" if body.get("memory_digest") else "off"
     await db.ai_user_prefs.update_one({"user_id": user["user_id"]}, {"$set": updates}, upsert=True)
     return {"ok": True, **{k: v for k, v in updates.items() if k != "user_id"}}
+
+
+@router.post("/ai/memory/bulk-category")
+async def bulk_recategorize(request: Request, user: dict = Depends(get_current_user)):
+    body = await request.json()
+    ids = [str(i) for i in (body.get("ids") or [])]
+    category = _norm_category(body.get("category"))
+    if not ids:
+        raise HTTPException(status_code=400, detail="no memories selected")
+    res = await db.ai_memories.update_many(
+        {"mem_id": {"$in": ids}, "scope": "user", "owner_id": user["user_id"]},
+        {"$set": {"category": category, "edited_at": now_iso()}})
+    return {"ok": True, "updated": res.modified_count, "category": category}
 
 
 @router.post("/ai/memory")
@@ -319,16 +337,23 @@ async def send_memory_digest_now(user: dict = Depends(get_current_user)):
 
 
 async def scan_memory_digests():
-    """Monthly: email a memory summary to users who opted in (>=30 days since last)."""
+    """Weekly/monthly: email a memory summary to users per their chosen cadence."""
     try:
         cfg = await _ai_memory_cfg()
         if not cfg["user_enabled"]:
             return 0
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
-        prefs = await db.ai_user_prefs.find({"memory_digest": True}).to_list(1000)
+        now = datetime.now(timezone.utc)
+        weekly_cut = (now - timedelta(days=7)).isoformat()
+        monthly_cut = (now - timedelta(days=30)).isoformat()
+        prefs = await db.ai_user_prefs.find({"$or": [{"digest_cadence": {"$in": ["weekly", "monthly"]}},
+                                                     {"memory_digest": True}]}).to_list(2000)
         sent = 0
         for p in prefs:
-            if p.get("last_digest") and p["last_digest"] > cutoff:
+            cadence = p.get("digest_cadence") or ("monthly" if p.get("memory_digest") else "off")
+            if cadence not in ("weekly", "monthly"):
+                continue
+            cut = weekly_cut if cadence == "weekly" else monthly_cut
+            if p.get("last_digest") and p["last_digest"] > cut:
                 continue
             doc = await db.users.find_one({"user_id": p["user_id"]})
             if not doc:

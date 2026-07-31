@@ -50,10 +50,9 @@ function MemoryPanel({ open, onClose }) {
     catch (e) { toast.error("Couldn't move that"); }
   };
   const [savingDigest, setSavingDigest] = useState(false);
-  const toggleDigest = async () => {
-    const next = !data.memory_digest;
-    setData({ ...data, memory_digest: next });
-    try { await api.put("/ai/memory/prefs", { memory_digest: next }); toast.success(next ? "You'll get a monthly memory summary" : "Monthly summary off"); }
+  const setCadence = async (cadence) => {
+    setData({ ...data, digest_cadence: cadence });
+    try { await api.put("/ai/memory/prefs", { digest_cadence: cadence }); toast.success(cadence === "off" ? "Memory summary off" : `You'll get a ${cadence} memory summary`); }
     catch (e) { toast.error("Couldn't update"); load(); }
   };
   const sendDigestNow = async () => {
@@ -63,6 +62,16 @@ function MemoryPanel({ open, onClose }) {
       if (r.ok) toast.success("Summary sent to your email");
       else toast.error("Email not configured yet — ask your admin to set up email");
     } catch (e) { toast.error("Couldn't send"); } finally { setSavingDigest(false); }
+  };
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkCat, setBulkCat] = useState("general");
+  const toggleSelect = (id) => setSelectedIds((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id]);
+  const exitSelect = () => { setSelectMode(false); setSelectedIds([]); };
+  const bulkMove = async () => {
+    if (selectedIds.length === 0) return;
+    try { const { data: r } = await api.post("/ai/memory/bulk-category", { ids: selectedIds, category: bulkCat }); toast.success(`Moved ${r.updated} to ${bulkCat}`); exitSelect(); load(); }
+    catch (e) { toast.error("Couldn't move those"); }
   };
   const toggleAuto = async () => {
     const next = !data.auto_capture;
@@ -84,7 +93,20 @@ function MemoryPanel({ open, onClose }) {
   const nothing = data && data.user.length === 0 && data.workspace.length === 0;
   const noMatches = data && !nothing && userList.length === 0 && wsList.length === 0;
 
-  const renderRow = (m) => (
+  const renderRow = (m) => {
+    if (selectMode) {
+      const on = selectedIds.includes(m.mem_id);
+      return (
+        <button key={m.mem_id} data-testid="my-memory-select-row" onClick={() => toggleSelect(m.mem_id)}
+          className={`w-full text-left rounded-2xl px-4 py-3 flex items-center gap-3 transition-all ${on ? "neu-primary" : "neu-pressed"}`}>
+          <span className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 ${on ? "bg-white" : ""}`} style={on ? {} : { border: "2px solid var(--neu-dark)" }}>
+            {on && <Check className="w-3.5 h-3.5 text-primary-stitch" />}
+          </span>
+          <span className={`text-sm min-w-0 ${on ? "text-white" : ""}`} style={on ? {} : { color: "var(--text)" }}>{m.content}</span>
+        </button>
+      );
+    }
+    return (
     <div key={m.mem_id} data-testid="my-memory-row" className="neu-pressed rounded-2xl px-4 py-3">
       {editId === m.mem_id ? (
         <div className="flex gap-2 items-center" data-testid="memory-edit-row">
@@ -114,7 +136,8 @@ function MemoryPanel({ open, onClose }) {
         </div>
       )}
     </div>
-  );
+    );
+  };
   return (
     <div className="fixed inset-0 z-50 flex justify-end" data-testid="memory-panel">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
@@ -150,21 +173,22 @@ function MemoryPanel({ open, onClose }) {
 
             {data.user_enabled && (
               <div className="neu-pressed rounded-2xl p-4 mb-4" data-testid="digest-card">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0 pr-2 flex items-center gap-2">
-                    <Mail className="w-5 h-5 text-primary-stitch shrink-0" />
-                    <div>
-                      <p className="text-sm font-medium" style={{ color: "var(--text)" }}>Monthly memory summary</p>
-                      <p className="text-xs text-muted-stitch mt-0.5">Get an email of everything Stitch remembers, with a one-click prune link.</p>
-                    </div>
+                <div className="flex items-center gap-2 mb-3">
+                  <Mail className="w-5 h-5 text-primary-stitch shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium" style={{ color: "var(--text)" }}>Memory summary email</p>
+                    <p className="text-xs text-muted-stitch mt-0.5">A recap of everything Stitch remembers, with a one-click prune link.</p>
                   </div>
-                  <button data-testid="digest-toggle" onClick={toggleDigest}
-                    className={`w-14 h-8 rounded-full flex items-center px-1 transition-all shrink-0 ${data.memory_digest ? "justify-end" : "justify-start"}`}
-                    style={{ background: data.memory_digest ? "var(--primary)" : "var(--neu-dark)" }}>
-                    <span className="w-6 h-6 rounded-full bg-white shadow" />
-                  </button>
                 </div>
-                <button data-testid="digest-send-now" onClick={sendDigestNow} disabled={savingDigest} className="neu-btn rounded-xl px-4 py-2 text-xs font-semibold text-primary-stitch mt-3">{savingDigest ? "Sending…" : "Send me a summary now"}</button>
+                <div className="flex items-center gap-2">
+                  <div className="neu-raised rounded-xl p-1 inline-flex gap-1">
+                    {["off", "weekly", "monthly"].map((c) => (
+                      <button key={c} data-testid={`digest-cadence-${c}`} onClick={() => setCadence(c)}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition-all ${data.digest_cadence === c ? "neu-primary" : "text-muted-stitch"}`}>{c}</button>
+                    ))}
+                  </div>
+                  <button data-testid="digest-send-now" onClick={sendDigestNow} disabled={savingDigest} className="neu-btn rounded-xl px-3 py-2 text-xs font-semibold text-primary-stitch ml-auto">{savingDigest ? "Sending…" : "Send now"}</button>
+                </div>
               </div>
             )}
 
@@ -178,10 +202,28 @@ function MemoryPanel({ open, onClose }) {
             )}
 
             {!nothing && (
-              <div className="neu-pressed rounded-2xl flex items-center gap-2 px-3 py-2 mb-5" data-testid="memory-search-box">
-                <Search className="w-4 h-4 text-muted-stitch shrink-0" />
-                <input data-testid="memory-search-input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search memories…" className="bg-transparent text-sm outline-none flex-1" style={{ color: "var(--text)" }} />
-                {query && <button data-testid="memory-search-clear" onClick={() => setQuery("")} className="text-muted-stitch"><X className="w-3.5 h-3.5" /></button>}
+              <div className="flex items-center gap-2 mb-3">
+                <div className="neu-pressed rounded-2xl flex items-center gap-2 px-3 py-2 flex-1" data-testid="memory-search-box">
+                  <Search className="w-4 h-4 text-muted-stitch shrink-0" />
+                  <input data-testid="memory-search-input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search memories…" className="bg-transparent text-sm outline-none flex-1 min-w-0" style={{ color: "var(--text)" }} />
+                  {query && <button data-testid="memory-search-clear" onClick={() => setQuery("")} className="text-muted-stitch"><X className="w-3.5 h-3.5" /></button>}
+                </div>
+                {data.user_enabled && userList.length > 0 && (
+                  <button data-testid="memory-select-toggle" onClick={() => selectMode ? exitSelect() : setSelectMode(true)}
+                    className={`rounded-2xl px-3 py-2 text-sm font-semibold shrink-0 ${selectMode ? "neu-primary" : "neu-btn text-primary-stitch"}`}>
+                    {selectMode ? "Done" : "Select"}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {selectMode && (
+              <div className="neu-raised rounded-2xl p-3 mb-4 flex items-center gap-2 flex-wrap" data-testid="bulk-action-bar">
+                <span className="text-sm font-semibold" style={{ color: "var(--text)" }} data-testid="bulk-selected-count">{selectedIds.length} selected</span>
+                <select data-testid="bulk-category-select" value={bulkCat} onChange={(e) => setBulkCat(e.target.value)} className="neu-input rounded-xl text-xs font-semibold py-2 px-3 ml-auto" style={{ color: "var(--text)" }}>
+                  {CAT_ORDER.map((c) => <option key={c} value={c}>{CAT_META[c].label}</option>)}
+                </select>
+                <button data-testid="bulk-move-btn" onClick={bulkMove} disabled={selectedIds.length === 0} className="neu-primary rounded-xl px-4 py-2 text-xs font-semibold disabled:opacity-60">Move</button>
               </div>
             )}
 
