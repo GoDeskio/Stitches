@@ -303,6 +303,11 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - **Component History**: every subsystem row on `/status` links to a public detail page `/status/:key` (`ComponentStatus.jsx`) showing 24h/7d/90d uptime %, a 90-day daily uptime bar chart, and the component's full incident history with update timelines. Endpoint: `GET /api/status/public/component/{key}` (404 for unknown key). New route `/status/:key` in `App.js`.
 - Verified (iteration_48): backend 8/8 pytest + frontend 100% E2E, zero issues. Test data purged.
 
+## Implemented (2026-07-31, part 4) — Status Embed Badge + Maintenance Auto-Silence
+- **Status Embed Widget**: public `GET /api/status/badge.svg` (optional `?component=&label=`) renders a shields-style SVG badge showing overall (or per-component) status — operational / degraded / major outage / maintenance / unknown — cacheable, CORS-open, no auth. Admin status card has an "Embed badge" panel with a live preview + copyable HTML and Markdown snippets that link back to `/status`.
+- **Maintenance Auto-Silence**: while a maintenance window is in progress for a component, `_sync_public_incidents` skips opening auto-incidents for that component and `scan_auto_diagnostics` skips its regression alerts (recoveries still fire). The badge shows "maintenance" for silenced components. Driven by `_active_maintenance_group_keys()`.
+- Verified (iteration_49): backend + frontend 100%, auto-silence loop confirmed (no incident while maintained → opens after removal), embed panel + badge verified. Zero issues.
+
 ### Status Page backlog (from code review)
 - Split the ~1160-line `deploy_center.py` into diagnostics / deploy-bundle / status-page / subscribers / maintenance submodules.
 - Add a TTL cache / pre-aggregation for `/status/public` + `/status/public/component/{key}` (both rescan diagnostics_history per request).
