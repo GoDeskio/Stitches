@@ -341,6 +341,11 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - The delivery-log chip now shows a `↻N` marker + tooltip when more than one attempt was made.
 - Verified (curl): a failing generic webhook (HTTP 500) was retried to `attempts: 3` with ~4s backoff and logged `ok:false`. Frontend build clean.
 
+## Implemented (2026-07-31, part 12) — Background Retries + Ops Overview
+- **Background Retries**: request-triggered dispatches now run fire-and-forget via `_spawn()` — `test_alert_channels` returns immediately (`queued:true`), and `create_status_incident` / `update_status_incident` background their subscriber-email + channel notifies. A manual "Send test alert" against a down webhook returns in ~0.2s while the 3-attempt retry-with-backoff completes in the background (still logged with `attempts`). Background loops (auto diagnostics / maintenance) remain awaited.
+- **Ops Overview widget**: `GET /admin/deploy/ops-overview` aggregates overall status, open incidents, active subscribers, status-page visibility, next maintenance, and last 6 webhook deliveries. Rendered as an `OpsOverview` card on the Admin → Overview tab (status/incidents/subscribers/status-page tiles + recent-delivery chips + "Open Deployment").
+- Verified (iteration_55): backend 6/6 + frontend 100%; instant return (~0.2s) confirmed, background retry landed `attempts:3, ok:false` ~8s later, success logs `attempts:1`, widget renders + nav works. Zero product issues. Test data cleaned.
+
 ### Status Page backlog (from code review)
 - Split the ~1160-line `deploy_center.py` into diagnostics / deploy-bundle / status-page / subscribers / maintenance submodules.
 - Add a TTL cache / pre-aggregation for `/status/public` + `/status/public/component/{key}` (both rescan diagnostics_history per request).
