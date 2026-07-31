@@ -284,3 +284,9 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 ### P1 backlog / next
 - **NMI Payments WORKING (sandbox)**: classic Direct Post via `sandbox.nmi.com/api/transact.php` + security key `NMI_SECRET_KEY`. Charge/refund/void verified end-to-end. For a public checkout, upgrade to Collect.js tokenization (public key) for PCI SAQ A.
 - Decide what to charge for (subscriptions vs one-time) — user undecided; current tab is a generic "take a payment" admin tool.
+
+## Implemented (2026-07-31) — Public Status Page + Incident Notes (Deployment Center)
+- **Public status page** (`/status`, unauthenticated): overall banner (operational/degraded/outage), per-subsystem uptime strips + rolling "% healthy" for curated friendly groups (Platform, AI Assistant, Calls & Meetings, Email delivery), and an Incident history section. Gated behind an admin toggle (off by default) via `status_page` settings; shows a friendly "not available" state when off. Backend `GET /api/status/public` (public), `GET/PUT /api/admin/deploy/status-page`.
+- **Incident notes**: admins annotate any health alert (Deployment tab → "Incidents" → incident log). `GET /api/admin/deploy/diagnose/alerts/all` + `PATCH /api/admin/deploy/diagnose/alerts/{alert_id}/note`. Notes with text surface publicly on `/status` (Resolved/Investigating chip + label + note + date).
+- Admin UI: `status-page-card` (toggle/title/copy-link/view), `incidents-toggle-btn` → `incident-log-panel` in `DeploymentTab.jsx`. New public page `StatusPage.jsx`, route added in `App.js`.
+- Verified (iteration_46): backend 6/6 pytest + frontend 100% E2E, zero issues.
