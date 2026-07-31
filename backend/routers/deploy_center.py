@@ -1,4 +1,5 @@
 import io
+import re
 import zipfile
 import secrets as pysecrets
 from email.utils import format_datetime
@@ -704,7 +705,17 @@ _GROUP_KEY_BY_ID = {i: g["key"] for g in PUBLIC_GROUPS for i in g["ids"]}
 async def _status_page_cfg():
     v = ((await db.settings.find_one({"key": "status_page"})) or {}).get("value", {})
     return {"enabled": bool(v.get("enabled", False)), "title": v.get("title", "Stitches Status"),
-            "auto_incidents": bool(v.get("auto_incidents", True))}
+            "auto_incidents": bool(v.get("auto_incidents", True)),
+            "accent": v.get("accent", ""), "logo_path": v.get("logo_path", ""), "logo_v": v.get("logo_v", "")}
+
+
+def _valid_hex(c):
+    return bool(re.fullmatch(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})", c or ""))
+
+
+def _logo_url(cfg):
+    base = (os.environ.get("FRONTEND_URL", "") or "").rstrip("/")
+    return f"{base}/api/status/logo?v={cfg['logo_v']}" if cfg.get("logo_path") else ""
 
 
 @router.get("/admin/deploy/status-page")
@@ -712,7 +723,8 @@ async def get_status_page(user: dict = Depends(require_admin)):
     cfg = await _status_page_cfg()
     subs = await db.status_subscribers.count_documents({"active": True})
     open_inc = await db.status_incidents.count_documents({"status": "investigating"})
-    return {**cfg, "subscribers": subs, "open_incidents": open_inc}
+    return {"enabled": cfg["enabled"], "title": cfg["title"], "auto_incidents": cfg["auto_incidents"],
+            "accent": cfg["accent"], "logo": _logo_url(cfg), "subscribers": subs, "open_incidents": open_inc}
 
 
 @router.put("/admin/deploy/status-page")
@@ -720,12 +732,64 @@ async def set_status_page(request: Request, user: dict = Depends(require_admin))
     body = await request.json()
     cur = await _status_page_cfg()
     title = (body.get("title") if body.get("title") is not None else cur["title"]) or ""
+    if body.get("accent") is not None:
+        accent = (body.get("accent") or "").strip()
+        if accent and not _valid_hex(accent):
+            raise HTTPException(status_code=400, detail="accent must be a hex color like #a11a2b")
+    else:
+        accent = cur["accent"]
     val = {"enabled": bool(body.get("enabled", cur["enabled"])),
            "title": title.strip()[:60] or "Stitches Status",
-           "auto_incidents": bool(body.get("auto_incidents", cur["auto_incidents"]))}
+           "auto_incidents": bool(body.get("auto_incidents", cur["auto_incidents"])),
+           "accent": accent, "logo_path": cur["logo_path"], "logo_v": cur["logo_v"]}
     await db.settings.update_one({"key": "status_page"},
                                  {"$set": {"key": "status_page", "value": val}}, upsert=True)
-    return {"ok": True, **val}
+    return {"ok": True, "enabled": val["enabled"], "title": val["title"],
+            "auto_incidents": val["auto_incidents"], "accent": val["accent"], "logo": _logo_url(val)}
+
+
+@router.post("/admin/deploy/status-logo")
+async def upload_status_logo(file: UploadFile = File(...), user: dict = Depends(require_admin)):
+    ct = file.content_type or ""
+    if not ct.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
+    data = await file.read()
+    if len(data) > 2 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Logo too large (max 2MB)")
+    ext = file.filename.split(".")[-1].lower() if "." in (file.filename or "") else "png"
+    path = f"{APP_NAME}/status/logo/{uuid.uuid4()}.{ext}"
+    result = put_object(path, data, ct or "image/png")
+    cur = await _status_page_cfg()
+    val = {"enabled": cur["enabled"], "title": cur["title"], "auto_incidents": cur["auto_incidents"],
+           "accent": cur["accent"], "logo_path": result["path"], "logo_v": uuid.uuid4().hex[:8]}
+    await db.settings.update_one({"key": "status_page"},
+                                 {"$set": {"key": "status_page", "value": val}}, upsert=True)
+    return {"ok": True, "logo": _logo_url(val)}
+
+
+@router.delete("/admin/deploy/status-logo")
+async def delete_status_logo(user: dict = Depends(require_admin)):
+    cur = await _status_page_cfg()
+    if cur.get("logo_path"):
+        try:
+            delete_object(cur["logo_path"])
+        except Exception:
+            pass
+    val = {"enabled": cur["enabled"], "title": cur["title"], "auto_incidents": cur["auto_incidents"],
+           "accent": cur["accent"], "logo_path": "", "logo_v": ""}
+    await db.settings.update_one({"key": "status_page"},
+                                 {"$set": {"key": "status_page", "value": val}}, upsert=True)
+    return {"ok": True}
+
+
+@router.get("/status/logo")
+async def status_logo():
+    cur = await _status_page_cfg()
+    if not cur.get("logo_path"):
+        raise HTTPException(status_code=404, detail="No logo")
+    data, ct = get_object(cur["logo_path"])
+    return FastResponse(content=data, media_type=ct or "image/png",
+                        headers={"Cache-Control": "public, max-age=3600", "Access-Control-Allow-Origin": "*"})
 
 
 def _worst(ids, statuses):
@@ -793,6 +857,32 @@ async def _active_maintenance_group_keys():
     return keys
 
 
+async def _notify_incident_channels(event, label, impact="", text="", component=""):
+    """Post incident open/update/resolve events to the configured Slack + generic webhook channels."""
+    ch = ((await db.settings.find_one({"key": "alert_channels"})) or {}).get("value", {})
+    if not ch.get("slack_webhook") and not ch.get("webhook_url"):
+        return
+    base = (os.environ.get("FRONTEND_URL", "") or "").rstrip("/")
+    link = (f"{base}/status/{component}" if (base and component) else (f"{base}/status" if base else ""))
+    verb = {"opened": "opened", "update": "updated", "resolved": "resolved"}.get(event, event)
+    emoji = ":white_check_mark:" if event == "resolved" else (":rotating_light:" if event == "opened" else ":memo:")
+    summary = f"{label}: incident {verb}" + (f" ({impact})" if impact else "")
+    slack_text = f"{emoji} {summary}" + (f"\n{text}" if text else "") + (f"\n{link}" if link else "")
+    import httpx
+    async with httpx.AsyncClient(timeout=10) as client:
+        if ch.get("slack_webhook"):
+            try:
+                await client.post(ch["slack_webhook"], json={"text": slack_text})
+            except Exception as e:
+                logger.warning(f"incident slack failed: {e}")
+        if ch.get("webhook_url"):
+            try:
+                await client.post(ch["webhook_url"], json={"event": f"stitches.incident.{event}", "label": label,
+                                                           "impact": impact, "text": text, "component": component, "link": link})
+            except Exception as e:
+                logger.warning(f"incident webhook failed: {e}")
+
+
 # ---------------- Public incidents (auto + manual) ----------------
 async def _sync_public_incidents(report):
     """Open a public incident when a subsystem breaks; resolve it when it recovers."""
@@ -819,6 +909,7 @@ async def _sync_public_incidents(report):
                 f"[Stitches] Incident opened — {g['label']} {impact}",
                 f"<h3>{g['label']} — {impact.title()}</h3>"
                 f"<p>We're investigating an issue affecting <strong>{g['label']}</strong>.</p>")
+            await _notify_incident_channels("opened", g["label"], impact, f"Auto-detected: {g['label']} is {word}.", g["key"])
         elif st == "ok" and openinc:
             await db.status_incidents.update_one({"_id": openinc["_id"]},
                 {"$set": {"status": "resolved", "resolved_at": now_iso()},
@@ -828,6 +919,7 @@ async def _sync_public_incidents(report):
                 f"[Stitches] Resolved — {g['label']}",
                 f"<h3>{g['label']} — Resolved ✅</h3>"
                 f"<p>The issue affecting <strong>{g['label']}</strong> has been resolved.</p>")
+            await _notify_incident_channels("resolved", g["label"], "", f"{g['label']} has recovered — all checks passing.", g["key"])
 
 
 @router.get("/admin/deploy/status-incidents")
@@ -853,6 +945,7 @@ async def create_status_incident(request: Request, user: dict = Depends(require_
     await log_activity(user["user_id"], "incident_open")
     await _notify_subscribers(f"[Stitches] Incident opened — {label} {impact}",
                               f"<h3>{label} — {impact.title()}</h3><p>{text}</p>")
+    await _notify_incident_channels("opened", label, impact, text, gk or "")
     return {"ok": True, "incident_id": inc["incident_id"]}
 
 
@@ -873,6 +966,7 @@ async def update_status_incident(incident_id: str, request: Request, user: dict 
     subj = f"[Stitches] Resolved — {label}" if resolve else f"[Stitches] Update — {label}"
     head = f"<h3>{label} — {'Resolved ✅' if resolve else 'Update'}</h3><p>{text}</p>"
     await _notify_subscribers(subj, head)
+    await _notify_incident_channels("resolved" if resolve else "update", label, "", text, inc.get("group_key", ""))
     return {"ok": True}
 
 
@@ -925,6 +1019,7 @@ async def public_status():
                                 "starts_at": m.get("starts_at"), "ends_at": m.get("ends_at"), "state": st,
                                 "components": [g["label"] for g in PUBLIC_GROUPS if g["key"] in (m.get("group_keys") or [])]})
     return {"enabled": True, "title": cfg["title"], "overall": overall,
+            "accent": cfg.get("accent", ""), "logo": _logo_url(cfg),
             "windows": [w[0] for w in WINDOWS],
             "generated_at": runs[0]["generated_at"] if runs else now_iso(),
             "groups": groups, "incidents": incidents, "maintenance": maintenance}
@@ -1053,6 +1148,7 @@ async def public_component(key: str):
                   "resolved_at": i.get("resolved_at"), "updates": i.get("updates", []), "auto": i.get("auto", False)}
                  for i in raw]
     return {"enabled": True, "title": cfg["title"], "key": key, "label": g["label"],
+            "accent": cfg.get("accent", ""), "logo": _logo_url(cfg),
             "status": cur, "windows": windows, "daily": daily, "incidents": incidents}
 
 

@@ -17,7 +17,7 @@ const OVERALL = {
 };
 const WIN_LABEL = { "24h": "24 hours", "7d": "7 days", "90d": "90 days" };
 
-function SubscribeBox() {
+function SubscribeBox({ accent }) {
   const [email, setEmail] = useState("");
   const [state, setState] = useState("idle"); // idle | loading | done | error
   const [msg, setMsg] = useState("");
@@ -37,7 +37,7 @@ function SubscribeBox() {
   return (
     <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="status-subscribe">
       <div className="flex items-center gap-3 mb-1">
-        <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center"><Bell className="w-5 h-5 text-primary-stitch" /></div>
+        <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center"><Bell className="w-5 h-5" style={{ color: accent || "var(--primary)" }} /></div>
         <div>
           <h2 className="font-head font-bold text-lg" style={{ color: "var(--text)" }}>Get status updates</h2>
           <p className="text-sm text-muted-stitch">Subscribe to be emailed the moment we open or resolve an incident.</p>
@@ -50,7 +50,7 @@ function SubscribeBox() {
           <input data-testid="subscribe-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
             placeholder="you@company.com" className="neu-input rounded-2xl py-3 px-4 text-sm flex-1" style={{ color: "var(--text)" }} />
           <button data-testid="subscribe-submit" type="submit" disabled={state === "loading"}
-            className="neu-primary rounded-2xl px-5 py-3 font-semibold flex items-center gap-2 shrink-0">
+            className="neu-primary rounded-2xl px-5 py-3 font-semibold flex items-center gap-2 shrink-0" style={accent ? { background: accent } : undefined}>
             {state === "loading" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bell className="w-4 h-4" />} Subscribe
           </button>
         </form>
@@ -97,13 +97,17 @@ export default function StatusPage() {
   const ov = OVERALL[data.overall] || OVERALL.operational;
   const windows = data.windows || ["24h", "7d", "90d"];
   const activeWin = windows.includes(win) ? win : windows[windows.length - 1];
+  const accent = data.accent || "";
 
   return (
     <div className="stitch-wallpaper min-h-screen py-12 px-4" data-testid="status-page">
       <div className="max-w-2xl mx-auto space-y-6">
         <div className="text-center animate-fade-up">
-          <div className="inline-flex items-center gap-2 text-muted-stitch text-xs font-semibold uppercase tracking-widest mb-3">
-            <Activity className="w-4 h-4 text-primary-stitch" /> {data.title}
+          {data.logo ? (
+            <img data-testid="status-logo" src={data.logo} alt={data.title} className="h-12 mx-auto mb-2 object-contain" />
+          ) : null}
+          <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: accent || "var(--muted)" }}>
+            {!data.logo && <Activity className="w-4 h-4" style={{ color: accent || "var(--primary)" }} />} {data.title}
           </div>
         </div>
 
@@ -146,7 +150,8 @@ export default function StatusPage() {
             <div className="neu-pressed rounded-2xl p-1 inline-flex gap-1" data-testid="uptime-window-tabs">
               {windows.map((w) => (
                 <button key={w} data-testid={`window-tab-${w}`} onClick={() => setWin(w)}
-                  className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition-all ${activeWin === w ? "neu-primary" : "text-muted-stitch"}`}>{w}</button>
+                  className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition-all ${activeWin === w ? "neu-primary" : "text-muted-stitch"}`}
+                  style={activeWin === w && accent ? { background: accent, color: "#fff" } : undefined}>{w}</button>
               ))}
             </div>
           </div>
@@ -176,7 +181,7 @@ export default function StatusPage() {
           })}
         </div>
 
-        <SubscribeBox />
+        <SubscribeBox accent={accent} />
 
         {data.incidents?.length > 0 && (
           <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="status-incidents">
@@ -213,7 +218,7 @@ export default function StatusPage() {
         )}
 
         <p className="text-center text-xs text-muted-stitch pt-2">
-          Powered by Stitches · <a data-testid="status-rss-link" href={`${window.location.origin}/api/status/feed.xml`} target="_blank" rel="noreferrer" className="text-primary-stitch font-semibold hover:underline">Subscribe via RSS</a>
+          Powered by Stitches · <a data-testid="status-rss-link" href={`${window.location.origin}/api/status/feed.xml`} target="_blank" rel="noreferrer" className="font-semibold hover:underline" style={{ color: accent || "var(--primary)" }}>Subscribe via RSS</a>
         </p>
       </div>
     </div>

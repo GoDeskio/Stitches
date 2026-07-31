@@ -106,6 +106,23 @@ export function DeploymentTab() {
   const mdSnippet = `[![Stitches status](${badgeUrl})](${statusUrl})`;
   const [showEmbed, setShowEmbed] = useState(false);
   const copyText = async (t, msg) => { try { await navigator.clipboard.writeText(t); toast.success(msg); } catch (e) { toast.error("Copy failed"); } };
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const uploadLogo = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const fd = new FormData(); fd.append("file", file);
+    setUploadingLogo(true);
+    try {
+      const { data } = await api.post("/admin/deploy/status-logo", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      setStatusPage((sp) => ({ ...sp, logo: data.logo }));
+      toast.success("Logo uploaded");
+    } catch (err) { toast.error(err?.response?.data?.detail || "Upload failed"); }
+    finally { setUploadingLogo(false); e.target.value = ""; }
+  };
+  const removeLogo = async () => {
+    try { await api.delete("/admin/deploy/status-logo"); setStatusPage((sp) => ({ ...sp, logo: "" })); toast.success("Logo removed"); }
+    catch (e) { toast.error("Couldn't remove logo"); }
+  };
 
   const [pubIncidents, setPubIncidents] = useState([]);
   const [pubGroups, setPubGroups] = useState([]);
@@ -552,6 +569,33 @@ export function DeploymentTab() {
           </div>
         </div>
         {!statusPage.enabled && <p className="text-xs text-amber-500 mt-3">Turn this on to make <span className="font-mono-stitch break-all">{statusUrl}</span> viewable by anyone.</p>}
+
+        <div className="neu-pressed rounded-2xl p-4 mt-4" data-testid="status-theme-row">
+          <p className="text-sm font-semibold mb-1" style={{ color: "var(--text)" }}>Brand your status page</p>
+          <p className="text-xs text-muted-stitch mb-3">Set an accent color and logo so the public page matches your brand.</p>
+          <div className="flex items-end gap-4 flex-wrap">
+            <div>
+              <label className="text-[11px] text-muted-stitch">Accent color</label>
+              <div className="flex items-center gap-2 mt-1">
+                <input data-testid="theme-accent-color" type="color" value={statusPage.accent || "#a11a2b"} onChange={(e) => setStatusPage({ ...statusPage, accent: e.target.value })} className="w-10 h-10 rounded-xl border-0 bg-transparent cursor-pointer" />
+                <input data-testid="theme-accent-hex" value={statusPage.accent || ""} onChange={(e) => setStatusPage({ ...statusPage, accent: e.target.value })} placeholder="#a11a2b" className="neu-input rounded-xl py-2 px-3 text-sm w-28 font-mono-stitch" style={{ color: "var(--text)" }} />
+                <button data-testid="theme-accent-apply" onClick={() => saveStatusPage({})} className="neu-primary rounded-xl px-4 py-2 text-xs font-semibold">Apply</button>
+                {statusPage.accent && <button data-testid="theme-accent-clear" onClick={() => saveStatusPage({ accent: "" })} className="neu-btn rounded-xl px-3 py-2 text-xs font-semibold text-muted-stitch">Clear</button>}
+              </div>
+            </div>
+            <div>
+              <label className="text-[11px] text-muted-stitch">Logo</label>
+              <div className="flex items-center gap-2 mt-1">
+                {statusPage.logo && <img data-testid="theme-logo-preview" src={statusPage.logo} alt="logo" className="h-9 object-contain neu-pressed rounded-lg px-2 py-1" />}
+                <label data-testid="theme-logo-upload" className="neu-btn rounded-xl px-4 py-2 text-xs font-semibold text-primary-stitch cursor-pointer">
+                  {uploadingLogo ? "Uploading…" : statusPage.logo ? "Replace" : "Upload logo"}
+                  <input type="file" accept="image/*" onChange={uploadLogo} className="hidden" />
+                </label>
+                {statusPage.logo && <button data-testid="theme-logo-remove" onClick={removeLogo} className="neu-btn rounded-xl px-3 py-2 text-xs font-semibold text-muted-stitch">Remove</button>}
+              </div>
+            </div>
+          </div>
+        </div>
 
         <div className="neu-pressed rounded-2xl p-4 mt-4 flex items-center justify-between gap-3 flex-wrap" data-testid="auto-incident-row">
           <div className="min-w-0">

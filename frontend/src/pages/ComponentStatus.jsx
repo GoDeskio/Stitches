@@ -46,6 +46,7 @@ export default function ComponentStatus() {
   }
 
   const gm = GROUP_META[data.status] || GROUP_META.ok;
+  const accent = data.accent || "";
   const origin = window.location.origin;
   const badgeUrl = `${origin}/api/status/badge.svg?component=${key}`;
   const pageUrl = `${origin}/status/${key}`;
@@ -56,7 +57,8 @@ export default function ComponentStatus() {
   return (
     <div className="stitch-wallpaper min-h-screen py-12 px-4" data-testid="component-status-page">
       <div className="max-w-2xl mx-auto space-y-6">
-        <Link to="/status" data-testid="component-back" className="inline-flex items-center gap-2 text-sm text-muted-stitch hover:text-primary-stitch transition-colors font-semibold">
+        {data.logo && <img data-testid="component-logo" src={data.logo} alt={data.title} className="h-10 object-contain" />}
+        <Link to="/status" data-testid="component-back" className="inline-flex items-center gap-2 text-sm text-muted-stitch hover:text-primary-stitch transition-colors font-semibold" style={accent ? { color: accent } : undefined}>
           <ArrowLeft className="w-4 h-4" /> {data.title}
         </Link>
 
