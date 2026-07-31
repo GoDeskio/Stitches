@@ -1,0 +1,37 @@
+{
+  "summary": "Iter 45 — Undo Forget, Memory Export, Deployment Diagnostics. Backend pytest 14/14 pass. Frontend E2E all flows pass. Verified: (a) POST /api/ai/memory/bulk-delete removes selected user memories (returns {deleted:n}); empty ids -> 400. (b) POST /api/ai/memory/restore re-inserts captured memory docs preserving mem_id/content/category/source/created_at; idempotent (second restore returns restored:0 because mem_id already exists). (c) GET /api/ai/memory/export?format=json returns application/json attachment (stitch-memories.json) with the raw memory array (no _id leak); ?format=csv returns text/csv attachment with header row exactly 'category,content,source,created_at,edited_at'. (d) POST /api/admin/deploy/diagnose {autofix:true} returns {summary:{ok,warn,fail}, auto_fixed:[...], checks:[...]} with all 11 expected check ids present (mongo, llm, frontendurl, email, turn, livekit, deploysecrets, deploytarget, aimemory, admin, bots, indexes); each check has id/label/status/detail/needs_admin/fix_hint/autofixed; with autofix=true indexes flips to ok and appears in auto_fixed. (e) GET /api/admin/deploy/diagnose/download returns text/markdown attachment (stitches-diagnostics.md) with '# Stitches Diagnostics Report' and per-check sections. (f) Regression: pin/edit/bulk-category/deploy catalog still work. Frontend E2E (admin@stitches.app): /assistant -> open-memory-btn -> export-json-btn and export-csv-btn both trigger downloads with matching filename/mime and seeded content is present; select-mode toggle -> ticked 2 memory-select rows -> bulk-forget-btn (window.confirm accepted) -> sonner toast 'Forgot 2 Undo' appeared, Undo button clicked in time -> POST /ai/memory/restore called and 2 seeded mem_ids reappeared in GET /ai/memory. Admin -> Deployment tab -> run-diagnose-btn -> diagnose-results renders (11 OK / 1 warning / 0 failing chips), 'AUTO-FIXED BY SYSTEM AI' panel lists 'Ensured database indexes for memory & bot actions', Email row shows NEEDS YOU badge + fix hint (expected per spec), Database indexes row shows AUTO-FIXED badge, diagnose-download-btn downloads stitches-diagnostics.md.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter45_undo_export_diag.py",
+    "/app/test_reports/pytest/iter45.xml"
+  ],
+  "verified": [
+    "POST /api/ai/memory/bulk-delete removes user-scoped memories; empty ids -> 400",
+    "POST /api/ai/memory/restore re-inserts captured docs preserving mem_id/category/source/created_at; idempotent second call restored:0",
+    "GET /api/ai/memory/export?format=json returns application/json attachment; array shape; no _id",
+    "GET /api/ai/memory/export?format=csv returns text/csv attachment with exact header 'category,content,source,created_at,edited_at'",
+    "POST /api/admin/deploy/diagnose {autofix:true} covers 11 checks (mongo, llm, frontendurl, email, turn, livekit, deploysecrets, deploytarget, aimemory, admin, bots, indexes) with full shape",
+    "Diagnose autofix ensures ai_memories & bot_actions indexes; auto_fixed list populated; indexes check becomes ok+autofixed",
+    "GET /api/admin/deploy/diagnose/download returns text/markdown attachment stitches-diagnostics.md",
+    "Non-admin cannot call /admin/deploy/diagnose (401/403)",
+    "Frontend /assistant Memory panel: export-json-btn and export-csv-btn trigger downloads with matching mime and seeded content",
+    "Frontend bulk-forget: sonner Undo action invokes /ai/memory/restore and re-shows the memories in the list",
+    "Frontend Admin Deployment tab: run-diagnose-btn shows diagnose-results with OK/warn/fail summary chips, AUTO-FIXED BY SYSTEM AI panel, NEEDS YOU / AUTO-FIXED per-row badges, and diagnose-download-btn works",
+    "Regression: memory pin, PATCH edit, bulk-category recategorize, admin deploy catalog"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "AiAssistant.bulkForget uses window.confirm() (blocking, non-testable in production UX) — consider a neumorphic AlertDialog for the confirmation to match the design system.",
+    "The sonner Undo action toast has a short default duration; a slow user (or one on a poor connection) may miss it. Consider passing duration: 8000+ or persisting the undo affordance in a subtle banner until the user dismisses it.",
+    "GET /api/ai/memory/export has no pagination/limit and does to_list(5000); a runaway user could exhaust memory. Add a hard cap or stream the CSV/JSON."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter45_undo_export_diag.py"],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100%"},
+  "seed_data_creation": "During tests: seeded TEST_iter45 memories (preference/project/deadline) via POST /api/ai/memory and cleaned up via /ai/memory/bulk-delete after each class; E2E seeded 2 memories and cleaned them up post-test.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@stitches.app / Admin@123",
+  "context_for_next_testing_agent": "GET /api/ai/memory returns {user_enabled, workspace_enabled, auto_capture, digest_cadence, user:[...], workspace:[...]} — the user memories are under key 'user' NOT 'items'. When testing export, note the endpoint returns raw list (not wrapped). For diagnostics: the Email check will always report WARN/NEEDS YOU in this env because no working provider is configured — that is expected per spec, not a bug. Diagnostics autofix ensures indexes and inserts default ai_memory settings if missing; second run is idempotent. Sonner toast Undo action does auto-dismiss (~4s default); Playwright can catch it if you click within ~2s of the forget click.",
+  "rca_of_the_issue": "N/A — all iter 45 features work end-to-end."
+}

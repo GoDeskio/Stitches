@@ -248,6 +248,44 @@ async def bulk_forget(request: Request, user: dict = Depends(get_current_user)):
     return {"ok": True, "deleted": res.deleted_count}
 
 
+@router.post("/ai/memory/restore")
+async def restore_memories(request: Request, user: dict = Depends(get_current_user)):
+    """Re-insert user-scoped memories (used by the Undo action after a forget)."""
+    body = await request.json()
+    mems = body.get("memories") or []
+    restored = 0
+    for m in mems:
+        if not m.get("mem_id") or not m.get("content"):
+            continue
+        exists = await db.ai_memories.find_one({"mem_id": m["mem_id"]})
+        if exists:
+            continue
+        await db.ai_memories.insert_one({
+            "mem_id": m["mem_id"], "scope": "user", "owner_id": user["user_id"],
+            "content": str(m["content"])[:400], "category": _norm_category(m.get("category")),
+            "created_at": m.get("created_at") or now_iso(), "source": m.get("source") or "pinned",
+            **({"edited_at": m["edited_at"]} if m.get("edited_at") else {})})
+        restored += 1
+    return {"ok": True, "restored": restored}
+
+
+@router.get("/ai/memory/export")
+async def export_memories(format: str = "json", user: dict = Depends(get_current_user)):
+    from fastapi.responses import Response
+    mems = await db.ai_memories.find({"scope": "user", "owner_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).to_list(5000)
+    if format == "csv":
+        import csv, io
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["category", "content", "source", "created_at", "edited_at"])
+        for m in mems:
+            w.writerow([m.get("category", "general"), m.get("content", ""), m.get("source", ""), m.get("created_at", ""), m.get("edited_at", "")])
+        return Response(content=buf.getvalue(), media_type="text/csv",
+                        headers={"Content-Disposition": "attachment; filename=stitch-memories.csv"})
+    return Response(content=json.dumps(mems, indent=2), media_type="application/json",
+                    headers={"Content-Disposition": "attachment; filename=stitch-memories.json"})
+
+
 @router.post("/ai/memory")
 async def pin_my_memory(request: Request, user: dict = Depends(get_current_user)):
     cfg = await _ai_memory_cfg()

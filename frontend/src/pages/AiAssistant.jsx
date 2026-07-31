@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Sparkles, Send, User, Zap, Brain, Trash2, X, Users, Pin, Search, Pencil, Check, Mail } from "lucide-react";
+import { Sparkles, Send, User, Zap, Brain, Trash2, X, Users, Pin, Search, Pencil, Check, Mail, Download } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { PageShell, PageHeader } from "@/components/Stitch";
@@ -84,9 +84,31 @@ function MemoryPanel({ open, onClose }) {
   };
   const bulkForget = async () => {
     if (selectedIds.length === 0) return;
+    const removed = (data?.user || []).filter((m) => selectedIds.includes(m.mem_id));
     if (!window.confirm(`Forget ${selectedIds.length} ${selectedIds.length === 1 ? "memory" : "memories"}?`)) return;
-    try { const { data: r } = await api.post("/ai/memory/bulk-delete", { ids: selectedIds }); toast.success(`Forgot ${r.deleted}`); exitSelect(); load(); }
-    catch (e) { toast.error("Couldn't forget those"); }
+    try {
+      const { data: r } = await api.post("/ai/memory/bulk-delete", { ids: selectedIds });
+      exitSelect(); load();
+      toast.success(`Forgot ${r.deleted}`, {
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            try { await api.post("/ai/memory/restore", { memories: removed }); toast.success("Restored"); load(); }
+            catch (e) { toast.error("Couldn't undo"); }
+          },
+        },
+      });
+    } catch (e) { toast.error("Couldn't forget those"); }
+  };
+  const exportMemories = async (format) => {
+    try {
+      const res = await api.get(`/ai/memory/export?format=${format}`, { responseType: "blob" });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement("a");
+      a.href = url; a.download = `stitch-memories.${format}`; document.body.appendChild(a); a.click();
+      a.remove(); window.URL.revokeObjectURL(url);
+      toast.success(`Exported as ${format.toUpperCase()}`);
+    } catch (e) { toast.error("Export failed"); }
   };
   const toggleAuto = async () => {
     const next = !data.auto_capture;
@@ -216,6 +238,11 @@ function MemoryPanel({ open, onClose }) {
                   </div>
                   <button data-testid="digest-send-now" onClick={sendDigestNow} disabled={savingDigest} className="neu-btn rounded-xl px-3 py-2 text-xs font-semibold text-primary-stitch ml-auto">{savingDigest ? "Sending…" : "Send now"}</button>
                   <button data-testid="digest-preview-btn" onClick={openPreview} className="neu-btn rounded-xl px-3 py-2 text-xs font-semibold text-primary-stitch">Preview</button>
+                </div>
+                <div className="flex items-center gap-2 mt-2 pt-2" style={{ borderTop: "1px solid var(--neu-dark)" }}>
+                  <span className="text-xs text-muted-stitch flex items-center gap-1.5"><Download className="w-3.5 h-3.5" /> Export my memories:</span>
+                  <button data-testid="export-json-btn" onClick={() => exportMemories("json")} className="neu-btn rounded-xl px-3 py-1.5 text-xs font-semibold text-primary-stitch">JSON</button>
+                  <button data-testid="export-csv-btn" onClick={() => exportMemories("csv")} className="neu-btn rounded-xl px-3 py-1.5 text-xs font-semibold text-primary-stitch">CSV</button>
                 </div>
               </div>
             )}

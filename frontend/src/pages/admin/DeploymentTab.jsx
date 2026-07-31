@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import api from "@/lib/api";
-import { Rocket, Github, Copy, Check, Download, Server, ShieldCheck, Zap, AlertTriangle, X, Plus } from "lucide-react";
+import { Rocket, Github, Copy, Check, Download, Server, ShieldCheck, Zap, AlertTriangle, X, Plus, Stethoscope, Wand2 } from "lucide-react";
 
 const CAT_ICON = { Calls: Zap, Gateway: Server, Monitoring: Server };
 
@@ -38,6 +38,29 @@ export function DeploymentTab() {
   const [paste, setPaste] = useState(null);
   const [activeFile, setActiveFile] = useState(0);
   const [importPreview, setImportPreview] = useState(null);
+  const [diag, setDiag] = useState(null);
+  const [diagRunning, setDiagRunning] = useState(false);
+
+  const runDiagnostics = async () => {
+    setDiagRunning(true);
+    try {
+      const { data } = await api.post("/admin/deploy/diagnose", { autofix: true });
+      setDiag(data);
+      const f = data.summary.fail, w = data.summary.warn;
+      if (f === 0 && w === 0) toast.success("Everything looks healthy!");
+      else toast.success(`Scan done — ${data.summary.fail} failing, ${data.summary.warn} need attention`);
+    } catch (e) { toast.error("Diagnostics failed"); } finally { setDiagRunning(false); }
+  };
+  const downloadDiag = async () => {
+    try {
+      const res = await api.get("/admin/deploy/diagnose/download", { responseType: "blob" });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement("a");
+      a.href = url; a.download = "stitches-diagnostics.md"; document.body.appendChild(a); a.click();
+      a.remove(); window.URL.revokeObjectURL(url);
+      toast.success("Report downloaded");
+    } catch (e) { toast.error("Download failed"); }
+  };
 
   const load = async () => {
     try {
@@ -184,6 +207,56 @@ export function DeploymentTab() {
           </div>
         </div>
       )}
+      <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="deploy-diagnose-card">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center"><Stethoscope className="w-5 h-5 text-primary-stitch" /></div>
+            <div className="min-w-0">
+              <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Why isn't it working?</h3>
+              <p className="text-sm text-muted-stitch">Scan the whole app, auto-fix what the System AI safely can, and get a report of anything still needing you.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {diag && <button data-testid="diagnose-download-btn" onClick={downloadDiag} className="neu-btn rounded-2xl px-4 py-3 font-semibold text-primary-stitch flex items-center gap-2"><Download className="w-4 h-4" /> Report</button>}
+            <button data-testid="run-diagnose-btn" onClick={runDiagnostics} disabled={diagRunning} className="neu-primary rounded-2xl px-5 py-3 font-semibold flex items-center gap-2"><Stethoscope className="w-4 h-4" />{diagRunning ? "Scanning…" : "Run diagnostics"}</button>
+          </div>
+        </div>
+
+        {diag && (
+          <div className="mt-5" data-testid="diagnose-results">
+            <div className="flex gap-2 flex-wrap mb-4">
+              <span className="neu-pressed rounded-xl px-3 py-1.5 text-xs font-bold text-green-500">{diag.summary.ok} OK</span>
+              <span className="neu-pressed rounded-xl px-3 py-1.5 text-xs font-bold text-amber-500">{diag.summary.warn} warnings</span>
+              <span className="neu-pressed rounded-xl px-3 py-1.5 text-xs font-bold text-red-400">{diag.summary.fail} failing</span>
+            </div>
+            {diag.auto_fixed?.length > 0 && (
+              <div className="neu-pressed rounded-2xl p-4 mb-4" data-testid="diagnose-autofixed">
+                <p className="text-xs font-bold uppercase tracking-wide text-green-500 mb-1.5 flex items-center gap-1.5"><Wand2 className="w-3.5 h-3.5" /> Auto-fixed by System AI</p>
+                <ul className="text-sm text-muted-stitch list-disc pl-5 space-y-0.5">{diag.auto_fixed.map((f, i) => <li key={i}>{f}</li>)}</ul>
+              </div>
+            )}
+            <div className="space-y-2">
+              {diag.checks.map((c) => (
+                <div key={c.id} data-testid={`diagnose-check-${c.id}`} className="neu-pressed rounded-2xl px-4 py-3 flex items-start gap-3">
+                  <span className="text-lg leading-none mt-0.5 shrink-0" style={{ color: c.status === "ok" ? "#22c55e" : c.status === "warn" ? "#f59e0b" : "#ef4444" }}>
+                    {c.status === "ok" ? "●" : c.status === "warn" ? "▲" : "✕"}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--text)" }}>
+                      {c.label}
+                      {c.autofixed && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-green-500" style={{ background: "var(--neu-dark)" }}>AUTO-FIXED</span>}
+                      {c.needs_admin && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-amber-500" style={{ background: "var(--neu-dark)" }}>NEEDS YOU</span>}
+                    </p>
+                    <p className="text-xs text-muted-stitch mt-0.5">{c.detail}</p>
+                    {c.fix_hint && c.status !== "ok" && <p className="text-xs text-primary-stitch mt-1">→ {c.fix_hint}</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up">
         <div className="flex items-center gap-3 mb-1">
           <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center"><Rocket className="w-5 h-5 text-primary-stitch" /></div>

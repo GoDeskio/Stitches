@@ -360,6 +360,162 @@ Then hit **Test connectivity** to confirm the relay is reachable.
     return files
 
 
+async def _run_diagnostics(autofix: bool):
+    checks = []
+    fixed = []
+
+    def add(cid, label, status, detail, needs_admin=False, fix_hint="", autofixed=False):
+        checks.append({"id": cid, "label": label, "status": status, "detail": detail,
+                       "needs_admin": needs_admin, "fix_hint": fix_hint, "autofixed": autofixed})
+
+    try:
+        await db.command("ping")
+        add("mongo", "Database connectivity", "ok", "MongoDB is reachable.")
+    except Exception as e:
+        add("mongo", "Database connectivity", "fail", f"MongoDB ping failed: {e}", needs_admin=True,
+            fix_hint="Check MONGO_URL in backend/.env and that MongoDB is running.")
+
+    if os.environ.get("EMERGENT_LLM_KEY"):
+        add("llm", "AI (Emergent LLM key)", "ok", "LLM key present — AI assistant and memory work.")
+    else:
+        add("llm", "AI (Emergent LLM key)", "fail", "EMERGENT_LLM_KEY not set.", needs_admin=True,
+            fix_hint="Add EMERGENT_LLM_KEY to backend/.env (Profile -> Manage plan -> Universal Key).")
+
+    add("frontendurl", "Frontend -> backend URL", "ok", "Frontend uses REACT_APP_BACKEND_URL for API calls.")
+
+    from services.email import get_email_provider_cfg, get_smtp_cfg, get_email_health
+    prov = await get_email_provider_cfg()
+    smtp = await get_smtp_cfg()
+    health = await get_email_health()
+    email_ready = bool((prov.get("provider") and prov.get("provider") != "gmail") or smtp.get("host"))
+    if health and health.get("ok"):
+        add("email", "Email delivery", "ok", "Last email send succeeded.")
+    elif email_ready:
+        add("email", "Email delivery", "warn", f"Email is configured but last send may have failed: {(health or {}).get('detail','no recent send')}",
+            needs_admin=True, fix_hint="Verify the key/credentials in Admin -> Email, then send a test digest.")
+    else:
+        add("email", "Email delivery", "fail", "No working email provider configured.", needs_admin=True,
+            fix_hint="Add a Mailgun/Resend key or SMTP credentials in Admin -> Email. Digests and invites need this.")
+
+    turn = ((await db.settings.find_one({"key": "turn"})) or {}).get("value", {})
+    if turn.get("urls"):
+        add("turn", "Calls - TURN server", "ok", f"TURN configured: {turn.get('urls')}")
+    else:
+        add("turn", "Calls - TURN server", "warn", "No TURN server set - calls behind strict NATs may fail.",
+            needs_admin=True, fix_hint="Deploy coturn from the Deployment Center, then Apply generated call credentials.")
+
+    lk = ((await db.settings.find_one({"key": "livekit"})) or {}).get("value", {})
+    if lk.get("enabled") and lk.get("url"):
+        add("livekit", "Calls - LiveKit SFU", "ok", f"LiveKit configured: {lk.get('url')}")
+    else:
+        add("livekit", "Calls - LiveKit SFU", "warn", "LiveKit not configured - large group meetings unavailable.",
+            needs_admin=True, fix_hint="Deploy LiveKit from the Deployment Center, then Apply generated call credentials.")
+
+    cfg = await _load_cfg()
+    if cfg["secrets"]:
+        add("deploysecrets", "Deployment secrets", "ok", "Deploy bundle secrets are generated.")
+    elif autofix:
+        cfg["secrets"] = _gen_secrets()
+        await db.settings.update_one({"key": "deploy_center"},
+                                     {"$set": {"key": "deploy_center", "value": {**cfg, "secrets": cfg["secrets"]}}}, upsert=True)
+        fixed.append("Generated deployment bundle secrets")
+        add("deploysecrets", "Deployment secrets", "ok", "Deploy secrets were missing - auto-generated.", autofixed=True)
+    else:
+        add("deploysecrets", "Deployment secrets", "warn", "No deploy secrets yet.",
+            fix_hint="Click 'Generate bundle' in the Deployment Center (or re-run with auto-fix).")
+
+    if cfg["domain"] and cfg["public_ip"]:
+        add("deploytarget", "Deployment target", "ok", f"Domain {cfg['domain']} / IP {cfg['public_ip']} set.")
+    else:
+        add("deploytarget", "Deployment target", "warn", "Domain and/or public IP not set.",
+            needs_admin=True, fix_hint="Enter your domain and server public IP in the Deployment Center.")
+
+    mem_doc = await db.settings.find_one({"key": "ai_memory"})
+    if mem_doc:
+        add("aimemory", "AI memory settings", "ok", "AI memory configuration present.")
+    elif autofix:
+        await db.settings.update_one({"key": "ai_memory"},
+                                     {"$set": {"key": "ai_memory", "value": {"user_enabled": True, "workspace_enabled": False, "retention_days": 90, "max_items": 200}}}, upsert=True)
+        fixed.append("Initialised default AI memory settings")
+        add("aimemory", "AI memory settings", "ok", "No memory config found - initialised defaults.", autofixed=True)
+    else:
+        add("aimemory", "AI memory settings", "warn", "No AI memory config found.",
+            fix_hint="Open Admin -> AI Memory and save settings (or re-run with auto-fix).")
+
+    admin_count = await db.users.count_documents({"role": {"$in": ["admin", "super_admin"]}})
+    if admin_count:
+        add("admin", "Admin account", "ok", f"{admin_count} admin account(s) present.")
+    else:
+        add("admin", "Admin account", "fail", "No admin account found.", needs_admin=True, fix_hint="Seed an admin account.")
+
+    nbots = await db.bots.count_documents({})
+    add("bots", "Bot integrations", "ok",
+        "No bots registered (nothing to check)." if nbots == 0 else f"{nbots} bot(s) registered. See Admin -> Bot Actions for callback health.")
+
+    if autofix:
+        try:
+            await db.ai_memories.create_index([("scope", 1), ("owner_id", 1), ("created_at", -1)])
+            await db.bot_actions.create_index([("bot_id", 1), ("created_at", -1)])
+            fixed.append("Ensured database indexes for memory & bot actions")
+            add("indexes", "Database indexes", "ok", "Key indexes ensured.", autofixed=True)
+        except Exception as e:
+            add("indexes", "Database indexes", "warn", f"Could not ensure indexes: {e}")
+    else:
+        add("indexes", "Database indexes", "warn", "Index check skipped (run with auto-fix to ensure).",
+            fix_hint="Re-run diagnostics with auto-fix enabled.")
+
+    summary = {"ok": sum(1 for c in checks if c["status"] == "ok"),
+               "warn": sum(1 for c in checks if c["status"] == "warn"),
+               "fail": sum(1 for c in checks if c["status"] == "fail")}
+    report = {"generated_at": now_iso(), "autofix": autofix, "summary": summary,
+              "auto_fixed": fixed, "checks": checks}
+    await db.settings.update_one({"key": "last_diagnostics"},
+                                 {"$set": {"key": "last_diagnostics", "value": report}}, upsert=True)
+    return report
+
+
+def _diag_markdown(report):
+    icon = {"ok": "[OK]", "warn": "[WARN]", "fail": "[FAIL]"}
+    lines = ["# Stitches Diagnostics Report", f"_Generated: {report['generated_at']}_", "",
+             f"**Summary:** {report['summary']['ok']} OK - {report['summary']['warn']} warnings - {report['summary']['fail']} failing", ""]
+    if report.get("auto_fixed"):
+        lines += ["## Auto-fixed by System AI"] + [f"- {f}" for f in report["auto_fixed"]] + [""]
+    lines.append("## Checks")
+    for c in report["checks"]:
+        lines.append(f"### {icon.get(c['status'],'')} {c['label']} - {c['status'].upper()}")
+        lines.append(c["detail"])
+        if c.get("needs_admin"):
+            lines.append(f"> **Needs admin:** {c.get('fix_hint','')}")
+        elif c.get("fix_hint") and not c.get("autofixed"):
+            lines.append(f"> Suggested: {c.get('fix_hint')}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+@router.post("/admin/deploy/diagnose")
+async def deploy_diagnose(request: Request, user: dict = Depends(require_admin)):
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    report = await _run_diagnostics(bool(body.get("autofix", True)))
+    await log_activity(user["user_id"], "deploy_diagnose")
+    return report
+
+
+@router.get("/admin/deploy/diagnose/download")
+async def deploy_diagnose_download(user: dict = Depends(require_admin)):
+    doc = await db.settings.find_one({"key": "last_diagnostics"})
+    report = (doc or {}).get("value")
+    if not report:
+        report = await _run_diagnostics(False)
+    md = _diag_markdown(report)
+    return StreamingResponse(io.BytesIO(md.encode()), media_type="text/markdown",
+                             headers={"Content-Disposition": "attachment; filename=stitches-diagnostics.md"})
+
+
+
 def _build_compose(sel, domain):
     blocks = ["services:"]
     if "traefik" in sel:
