@@ -58,6 +58,7 @@ async def _load_cfg():
         "selected": val.get("selected", _DEFAULT_SELECTED),
         "github_token_enc": val.get("github_token_enc", ""),
         "secrets": val.get("secrets", {}),
+        "presets": val.get("presets", []),
     }
 
 
@@ -82,6 +83,7 @@ async def deploy_catalog(user: dict = Depends(require_admin)):
         "domain": cfg["domain"],
         "public_ip": cfg["public_ip"],
         "selected": cfg["selected"],
+        "presets": cfg["presets"],
         "has_github_token": bool(cfg["github_token_enc"]),
         "has_generated": bool(cfg["secrets"]),
         "secrets_preview": _paste_values(cfg) if cfg["secrets"] else None,
@@ -104,8 +106,36 @@ async def deploy_config(request: Request, user: dict = Depends(require_admin)):
         "selected": [s for s in (body.get("selected") or []) if s in _CAT_BY_ID],
         "github_token_enc": token_enc,
         "secrets": cfg["secrets"],
+        "presets": cfg["presets"],
     }
     await db.settings.update_one({"key": "deploy_center"}, {"$set": {"key": "deploy_center", "value": val}}, upsert=True)
+    return {"ok": True}
+
+
+@router.post("/admin/deploy/presets")
+async def deploy_save_preset(request: Request, user: dict = Depends(require_admin)):
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name required")
+    cfg = await _load_cfg()
+    ids = [s for s in (body.get("selected") or cfg["selected"]) if s in _CAT_BY_ID]
+    if not ids:
+        raise HTTPException(status_code=400, detail="select at least one service")
+    presets = [p for p in cfg["presets"] if p.get("name") != name]
+    preset = {"id": f"preset_{uuid.uuid4().hex[:8]}", "name": name[:40], "ids": ids}
+    presets.append(preset)
+    await db.settings.update_one({"key": "deploy_center"},
+                                 {"$set": {"key": "deploy_center", "value": {**cfg, "presets": presets}}}, upsert=True)
+    return preset
+
+
+@router.delete("/admin/deploy/presets/{preset_id}")
+async def deploy_delete_preset(preset_id: str, user: dict = Depends(require_admin)):
+    cfg = await _load_cfg()
+    presets = [p for p in cfg["presets"] if p.get("id") != preset_id]
+    await db.settings.update_one({"key": "deploy_center"},
+                                 {"$set": {"key": "deploy_center", "value": {**cfg, "presets": presets}}}, upsert=True)
     return {"ok": True}
 
 

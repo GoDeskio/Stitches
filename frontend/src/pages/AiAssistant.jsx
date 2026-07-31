@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Sparkles, Send, User, Zap, Brain, Trash2, X, Users } from "lucide-react";
+import { Sparkles, Send, User, Zap, Brain, Trash2, X, Users, Pin } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { PageShell, PageHeader } from "@/components/Stitch";
@@ -19,11 +19,25 @@ const SUGGESTIONS = [
 
 function MemoryPanel({ open, onClose }) {
   const [data, setData] = useState(null);
-  const load = () => api.get("/ai/memory").then(({ data }) => setData(data)).catch(() => setData({ user_enabled: false, workspace_enabled: false, user: [], workspace: [] }));
+  const [pinText, setPinText] = useState("");
+  const [pinning, setPinning] = useState(false);
+  const load = () => api.get("/ai/memory").then(({ data }) => setData(data)).catch(() => setData({ user_enabled: false, workspace_enabled: false, auto_capture: true, user: [], workspace: [] }));
   useEffect(() => { if (open) load(); }, [open]);
   const forget = async (id) => {
     try { await api.delete(`/ai/memory/${id}`); toast.success("Forgotten"); load(); }
     catch (e) { toast.error("Couldn't forget that"); }
+  };
+  const toggleAuto = async () => {
+    const next = !data.auto_capture;
+    setData({ ...data, auto_capture: next });
+    try { await api.put("/ai/memory/prefs", { auto_capture: next }); toast.success(next ? "Stitch will auto-learn new facts" : "Auto-learning off — only pinned memories are kept"); }
+    catch (e) { toast.error("Couldn't update"); load(); }
+  };
+  const pin = async () => {
+    if (!pinText.trim()) return;
+    setPinning(true);
+    try { await api.post("/ai/memory", { content: pinText }); setPinText(""); toast.success("Pinned — Stitch will remember this"); load(); }
+    catch (e) { toast.error(e?.response?.data?.detail || "Couldn't pin that"); } finally { setPinning(false); }
   };
   if (!open) return null;
   const nothing = data && data.user.length === 0 && data.workspace.length === 0;
@@ -44,42 +58,71 @@ function MemoryPanel({ open, onClose }) {
           <p className="text-sm text-muted-stitch">Loading…</p>
         ) : !data.user_enabled && !data.workspace_enabled ? (
           <div className="neu-pressed rounded-2xl p-4 text-sm text-muted-stitch">Memory is currently turned off by your admin. Stitch won't remember anything between chats.</div>
-        ) : nothing ? (
-          <div className="neu-pressed rounded-2xl p-4 text-sm text-muted-stitch">Nothing remembered yet. As you chat, Stitch will pick up durable facts (your role, projects, preferences) and show them here.</div>
         ) : (
-          <div className="space-y-5">
+          <>
             {data.user_enabled && (
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wide text-primary-stitch mb-2 flex items-center gap-1.5"><User className="w-3.5 h-3.5" /> About you</p>
-                {data.user.length === 0 ? <p className="text-xs text-muted-stitch">Nothing yet.</p> : (
-                  <div className="space-y-2">
-                    {data.user.map((m) => (
-                      <div key={m.mem_id} data-testid="my-memory-row" className="neu-pressed rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-sm" style={{ color: "var(--text)" }}>{m.content}</p>
-                          <p className="text-[11px] text-muted-stitch mt-0.5">{new Date(m.created_at).toLocaleDateString([], { month: "short", day: "numeric" })}</p>
-                        </div>
-                        <button data-testid="my-memory-forget" onClick={() => forget(m.mem_id)} title="Forget this" className="neu-btn rounded-xl p-2.5 text-red-500 shrink-0"><Trash2 className="w-4 h-4" /></button>
+              <div className="neu-pressed rounded-2xl p-4 flex items-center justify-between gap-3 mb-4" data-testid="auto-capture-card">
+                <div className="min-w-0 pr-2">
+                  <p className="text-sm font-medium" style={{ color: "var(--text)" }}>Let Stitch auto-learn</p>
+                  <p className="text-xs text-muted-stitch mt-0.5">{data.auto_capture ? "Stitch picks up new facts from your chats automatically." : "Off — Stitch only remembers what you pin below."}</p>
+                </div>
+                <button data-testid="auto-capture-toggle" onClick={toggleAuto}
+                  className={`w-14 h-8 rounded-full flex items-center px-1 transition-all shrink-0 ${data.auto_capture ? "justify-end" : "justify-start"}`}
+                  style={{ background: data.auto_capture ? "var(--primary)" : "var(--neu-dark)" }}>
+                  <span className="w-6 h-6 rounded-full bg-white shadow" />
+                </button>
+              </div>
+            )}
+
+            {data.user_enabled && (
+              <div className="flex gap-2 mb-5" data-testid="pin-memory-row">
+                <input data-testid="pin-memory-input" value={pinText} onChange={(e) => setPinText(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && pin()} placeholder="Pin something for Stitch to remember…"
+                  className="neu-input flex-1 rounded-2xl py-2.5 px-4 text-sm" />
+                <button data-testid="pin-memory-btn" onClick={pin} disabled={pinning || !pinText.trim()} className="neu-primary rounded-2xl px-4 font-semibold flex items-center gap-1.5 disabled:opacity-60"><Pin className="w-4 h-4" /></button>
+              </div>
+            )}
+
+            {nothing ? (
+              <div className="neu-pressed rounded-2xl p-4 text-sm text-muted-stitch">Nothing remembered yet. Pin a fact above, or (with auto-learn on) just chat and Stitch will pick up durable facts.</div>
+            ) : (
+              <div className="space-y-5">
+                {data.user_enabled && (
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-primary-stitch mb-2 flex items-center gap-1.5"><User className="w-3.5 h-3.5" /> About you</p>
+                    {data.user.length === 0 ? <p className="text-xs text-muted-stitch">Nothing yet.</p> : (
+                      <div className="space-y-2">
+                        {data.user.map((m) => (
+                          <div key={m.mem_id} data-testid="my-memory-row" className="neu-pressed rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm flex items-center gap-1.5" style={{ color: "var(--text)" }}>
+                                {m.source === "pinned" && <Pin className="w-3 h-3 text-primary-stitch shrink-0" />}{m.content}
+                              </p>
+                              <p className="text-[11px] text-muted-stitch mt-0.5">{m.source === "pinned" ? "Pinned by you · " : ""}{new Date(m.created_at).toLocaleDateString([], { month: "short", day: "numeric" })}</p>
+                            </div>
+                            <button data-testid="my-memory-forget" onClick={() => forget(m.mem_id)} title="Forget this" className="neu-btn rounded-xl p-2.5 text-red-500 shrink-0"><Trash2 className="w-4 h-4" /></button>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    )}
+                  </div>
+                )}
+                {data.workspace_enabled && data.workspace.length > 0 && (
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-amber-500 mb-2 flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> Shared with your team</p>
+                    <div className="space-y-2">
+                      {data.workspace.map((m) => (
+                        <div key={m.mem_id} data-testid="team-memory-row" className="neu-pressed rounded-2xl px-4 py-3">
+                          <p className="text-sm" style={{ color: "var(--text)" }}>{m.content}</p>
+                          <p className="text-[11px] text-muted-stitch mt-0.5">Team memory · managed by admins</p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
             )}
-            {data.workspace_enabled && data.workspace.length > 0 && (
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wide text-amber-500 mb-2 flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> Shared with your team</p>
-                <div className="space-y-2">
-                  {data.workspace.map((m) => (
-                    <div key={m.mem_id} data-testid="team-memory-row" className="neu-pressed rounded-2xl px-4 py-3">
-                      <p className="text-sm" style={{ color: "var(--text)" }}>{m.content}</p>
-                      <p className="text-[11px] text-muted-stitch mt-0.5">Team memory · managed by admins</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
+          </>
         )}
       </div>
     </div>

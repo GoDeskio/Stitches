@@ -17,6 +17,14 @@ async def _ai_memory_cfg():
     return {**_MEM_DEFAULT, **((doc or {}).get("value") or {})}
 
 
+async def _user_auto_capture(user_id):
+    """Per-user preference: may Stitch auto-learn new facts? Default True."""
+    doc = await db.ai_user_prefs.find_one({"user_id": user_id})
+    if not doc or doc.get("auto_capture") is None:
+        return True
+    return bool(doc.get("auto_capture"))
+
+
 async def _load_memories(user, cfg):
     """Return a formatted memory block to inject into the assistant's system prompt."""
     lines = []
@@ -40,10 +48,15 @@ async def _prune_memory(scope, owner_id, cfg):
         await db.ai_memories.delete_many({"_id": {"$in": [e["_id"] for e in extra]}})
 
 
-async def _extract_memory(user, user_text, assistant_text, cfg):
+async def _extract_memory(user, user_text, assistant_text, cfg, auto_capture=True):
     """Background: distill durable facts from the exchange and persist them."""
     try:
-        if not (cfg["user_enabled"] or cfg["workspace_enabled"]):
+        # Decide target scope, honoring the user's auto-capture preference.
+        if cfg["user_enabled"] and auto_capture:
+            scope, owner = "user", user["user_id"]
+        elif cfg["workspace_enabled"]:
+            scope, owner = "workspace", _WORKSPACE_OWNER
+        else:
             return
         from emergentintegrations.llm.chat import LlmChat, UserMessage, StreamDone, TextDelta
         chat = LlmChat(api_key=EMERGENT_KEY, session_id=f"mem_{user['user_id']}_{uuid.uuid4().hex[:6]}",
@@ -63,8 +76,6 @@ async def _extract_memory(user, user_text, assistant_text, cfg):
         if start < 0 or end < 0:
             return
         facts = json.loads(raw[start:end + 1])
-        scope = "user" if cfg["user_enabled"] else "workspace"
-        owner = user["user_id"] if cfg["user_enabled"] else _WORKSPACE_OWNER
         for f in facts[:4]:
             f = str(f).strip()
             if not f:
@@ -73,7 +84,8 @@ async def _extract_memory(user, user_text, assistant_text, cfg):
             if exists:
                 continue
             await db.ai_memories.insert_one({"mem_id": f"mem_{uuid.uuid4().hex[:12]}", "scope": scope,
-                                             "owner_id": owner, "content": f[:400], "created_at": now_iso()})
+                                             "owner_id": owner, "content": f[:400], "created_at": now_iso(),
+                                             "source": "auto"})
         await _prune_memory(scope, owner, cfg)
     except Exception as e:
         logger.error(f"memory extract error: {e}")
@@ -151,7 +163,33 @@ async def my_ai_memory(user: dict = Depends(get_current_user)):
     if cfg["workspace_enabled"]:
         shared = await db.ai_memories.find({"scope": "workspace", "owner_id": _WORKSPACE_OWNER}, {"_id": 0}).sort("created_at", -1).to_list(cfg["max_items"])
     return {"user_enabled": cfg["user_enabled"], "workspace_enabled": cfg["workspace_enabled"],
+            "auto_capture": await _user_auto_capture(user["user_id"]),
             "user": mine, "workspace": shared}
+
+
+@router.put("/ai/memory/prefs")
+async def set_my_memory_prefs(request: Request, user: dict = Depends(get_current_user)):
+    body = await request.json()
+    await db.ai_user_prefs.update_one({"user_id": user["user_id"]},
+                                      {"$set": {"user_id": user["user_id"], "auto_capture": bool(body.get("auto_capture"))}}, upsert=True)
+    return {"ok": True, "auto_capture": bool(body.get("auto_capture"))}
+
+
+@router.post("/ai/memory")
+async def pin_my_memory(request: Request, user: dict = Depends(get_current_user)):
+    cfg = await _ai_memory_cfg()
+    if not cfg["user_enabled"]:
+        raise HTTPException(status_code=400, detail="Memory is turned off by your admin")
+    body = await request.json()
+    content = (body.get("content") or "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="content required")
+    mem = {"mem_id": f"mem_{uuid.uuid4().hex[:12]}", "scope": "user", "owner_id": user["user_id"],
+           "content": content[:400], "created_at": now_iso(), "source": "pinned"}
+    await db.ai_memories.insert_one(mem)
+    await _prune_memory("user", user["user_id"], cfg)
+    mem.pop("_id", None)
+    return mem
 
 
 @router.delete("/ai/memory/{mem_id}")
@@ -218,7 +256,9 @@ async def ai_chat(data: AiInput, user: dict = Depends(get_current_user)):
         await db.ai_conversations.update_one({"conversation_id": conversation_id},
                                              {"$set": {"updated_at": now_iso()}})
         if full and (mem_cfg["user_enabled"] or mem_cfg["workspace_enabled"]):
-            asyncio.create_task(_extract_memory(user, data.message, full, mem_cfg))
+            _auto = await _user_auto_capture(user["user_id"])
+            if (mem_cfg["user_enabled"] and _auto) or mem_cfg["workspace_enabled"]:
+                asyncio.create_task(_extract_memory(user, data.message, full, mem_cfg, _auto))
         yield f"data: {json.dumps({'done': True})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream",

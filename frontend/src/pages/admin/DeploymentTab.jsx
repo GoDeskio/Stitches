@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import api from "@/lib/api";
-import { Rocket, Github, Copy, Check, Download, Server, ShieldCheck, Zap, AlertTriangle } from "lucide-react";
+import { Rocket, Github, Copy, Check, Download, Server, ShieldCheck, Zap, AlertTriangle, X, Plus } from "lucide-react";
 
 const CAT_ICON = { Calls: Zap, Gateway: Server, Monitoring: Server };
 
@@ -96,6 +96,18 @@ export function DeploymentTab() {
     } catch (e) { toast.error("Apply failed"); } finally { setApplying(false); }
   };
 
+  const savePreset = async () => {
+    const name = window.prompt("Name this preset (e.g. Edge Stack):");
+    if (!name || !name.trim()) return;
+    try { await api.post("/admin/deploy/presets", { name: name.trim(), selected }); toast.success(`Preset "${name.trim()}" saved`); load(); }
+    catch (e) { toast.error(e?.response?.data?.detail || "Could not save preset"); }
+  };
+  const deletePreset = async (id, e) => {
+    e.stopPropagation();
+    try { await api.delete(`/admin/deploy/presets/${id}`); toast.success("Preset removed"); load(); }
+    catch (e) { toast.error("Could not remove preset"); }
+  };
+
   if (!cat) return null;
   const cats = [...new Set(cat.catalog.map((c) => c.category))];
   const input = "neu-input rounded-2xl py-3 px-4 text-sm w-full";
@@ -135,7 +147,7 @@ export function DeploymentTab() {
         <h3 className="font-head font-bold text-lg mb-3" style={{ color: "var(--text)" }}>Services to deploy</h3>
         <div className="mb-5">
           <p className="text-xs font-semibold text-muted-stitch mb-2">Quick presets</p>
-          <div className="flex gap-2 flex-wrap">
+          <div className="flex gap-2 flex-wrap items-center">
             {[
               { id: "calls", label: "Calls only", ids: ["coturn", "livekit"] },
               { id: "monitoring", label: "Calls + Monitoring", ids: ["coturn", "livekit", "traefik", "prometheus", "grafana", "loki"] },
@@ -149,6 +161,19 @@ export function DeploymentTab() {
                 </button>
               );
             })}
+            {(cat.presets || []).map((p) => {
+              const active = p.ids.length === selected.length && p.ids.every((i) => selected.includes(i));
+              return (
+                <span key={p.id} data-testid={`deploy-custom-preset-${p.id}`} onClick={() => setSelected(p.ids)}
+                  className={`rounded-2xl pl-4 pr-2 py-2.5 text-sm font-semibold transition-all cursor-pointer flex items-center gap-2 ${active ? "neu-primary" : "neu-pressed text-primary-stitch"}`}>
+                  {p.name}
+                  <button data-testid={`deploy-preset-delete-${p.id}`} onClick={(e) => deletePreset(p.id, e)} className={`rounded-lg p-1 ${active ? "hover:bg-white/20" : "hover:bg-black/10"}`}><X className="w-3.5 h-3.5" /></button>
+                </span>
+              );
+            })}
+            <button data-testid="deploy-save-preset-btn" onClick={savePreset} className="rounded-2xl px-4 py-2.5 text-sm font-semibold neu-btn text-muted-stitch flex items-center gap-1.5">
+              <Plus className="w-4 h-4" /> Save current as preset
+            </button>
           </div>
         </div>
         {cats.map((c) => (

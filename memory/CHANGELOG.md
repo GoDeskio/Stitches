@@ -342,3 +342,9 @@
 ## Implemented (2026-07-31, part 2) — Memory Insights + Deploy Presets
 - **Memory Insights** (user-facing): AiAssistant now has a "Memory" button opening a slide-in "What Stitch remembers" panel — shows the user's own remembered facts (with per-item Forget) plus read-only shared team memories. New endpoints: GET /api/ai/memory (respects admin on/off toggles), DELETE /api/ai/memory/{mem_id} (users can forget ONLY their own user-scoped memory; workspace memories are protected -> 404). Verified via curl + screenshot.
 - **Deploy Presets**: DeploymentTab quick presets — Calls only (coturn+livekit), Calls + Monitoring (+traefik/prometheus/grafana/loki), Full stack (all) — one tap sets the service selection; active preset highlights.
+
+## Implemented (2026-07-31, part 3) — Auto-Capture toggle, Pin memory, Custom deploy presets
+- **Auto-Capture toggle** (per-user): users can turn off Stitch auto-learning so only explicitly pinned memories are kept. Stored in `ai_user_prefs` {user_id, auto_capture} (default true); GET /api/ai/memory returns it, PUT /api/ai/memory/prefs sets it. `_extract_memory` now honors it (skips user-scope auto capture when off; still captures workspace scope if enabled).
+- **Pin A Memory** (user): POST /api/ai/memory {content} adds a user-scoped memory (source:"pinned"); rendered with a pin icon + input in the Memory panel.
+- **Preset From Selection** (admin): save the current service selection as a named preset — POST /api/admin/deploy/presets, DELETE /api/admin/deploy/presets/{id}; presets returned in catalog and rendered (clickable, deletable) beside the built-in Calls only / Calls+Monitoring / Full stack presets.
+- Verified via curl (prefs toggle, pin source, preset save+list, forget own=200/team=404) + screenshots of both UIs.
