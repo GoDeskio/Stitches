@@ -318,6 +318,11 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - **Webhook On Incidents**: incident open/update/resolve events (auto + manual) POST to the configured Slack (`{text}`) and/or generic webhook (`{event:"stitches.incident.<e>", label, impact, text, component, link}`) via `_notify_incident_channels`, reusing the existing Deployment "Channels" (alert_channels) config.
 - Verified (iteration_51): backend 6/6 pytest + frontend 100% E2E, webhook dispatch confirmed (3× POST 200 across lifecycle), theme apply/upload/remove + public rendering verified. Zero issues. Test data cleaned.
 
+## Implemented (2026-07-31, part 7) — Custom Domain Docs + Discord/WhatsApp Channels
+- **Custom Domain Docs**: an in-app guide (Deployment status card → "Custom domain") with a 3-step CNAME walkthrough (`status → <app-host>`, copyable target host) for hosting the status page at `status.yourdomain.com`. Informational only, no backend.
+- **Discord + WhatsApp channels**: `alert_channels` now also stores `discord_webhook` + `whatsapp_webhook`. Health alerts (`_dispatch_alerts`) and incident events (`_notify_incident_channels`) fan out to Discord (`{content}`) and WhatsApp (`{message}` — pointed at a Twilio Function/Zapier/gateway since WhatsApp has no native incoming webhook), alongside Slack + generic webhook. `test_alert_channels` `sent_to` includes discord + whatsapp. UI: two new inputs in the Channels panel.
+- Verified (iteration_52): backend 4/4 pytest + frontend 100% E2E; Discord + WhatsApp dispatch confirmed (httpbin 200 on health + incident), channel persistence + custom-domain copy verified. Zero issues. Test data cleaned.
+
 ### Status Page backlog (from code review)
 - Split the ~1160-line `deploy_center.py` into diagnostics / deploy-bundle / status-page / subscribers / maintenance submodules.
 - Add a TTL cache / pre-aggregation for `/status/public` + `/status/public/component/{key}` (both rescan diagnostics_history per request).
