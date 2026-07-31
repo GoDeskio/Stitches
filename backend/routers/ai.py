@@ -141,6 +141,27 @@ async def clear_ai_memory(scope: str = "", user: dict = Depends(require_admin)):
     return {"ok": True, "deleted": res.deleted_count}
 
 
+# ---- User-facing memory transparency ("What Stitch remembers about you") ----
+@router.get("/ai/memory")
+async def my_ai_memory(user: dict = Depends(get_current_user)):
+    cfg = await _ai_memory_cfg()
+    mine, shared = [], []
+    if cfg["user_enabled"]:
+        mine = await db.ai_memories.find({"scope": "user", "owner_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1).to_list(cfg["max_items"])
+    if cfg["workspace_enabled"]:
+        shared = await db.ai_memories.find({"scope": "workspace", "owner_id": _WORKSPACE_OWNER}, {"_id": 0}).sort("created_at", -1).to_list(cfg["max_items"])
+    return {"user_enabled": cfg["user_enabled"], "workspace_enabled": cfg["workspace_enabled"],
+            "user": mine, "workspace": shared}
+
+
+@router.delete("/ai/memory/{mem_id}")
+async def forget_my_memory(mem_id: str, user: dict = Depends(get_current_user)):
+    res = await db.ai_memories.delete_one({"mem_id": mem_id, "scope": "user", "owner_id": user["user_id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Not found or not yours to forget")
+    return {"ok": True}
+
+
 # ---------------- AI Assistant ----------------
 @router.get("/ai/conversations")
 async def list_conversations(user: dict = Depends(get_current_user)):

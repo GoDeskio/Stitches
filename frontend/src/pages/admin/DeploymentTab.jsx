@@ -133,6 +133,24 @@ export function DeploymentTab() {
 
       <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="deploy-services-card">
         <h3 className="font-head font-bold text-lg mb-3" style={{ color: "var(--text)" }}>Services to deploy</h3>
+        <div className="mb-5">
+          <p className="text-xs font-semibold text-muted-stitch mb-2">Quick presets</p>
+          <div className="flex gap-2 flex-wrap">
+            {[
+              { id: "calls", label: "Calls only", ids: ["coturn", "livekit"] },
+              { id: "monitoring", label: "Calls + Monitoring", ids: ["coturn", "livekit", "traefik", "prometheus", "grafana", "loki"] },
+              { id: "full", label: "Full stack", ids: cat.catalog.map((c) => c.id) },
+            ].map((p) => {
+              const active = p.ids.length === selected.length && p.ids.every((i) => selected.includes(i));
+              return (
+                <button key={p.id} data-testid={`deploy-preset-${p.id}`} onClick={() => setSelected(p.ids)}
+                  className={`rounded-2xl px-4 py-2.5 text-sm font-semibold transition-all ${active ? "neu-primary" : "neu-pressed text-primary-stitch"}`}>
+                  {p.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
         {cats.map((c) => (
           <div key={c} className="mb-4">
             <p className="text-xs font-bold uppercase tracking-wide text-muted-stitch mb-2">{c}</p>
