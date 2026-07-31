@@ -323,6 +323,10 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - **Discord + WhatsApp channels**: `alert_channels` now also stores `discord_webhook` + `whatsapp_webhook`. Health alerts (`_dispatch_alerts`) and incident events (`_notify_incident_channels`) fan out to Discord (`{content}`) and WhatsApp (`{message}` — pointed at a Twilio Function/Zapier/gateway since WhatsApp has no native incoming webhook), alongside Slack + generic webhook. `test_alert_channels` `sent_to` includes discord + whatsapp. UI: two new inputs in the Channels panel.
 - Verified (iteration_52): backend 4/4 pytest + frontend 100% E2E; Discord + WhatsApp dispatch confirmed (httpbin 200 on health + incident), channel persistence + custom-domain copy verified. Zero issues. Test data cleaned.
 
+## Implemented (2026-07-31, part 8) — Per-Channel Event Routing
+- **Per-Channel Routing**: each alert channel (Slack / Discord / WhatsApp / generic webhook) has a routing mode — All events / Incidents / Outages only / Maintenance only — stored as `slack_mode`, `discord_mode`, `whatsapp_mode`, `webhook_mode` in `alert_channels`. `_mode_allows(mode, category, severity)` filters events across all three dispatch paths: `_dispatch_alerts` (category=health), `_notify_incident_channels` (category=incident, severity=impact/recovery), and the new `_dispatch_maint_to_channels` (category=maintenance, now fans maintenance heads-ups to channels too). UI: a mode `<select>` beside each channel URL in the Channels panel.
+- Verified (iteration_53): backend 5/5 pytest + frontend 100% E2E; routing independently re-confirmed via logs (degraded → only 'all'; outage → 'all' + 'outages'; 'maintenance'-only never fired for incidents), mode persistence across reload verified. Zero issues. Test data cleaned.
+
 ### Status Page backlog (from code review)
 - Split the ~1160-line `deploy_center.py` into diagnostics / deploy-bundle / status-page / subscribers / maintenance submodules.
 - Add a TTL cache / pre-aggregation for `/status/public` + `/status/public/component/{key}` (both rescan diagnostics_history per request).

@@ -422,14 +422,14 @@ export function DeploymentTab() {
             <p className="text-xs text-muted-stitch mb-3">Route health-regression alerts, incident events and maintenance heads-ups to Slack, Discord, WhatsApp and/or a webhook, in addition to admin email. Pick which events each channel receives to cut noise.</p>
             <div className="space-y-2">
               {[
-                { key: "slack_webhook", modeKey: "slack_mode", testid: "slack", ph: "Slack incoming webhook URL" },
-                { key: "discord_webhook", modeKey: "discord_mode", testid: "discord", ph: "Discord webhook URL" },
-                { key: "whatsapp_webhook", modeKey: "whatsapp_mode", testid: "whatsapp", ph: "WhatsApp webhook URL (Twilio / Zapier / gateway)" },
-                { key: "webhook_url", modeKey: "webhook_mode", testid: "webhook-url", ph: "Generic webhook URL (JSON POST)" },
+                { key: "slack_webhook", modeKey: "slack_mode", inputId: "slack-webhook-input", modeId: "slack-mode-select", ph: "Slack incoming webhook URL" },
+                { key: "discord_webhook", modeKey: "discord_mode", inputId: "discord-webhook-input", modeId: "discord-mode-select", ph: "Discord webhook URL" },
+                { key: "whatsapp_webhook", modeKey: "whatsapp_mode", inputId: "whatsapp-webhook-input", modeId: "whatsapp-mode-select", ph: "WhatsApp webhook URL (Twilio / Zapier / gateway)" },
+                { key: "webhook_url", modeKey: "webhook_mode", inputId: "webhook-url-input", modeId: "webhook-url-mode-select", ph: "Generic webhook URL (JSON POST)" },
               ].map((c) => (
                 <div key={c.key} className="flex gap-2">
-                  <input data-testid={`${c.testid}-webhook-input`} value={channels[c.key] || ""} onChange={(e) => setChannels({ ...channels, [c.key]: e.target.value })} placeholder={c.ph} className="neu-input rounded-2xl py-2.5 px-4 text-sm flex-1 font-mono-stitch" />
-                  <select data-testid={`${c.testid}-mode-select`} value={channels[c.modeKey] || "all"} onChange={(e) => setChannels({ ...channels, [c.modeKey]: e.target.value })} className="neu-input rounded-2xl py-2.5 px-3 text-xs w-36 shrink-0" style={{ color: "var(--text)" }}>
+                  <input data-testid={c.inputId} value={channels[c.key] || ""} onChange={(e) => setChannels({ ...channels, [c.key]: e.target.value })} placeholder={c.ph} className="neu-input rounded-2xl py-2.5 px-4 text-sm flex-1 font-mono-stitch" />
+                  <select data-testid={c.modeId} value={channels[c.modeKey] || "all"} onChange={(e) => setChannels({ ...channels, [c.modeKey]: e.target.value })} className="neu-input rounded-2xl py-2.5 px-3 text-xs w-36 shrink-0" style={{ color: "var(--text)" }}>
                     <option value="all">All events</option>
                     <option value="incidents">Incidents</option>
                     <option value="outages">Outages only</option>
