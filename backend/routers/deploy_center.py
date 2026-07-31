@@ -577,6 +577,29 @@ async def scan_auto_diagnostics():
         return 0
 
 
+async def _record_delivery(channel, event, status, ok, error=""):
+    try:
+        await db.webhook_deliveries.insert_one({"channel": channel, "event": event, "status": status,
+                                                "ok": ok, "error": (error or "")[:200], "at": now_iso()})
+        old = await db.webhook_deliveries.find({"channel": channel}, {"_id": 1}).sort("at", -1).skip(15).to_list(200)
+        if old:
+            await db.webhook_deliveries.delete_many({"_id": {"$in": [o["_id"] for o in old]}})
+    except Exception as e:
+        logger.warning(f"delivery log failed: {e}")
+
+
+async def _send(client, channel, url, payload, event):
+    """POST to a webhook and record the result in the per-channel delivery log."""
+    try:
+        r = await client.post(url, json=payload)
+        await _record_delivery(channel, event, r.status_code, 200 <= r.status_code < 300)
+        return r.status_code
+    except Exception as e:
+        logger.warning(f"{channel} {event} send failed: {e}")
+        await _record_delivery(channel, event, 0, False, str(e))
+        return None
+
+
 async def _dispatch_alerts(broke=None, recovered=None):
     """Send health alerts (regressions + recoveries) to every configured channel."""
     broke = broke or []
@@ -609,25 +632,13 @@ async def _dispatch_alerts(broke=None, recovered=None):
     sev = "outage" if broke else "recovery"
     async with httpx.AsyncClient(timeout=10) as client:
         if ch.get("slack_webhook") and _mode_allows(ch.get("slack_mode", "all"), "health", sev):
-            try:
-                await client.post(ch["slack_webhook"], json={"text": f"{emoji} {text}"})
-            except Exception as e:
-                logger.warning(f"slack alert failed: {e}")
+            await _send(client, "slack", ch["slack_webhook"], {"text": f"{emoji} {text}"}, "health")
         if ch.get("webhook_url") and _mode_allows(ch.get("webhook_mode", "all"), "health", sev):
-            try:
-                await client.post(ch["webhook_url"], json={"event": "stitches.health.update", "message": text, "regressed": broke, "recovered": recovered})
-            except Exception as e:
-                logger.warning(f"webhook alert failed: {e}")
+            await _send(client, "webhook", ch["webhook_url"], {"event": "stitches.health.update", "message": text, "regressed": broke, "recovered": recovered}, "health")
         if ch.get("discord_webhook") and _mode_allows(ch.get("discord_mode", "all"), "health", sev):
-            try:
-                await client.post(ch["discord_webhook"], json={"content": f"{emoji} {text}"})
-            except Exception as e:
-                logger.warning(f"discord alert failed: {e}")
+            await _send(client, "discord", ch["discord_webhook"], {"content": f"{emoji} {text}"}, "health")
         if ch.get("whatsapp_webhook") and _mode_allows(ch.get("whatsapp_mode", "all"), "health", sev):
-            try:
-                await client.post(ch["whatsapp_webhook"], json={"message": f"{text}", "event": "stitches.health.update"})
-            except Exception as e:
-                logger.warning(f"whatsapp alert failed: {e}")
+            await _send(client, "whatsapp", ch["whatsapp_webhook"], {"message": f"{text}", "event": "stitches.health.update"}, "health")
 
 
 @router.get("/admin/deploy/diagnose/state")
@@ -732,9 +743,22 @@ async def test_one_channel(request: Request, user: dict = Depends(require_admin)
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.post(url, json=payload)
+        await _record_delivery(channel, "test", r.status_code, 200 <= r.status_code < 300)
         return {"ok": 200 <= r.status_code < 300, "status": r.status_code}
     except Exception as e:
+        await _record_delivery(channel, "test", 0, False, str(e))
         raise HTTPException(status_code=502, detail=f"Delivery failed: {e}")
+
+
+@router.get("/admin/deploy/alert-channels/deliveries")
+async def get_channel_deliveries(user: dict = Depends(require_admin)):
+    rows = await db.webhook_deliveries.find({}, {"_id": 0}).sort("at", -1).to_list(120)
+    out = {}
+    for r in rows:
+        out.setdefault(r["channel"], [])
+        if len(out[r["channel"]]) < 8:
+            out[r["channel"]].append(r)
+    return {"deliveries": out}
 
 
 # ---------------- Incident notes ----------------
@@ -937,27 +961,13 @@ async def _notify_incident_channels(event, label, impact="", text="", component=
     import httpx
     async with httpx.AsyncClient(timeout=10) as client:
         if ch.get("slack_webhook") and _mode_allows(ch.get("slack_mode", "all"), "incident", sev):
-            try:
-                await client.post(ch["slack_webhook"], json={"text": msg_text})
-            except Exception as e:
-                logger.warning(f"incident slack failed: {e}")
+            await _send(client, "slack", ch["slack_webhook"], {"text": msg_text}, f"incident.{event}")
         if ch.get("discord_webhook") and _mode_allows(ch.get("discord_mode", "all"), "incident", sev):
-            try:
-                await client.post(ch["discord_webhook"], json={"content": msg_text})
-            except Exception as e:
-                logger.warning(f"incident discord failed: {e}")
+            await _send(client, "discord", ch["discord_webhook"], {"content": msg_text}, f"incident.{event}")
         if ch.get("whatsapp_webhook") and _mode_allows(ch.get("whatsapp_mode", "all"), "incident", sev):
-            try:
-                await client.post(ch["whatsapp_webhook"], json={"message": summary + (f" — {text}" if text else ""),
-                                                                 "event": f"stitches.incident.{event}", "link": link})
-            except Exception as e:
-                logger.warning(f"incident whatsapp failed: {e}")
+            await _send(client, "whatsapp", ch["whatsapp_webhook"], {"message": summary + (f" — {text}" if text else ""), "event": f"stitches.incident.{event}", "link": link}, f"incident.{event}")
         if ch.get("webhook_url") and _mode_allows(ch.get("webhook_mode", "all"), "incident", sev):
-            try:
-                await client.post(ch["webhook_url"], json={"event": f"stitches.incident.{event}", "label": label,
-                                                           "impact": impact, "text": text, "component": component, "link": link})
-            except Exception as e:
-                logger.warning(f"incident webhook failed: {e}")
+            await _send(client, "webhook", ch["webhook_url"], {"event": f"stitches.incident.{event}", "label": label, "impact": impact, "text": text, "component": component, "link": link}, f"incident.{event}")
 
 
 async def _dispatch_maint_to_channels(text):
@@ -966,25 +976,13 @@ async def _dispatch_maint_to_channels(text):
     import httpx
     async with httpx.AsyncClient(timeout=10) as client:
         if ch.get("slack_webhook") and _mode_allows(ch.get("slack_mode", "all"), "maintenance"):
-            try:
-                await client.post(ch["slack_webhook"], json={"text": f":wrench: {text}"})
-            except Exception as e:
-                logger.warning(f"maint slack failed: {e}")
+            await _send(client, "slack", ch["slack_webhook"], {"text": f":wrench: {text}"}, "maintenance")
         if ch.get("discord_webhook") and _mode_allows(ch.get("discord_mode", "all"), "maintenance"):
-            try:
-                await client.post(ch["discord_webhook"], json={"content": f":wrench: {text}"})
-            except Exception as e:
-                logger.warning(f"maint discord failed: {e}")
+            await _send(client, "discord", ch["discord_webhook"], {"content": f":wrench: {text}"}, "maintenance")
         if ch.get("whatsapp_webhook") and _mode_allows(ch.get("whatsapp_mode", "all"), "maintenance"):
-            try:
-                await client.post(ch["whatsapp_webhook"], json={"message": text, "event": "stitches.maintenance"})
-            except Exception as e:
-                logger.warning(f"maint whatsapp failed: {e}")
+            await _send(client, "whatsapp", ch["whatsapp_webhook"], {"message": text, "event": "stitches.maintenance"}, "maintenance")
         if ch.get("webhook_url") and _mode_allows(ch.get("webhook_mode", "all"), "maintenance"):
-            try:
-                await client.post(ch["webhook_url"], json={"event": "stitches.maintenance", "message": text})
-            except Exception as e:
-                logger.warning(f"maint webhook failed: {e}")
+            await _send(client, "webhook", ch["webhook_url"], {"event": "stitches.maintenance", "message": text}, "maintenance")
 
 
 # ---------------- Public incidents (auto + manual) ----------------

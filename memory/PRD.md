@@ -331,6 +331,11 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - **Per-Channel Test**: each channel row in the Channels panel has a "Test" button (`test-slack-btn`, `test-discord-btn`, `test-whatsapp-btn`, `test-webhook-btn`) that POSTs a sample event to that one webhook via `POST /admin/deploy/alert-channels/test-one` ({channel, url}) — accepts the currently-typed URL (no need to save first). Returns `{ok, status}`; UI toasts the HTTP result. 400 if no URL, 502 on delivery failure.
 - Verified (curl): 200→ok:true, 418→ok:false, missing URL→400, unreachable host→502. Frontend build clean. (Backend curl-verified; UI reuses the already-tested Channels panel.)
 
+## Implemented (2026-07-31, part 10) — Per-Channel Delivery Log
+- **Delivery Log**: every webhook send (health, incident, maintenance, and manual tests) is recorded in a rolling `webhook_deliveries` collection (last 15 per channel) via a shared `_send()` helper — capturing time, HTTP status, ok flag, and error. All dispatch paths (`_dispatch_alerts`, `_notify_incident_channels`, `_dispatch_maint_to_channels`, `test_one_channel`) route through `_send()`.
+- New endpoint `GET /admin/deploy/alert-channels/deliveries` returns the last ~8 sends grouped per channel. The Channels panel shows a "Recent deliveries" section (green=2xx, red=failure, with time-ago + hover tooltip for event/error) and a Refresh button; it loads on panel open and after any test.
+- Verified (curl): discord test → 200 (ok), slack test → 500 (not ok), grouped correctly. Frontend build clean. (Backend curl-verified; UI reuses the tested Channels panel.)
+
 ### Status Page backlog (from code review)
 - Split the ~1160-line `deploy_center.py` into diagnostics / deploy-bundle / status-page / subscribers / maintenance submodules.
 - Add a TTL cache / pre-aggregation for `/status/public` + `/status/public/component/{key}` (both rescan diagnostics_history per request).

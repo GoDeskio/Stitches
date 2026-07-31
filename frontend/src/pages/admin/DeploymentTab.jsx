@@ -80,8 +80,19 @@ export function DeploymentTab() {
   const testChannels = async () => {
     try { const { data } = await api.post("/admin/deploy/alert-channels/test"); const to = Object.entries(data.sent_to).filter(([, v]) => v).map(([k]) => k).join(", "); toast.success(`Test alert dispatched to: ${to}`); }
     catch (e) { toast.error("Test failed"); }
+    finally { loadDeliveries(); }
   };
   const [testingChannel, setTestingChannel] = useState("");
+  const [deliveries, setDeliveries] = useState({});
+  const loadDeliveries = () => api.get("/admin/deploy/alert-channels/deliveries").then(({ data }) => setDeliveries(data.deliveries || {})).catch(() => {});
+  const toggleChannels = () => { const n = !showChannels; setShowChannels(n); if (n) loadDeliveries(); };
+  const timeAgo = (iso) => {
+    const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+    if (s < 60) return `${s}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h`;
+    return `${Math.floor(s / 86400)}d`;
+  };
   const testOneChannel = async (channel, url) => {
     if (!url?.trim()) { toast.error("Enter a URL for this channel first"); return; }
     setTestingChannel(channel);
@@ -90,7 +101,7 @@ export function DeploymentTab() {
       if (data.ok) toast.success(`Test delivered (HTTP ${data.status})`);
       else toast.error(`Endpoint responded HTTP ${data.status}`);
     } catch (e) { toast.error(e?.response?.data?.detail || "Delivery failed"); }
-    finally { setTestingChannel(""); }
+    finally { setTestingChannel(""); loadDeliveries(); }
   };
 
   const [statusPage, setStatusPage] = useState({ enabled: false, title: "Stitches Status" });
@@ -392,7 +403,7 @@ export function DeploymentTab() {
             </button>
             <button data-testid="history-toggle-btn" onClick={toggleHistory} className="neu-btn rounded-2xl px-4 py-3 font-semibold text-primary-stitch flex items-center gap-2"><History className="w-4 h-4" /> History</button>
             <button data-testid="incidents-toggle-btn" onClick={toggleIncidents} className="neu-btn rounded-2xl px-4 py-3 font-semibold text-primary-stitch flex items-center gap-2"><NotebookPen className="w-4 h-4" /> Incidents</button>
-            <button data-testid="channels-toggle-btn" onClick={() => setShowChannels((v) => !v)} className="neu-btn rounded-2xl px-4 py-3 font-semibold text-primary-stitch flex items-center gap-2"><Bell className="w-4 h-4" /> Channels</button>
+            <button data-testid="channels-toggle-btn" onClick={toggleChannels} className="neu-btn rounded-2xl px-4 py-3 font-semibold text-primary-stitch flex items-center gap-2"><Bell className="w-4 h-4" /> Channels</button>
             {diag && <button data-testid="diagnose-download-btn" onClick={downloadDiag} className="neu-btn rounded-2xl px-4 py-3 font-semibold text-primary-stitch flex items-center gap-2"><Download className="w-4 h-4" /> Report</button>}
             <button data-testid="run-diagnose-btn" onClick={runDiagnostics} disabled={diagRunning} className="neu-primary rounded-2xl px-5 py-3 font-semibold flex items-center gap-2"><Stethoscope className="w-4 h-4" />{diagRunning ? "Scanning…" : "Run diagnostics"}</button>
           </div>
@@ -455,6 +466,28 @@ export function DeploymentTab() {
               <button data-testid="save-channels-btn" onClick={saveChannels} className="neu-primary rounded-xl px-4 py-2 text-xs font-semibold">Save channels</button>
               <button data-testid="test-channels-btn" onClick={testChannels} className="neu-btn rounded-xl px-4 py-2 text-xs font-semibold text-primary-stitch">Send test alert</button>
             </div>
+            {Object.keys(deliveries).length > 0 && (
+              <div className="mt-4 pt-3 border-t" style={{ borderColor: "var(--neu-dark)" }} data-testid="delivery-log">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-bold uppercase tracking-wide text-muted-stitch">Recent deliveries</p>
+                  <button data-testid="delivery-refresh-btn" onClick={loadDeliveries} className="text-[11px] text-primary-stitch font-semibold hover:underline">Refresh</button>
+                </div>
+                <div className="space-y-2">
+                  {["slack", "discord", "whatsapp", "webhook"].filter((c) => deliveries[c]?.length).map((c) => (
+                    <div key={c} data-testid={`delivery-row-${c}`} className="flex items-center gap-2 flex-wrap text-xs">
+                      <span className="font-semibold capitalize w-20 shrink-0" style={{ color: "var(--text)" }}>{c}</span>
+                      <div className="flex gap-1.5 flex-wrap">
+                        {deliveries[c].map((d, i) => (
+                          <span key={i} title={`${d.event} · ${new Date(d.at).toLocaleString()}${d.error ? ` · ${d.error}` : ""}`} className="px-2 py-0.5 rounded-full font-semibold" style={{ background: "var(--neu-dark)", color: d.ok ? "#22c55e" : "#ef4444" }}>
+                            {d.ok ? d.status : (d.status || "err")} · {timeAgo(d.at)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
