@@ -578,6 +578,18 @@ async def scan_auto_diagnostics():
         return 0
 
 
+_bg_tasks = set()
+
+
+def _spawn(coro):
+    """Fire-and-forget a coroutine (keeps a ref so it isn't GC'd)."""
+    t = asyncio.create_task(coro)
+    _bg_tasks.add(t)
+    t.add_done_callback(_bg_tasks.discard)
+    return t
+
+
+
 async def _record_delivery(channel, event, status, ok, error="", attempts=1):
     try:
         await db.webhook_deliveries.insert_one({"channel": channel, "event": event, "status": status,
@@ -727,10 +739,10 @@ async def set_alert_channels(request: Request, user: dict = Depends(require_admi
 
 @router.post("/admin/deploy/alert-channels/test")
 async def test_alert_channels(user: dict = Depends(require_admin)):
-    await _dispatch_alerts(broke=["Test alert — sample regression"], recovered=["Test — sample recovery"])
+    _spawn(_dispatch_alerts(broke=["Test alert — sample regression"], recovered=["Test — sample recovery"]))
     ch = ((await db.settings.find_one({"key": "alert_channels"})) or {}).get("value", {})
-    return {"ok": True, "sent_to": {"email": True, "slack": bool(ch.get("slack_webhook")), "webhook": bool(ch.get("webhook_url")),
-                                    "discord": bool(ch.get("discord_webhook")), "whatsapp": bool(ch.get("whatsapp_webhook"))}}
+    return {"ok": True, "queued": True, "sent_to": {"email": True, "slack": bool(ch.get("slack_webhook")), "webhook": bool(ch.get("webhook_url")),
+                                                    "discord": bool(ch.get("discord_webhook")), "whatsapp": bool(ch.get("whatsapp_webhook"))}}
 
 
 @router.post("/admin/deploy/alert-channels/test-one")
@@ -1054,9 +1066,12 @@ async def create_status_incident(request: Request, user: dict = Depends(require_
            "updates": [{"at": now_iso(), "kind": "opened", "text": text}]}
     await db.status_incidents.insert_one(inc)
     await log_activity(user["user_id"], "incident_open")
-    await _notify_subscribers(f"[Stitches] Incident opened — {label} {impact}",
-                              f"<h3>{label} — {impact.title()}</h3><p>{text}</p>")
-    await _notify_incident_channels("opened", label, impact, text, gk or "")
+
+    async def _notify():
+        await _notify_subscribers(f"[Stitches] Incident opened — {label} {impact}",
+                                  f"<h3>{label} — {impact.title()}</h3><p>{text}</p>")
+        await _notify_incident_channels("opened", label, impact, text, gk or "")
+    _spawn(_notify())
     return {"ok": True, "incident_id": inc["incident_id"]}
 
 
@@ -1076,9 +1091,39 @@ async def update_status_incident(incident_id: str, request: Request, user: dict 
     label = inc.get("group_label", "Service")
     subj = f"[Stitches] Resolved — {label}" if resolve else f"[Stitches] Update — {label}"
     head = f"<h3>{label} — {'Resolved ✅' if resolve else 'Update'}</h3><p>{text}</p>"
-    await _notify_subscribers(subj, head)
-    await _notify_incident_channels("resolved" if resolve else "update", label, "", text, inc.get("group_key", ""))
+
+    async def _notify():
+        await _notify_subscribers(subj, head)
+        await _notify_incident_channels("resolved" if resolve else "update", label, "", text, inc.get("group_key", ""))
+    _spawn(_notify())
     return {"ok": True}
+
+
+@router.get("/admin/deploy/ops-overview")
+async def ops_overview(user: dict = Depends(require_admin)):
+    runs = await db.diagnostics_history.find({}, {"_id": 0}).sort("generated_at", -1).to_list(1)
+    latest = (runs[0].get("statuses") or {}) if runs else {}
+    worst = "ok"
+    for g in PUBLIC_GROUPS:
+        s = _worst(g["ids"], latest) if latest else "ok"
+        if _RANK.get(s, 0) > _RANK.get(worst, 0):
+            worst = s
+    overall = {"ok": "operational", "warn": "degraded", "fail": "outage"}[worst]
+    cfg = await _status_page_cfg()
+    open_inc = await db.status_incidents.count_documents({"status": "investigating"})
+    subs = await db.status_subscribers.count_documents({"active": True})
+    recent = await db.webhook_deliveries.find({}, {"_id": 0}).sort("at", -1).to_list(6)
+    now = datetime.now(timezone.utc)
+    mwin = await db.maintenance_windows.find({"status": {"$ne": "cancelled"}}, {"_id": 0}).sort("starts_at", 1).to_list(50)
+    next_maint = None
+    for m in mwin:
+        st = _maint_status(m, now)
+        if st in ("scheduled", "in_progress"):
+            next_maint = {"title": m.get("title"), "state": st, "starts_at": m.get("starts_at")}
+            break
+    return {"overall": overall, "open_incidents": open_inc, "subscribers": subs,
+            "status_public": cfg["enabled"], "generated_at": runs[0]["generated_at"] if runs else None,
+            "recent_deliveries": recent, "next_maintenance": next_maint}
 
 
 @router.get("/status/public")

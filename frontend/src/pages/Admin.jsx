@@ -173,6 +173,7 @@ function Overview({ onNav }) {
           </div>
         ))}
       </div>
+      <OpsOverview onNav={onNav} />
       {health && health.total > 0 && (
         <div className="neu-raised rounded-[1.75rem] p-6 mb-8 animate-fade-up" data-testid="automation-health-card">
           <div className="flex items-center gap-3 mb-5">
@@ -241,6 +242,62 @@ function SetupStatusStrip({ onNav }) {
     </div>
   );
 }
+
+function OpsOverview({ onNav }) {
+  const [d, setD] = useState(null);
+  useEffect(() => { api.get("/admin/deploy/ops-overview").then(({ data }) => setD(data)).catch(() => setD(null)); }, []);
+  if (!d) return null;
+  const META = { operational: { c: "#16a34a", t: "All systems operational" }, degraded: { c: "#d97706", t: "Some systems degraded" }, outage: { c: "#dc2626", t: "Active outage" } };
+  const m = META[d.overall] || META.operational;
+  const timeAgo = (iso) => { if (!iso) return "—"; const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000); return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`; };
+  return (
+    <div className="neu-raised rounded-[1.75rem] p-6 mb-8 animate-fade-up" data-testid="ops-overview-card">
+      <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center"><Activity className="w-5 h-5 text-primary-stitch" /></div>
+          <div>
+            <h2 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Ops overview</h2>
+            <p className="text-sm text-muted-stitch">Live system health at a glance.</p>
+          </div>
+        </div>
+        <button data-testid="ops-open-deploy" onClick={() => onNav && onNav("deploy")} className="neu-btn rounded-2xl px-4 py-2.5 text-xs font-semibold text-primary-stitch flex items-center gap-2"><Rocket className="w-4 h-4" /> Open Deployment</button>
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="neu-pressed rounded-2xl p-4" data-testid="ops-status">
+          <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full" style={{ background: m.c, boxShadow: `0 0 8px ${m.c}` }} /><span className="text-xs font-bold uppercase tracking-wide" style={{ color: m.c }}>{d.overall}</span></div>
+          <p className="text-sm mt-1.5" style={{ color: "var(--text)" }}>{m.t}</p>
+          <p className="text-[11px] text-muted-stitch mt-1">checked {timeAgo(d.generated_at)} ago</p>
+        </div>
+        <div className="neu-pressed rounded-2xl p-4" data-testid="ops-incidents">
+          <p className="font-head font-black text-3xl" style={{ color: d.open_incidents > 0 ? "#dc2626" : "var(--text)" }}>{d.open_incidents}</p>
+          <p className="text-sm text-muted-stitch mt-1 flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5" /> Open incidents</p>
+        </div>
+        <div className="neu-pressed rounded-2xl p-4" data-testid="ops-subscribers">
+          <p className="font-head font-black text-3xl" style={{ color: "var(--text)" }}>{d.subscribers}</p>
+          <p className="text-sm text-muted-stitch mt-1 flex items-center gap-1.5"><Bell className="w-3.5 h-3.5" /> Status subscribers</p>
+        </div>
+        <div className="neu-pressed rounded-2xl p-4" data-testid="ops-statuspage">
+          <p className="text-xs font-bold uppercase tracking-wide" style={{ color: d.status_public ? "#16a34a" : "var(--muted)" }}>{d.status_public ? "Public" : "Private"}</p>
+          <p className="text-sm text-muted-stitch mt-1">Status page</p>
+          {d.next_maintenance && <p className="text-[11px] text-blue-400 mt-1 truncate">Next: {d.next_maintenance.title}</p>}
+        </div>
+      </div>
+      {d.recent_deliveries?.length > 0 && (
+        <div className="mt-4 pt-3 border-t" style={{ borderColor: "var(--neu-dark)" }}>
+          <p className="text-xs font-bold uppercase tracking-wide text-muted-stitch mb-2">Recent webhook deliveries</p>
+          <div className="flex gap-1.5 flex-wrap" data-testid="ops-deliveries">
+            {d.recent_deliveries.map((x, i) => (
+              <span key={i} title={`${x.channel} · ${x.event} · ${new Date(x.at).toLocaleString()}`} className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background: "var(--neu-dark)", color: x.ok ? "#16a34a" : "#dc2626" }}>
+                {x.channel} {x.ok ? x.status : (x.status || "err")}{x.attempts > 1 ? ` ↻${x.attempts}` : ""}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 
 function HealthStat({ label, value, color, testid }) {
