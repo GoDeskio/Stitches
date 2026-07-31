@@ -327,6 +327,10 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - **Per-Channel Routing**: each alert channel (Slack / Discord / WhatsApp / generic webhook) has a routing mode — All events / Incidents / Outages only / Maintenance only — stored as `slack_mode`, `discord_mode`, `whatsapp_mode`, `webhook_mode` in `alert_channels`. `_mode_allows(mode, category, severity)` filters events across all three dispatch paths: `_dispatch_alerts` (category=health), `_notify_incident_channels` (category=incident, severity=impact/recovery), and the new `_dispatch_maint_to_channels` (category=maintenance, now fans maintenance heads-ups to channels too). UI: a mode `<select>` beside each channel URL in the Channels panel.
 - Verified (iteration_53): backend 5/5 pytest + frontend 100% E2E; routing independently re-confirmed via logs (degraded → only 'all'; outage → 'all' + 'outages'; 'maintenance'-only never fired for incidents), mode persistence across reload verified. Zero issues. Test data cleaned.
 
+## Implemented (2026-07-31, part 9) — Per-Channel Test Button
+- **Per-Channel Test**: each channel row in the Channels panel has a "Test" button (`test-slack-btn`, `test-discord-btn`, `test-whatsapp-btn`, `test-webhook-btn`) that POSTs a sample event to that one webhook via `POST /admin/deploy/alert-channels/test-one` ({channel, url}) — accepts the currently-typed URL (no need to save first). Returns `{ok, status}`; UI toasts the HTTP result. 400 if no URL, 502 on delivery failure.
+- Verified (curl): 200→ok:true, 418→ok:false, missing URL→400, unreachable host→502. Frontend build clean. (Backend curl-verified; UI reuses the already-tested Channels panel.)
+
 ### Status Page backlog (from code review)
 - Split the ~1160-line `deploy_center.py` into diagnostics / deploy-bundle / status-page / subscribers / maintenance submodules.
 - Add a TTL cache / pre-aggregation for `/status/public` + `/status/public/component/{key}` (both rescan diagnostics_history per request).

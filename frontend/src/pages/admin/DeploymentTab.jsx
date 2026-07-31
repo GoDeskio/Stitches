@@ -81,6 +81,17 @@ export function DeploymentTab() {
     try { const { data } = await api.post("/admin/deploy/alert-channels/test"); const to = Object.entries(data.sent_to).filter(([, v]) => v).map(([k]) => k).join(", "); toast.success(`Test alert dispatched to: ${to}`); }
     catch (e) { toast.error("Test failed"); }
   };
+  const [testingChannel, setTestingChannel] = useState("");
+  const testOneChannel = async (channel, url) => {
+    if (!url?.trim()) { toast.error("Enter a URL for this channel first"); return; }
+    setTestingChannel(channel);
+    try {
+      const { data } = await api.post("/admin/deploy/alert-channels/test-one", { channel, url: url.trim() });
+      if (data.ok) toast.success(`Test delivered (HTTP ${data.status})`);
+      else toast.error(`Endpoint responded HTTP ${data.status}`);
+    } catch (e) { toast.error(e?.response?.data?.detail || "Delivery failed"); }
+    finally { setTestingChannel(""); }
+  };
 
   const [statusPage, setStatusPage] = useState({ enabled: false, title: "Stitches Status" });
   const [savingStatus, setSavingStatus] = useState(false);
@@ -422,19 +433,20 @@ export function DeploymentTab() {
             <p className="text-xs text-muted-stitch mb-3">Route health-regression alerts, incident events and maintenance heads-ups to Slack, Discord, WhatsApp and/or a webhook, in addition to admin email. Pick which events each channel receives to cut noise.</p>
             <div className="space-y-2">
               {[
-                { key: "slack_webhook", modeKey: "slack_mode", inputId: "slack-webhook-input", modeId: "slack-mode-select", ph: "Slack incoming webhook URL" },
-                { key: "discord_webhook", modeKey: "discord_mode", inputId: "discord-webhook-input", modeId: "discord-mode-select", ph: "Discord webhook URL" },
-                { key: "whatsapp_webhook", modeKey: "whatsapp_mode", inputId: "whatsapp-webhook-input", modeId: "whatsapp-mode-select", ph: "WhatsApp webhook URL (Twilio / Zapier / gateway)" },
-                { key: "webhook_url", modeKey: "webhook_mode", inputId: "webhook-url-input", modeId: "webhook-url-mode-select", ph: "Generic webhook URL (JSON POST)" },
+                { key: "slack_webhook", modeKey: "slack_mode", channel: "slack", inputId: "slack-webhook-input", modeId: "slack-mode-select", ph: "Slack incoming webhook URL" },
+                { key: "discord_webhook", modeKey: "discord_mode", channel: "discord", inputId: "discord-webhook-input", modeId: "discord-mode-select", ph: "Discord webhook URL" },
+                { key: "whatsapp_webhook", modeKey: "whatsapp_mode", channel: "whatsapp", inputId: "whatsapp-webhook-input", modeId: "whatsapp-mode-select", ph: "WhatsApp webhook URL (Twilio / Zapier / gateway)" },
+                { key: "webhook_url", modeKey: "webhook_mode", channel: "webhook", inputId: "webhook-url-input", modeId: "webhook-url-mode-select", ph: "Generic webhook URL (JSON POST)" },
               ].map((c) => (
-                <div key={c.key} className="flex gap-2">
-                  <input data-testid={c.inputId} value={channels[c.key] || ""} onChange={(e) => setChannels({ ...channels, [c.key]: e.target.value })} placeholder={c.ph} className="neu-input rounded-2xl py-2.5 px-4 text-sm flex-1 font-mono-stitch" />
+                <div key={c.key} className="flex gap-2 flex-wrap">
+                  <input data-testid={c.inputId} value={channels[c.key] || ""} onChange={(e) => setChannels({ ...channels, [c.key]: e.target.value })} placeholder={c.ph} className="neu-input rounded-2xl py-2.5 px-4 text-sm flex-1 min-w-[180px] font-mono-stitch" />
                   <select data-testid={c.modeId} value={channels[c.modeKey] || "all"} onChange={(e) => setChannels({ ...channels, [c.modeKey]: e.target.value })} className="neu-input rounded-2xl py-2.5 px-3 text-xs w-36 shrink-0" style={{ color: "var(--text)" }}>
                     <option value="all">All events</option>
                     <option value="incidents">Incidents</option>
                     <option value="outages">Outages only</option>
                     <option value="maintenance">Maintenance only</option>
                   </select>
+                  <button data-testid={`test-${c.channel}-btn`} onClick={() => testOneChannel(c.channel, channels[c.key])} disabled={testingChannel === c.channel} className="neu-btn rounded-2xl px-3 py-2.5 text-xs font-semibold text-primary-stitch shrink-0">{testingChannel === c.channel ? "…" : "Test"}</button>
                 </div>
               ))}
             </div>

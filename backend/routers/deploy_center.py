@@ -713,6 +713,30 @@ async def test_alert_channels(user: dict = Depends(require_admin)):
                                     "discord": bool(ch.get("discord_webhook")), "whatsapp": bool(ch.get("whatsapp_webhook"))}}
 
 
+@router.post("/admin/deploy/alert-channels/test-one")
+async def test_one_channel(request: Request, user: dict = Depends(require_admin)):
+    body = await request.json()
+    channel = body.get("channel")
+    url = (body.get("url") or "").strip()
+    if not url:
+        ch = ((await db.settings.find_one({"key": "alert_channels"})) or {}).get("value", {})
+        url = ch.get({"slack": "slack_webhook", "discord": "discord_webhook",
+                      "whatsapp": "whatsapp_webhook", "webhook": "webhook_url"}.get(channel, ""), "")
+    if not url:
+        raise HTTPException(status_code=400, detail="Enter a URL for this channel first")
+    text = "Stitches test — this channel is wired up correctly. 🎉"
+    payload = {"slack": {"text": text}, "discord": {"content": text},
+               "whatsapp": {"message": text, "event": "stitches.test"},
+               "webhook": {"event": "stitches.test", "message": text}}.get(channel, {"message": text})
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.post(url, json=payload)
+        return {"ok": 200 <= r.status_code < 300, "status": r.status_code}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Delivery failed: {e}")
+
+
 # ---------------- Incident notes ----------------
 @router.get("/admin/deploy/diagnose/alerts/all")
 async def all_alerts(user: dict = Depends(require_admin)):
