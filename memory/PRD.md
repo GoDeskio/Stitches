@@ -308,6 +308,11 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - **Maintenance Auto-Silence**: while a maintenance window is in progress for a component, `_sync_public_incidents` skips opening auto-incidents for that component and `scan_auto_diagnostics` skips its regression alerts (recoveries still fire). The badge shows "maintenance" for silenced components. Driven by `_active_maintenance_group_keys()`.
 - Verified (iteration_49): backend + frontend 100%, auto-silence loop confirmed (no incident while maintained → opens after removal), embed panel + badge verified. Zero issues.
 
+## Implemented (2026-07-31, part 5) — Component Badges + Status History (RSS) Feed
+- **Component Badges**: each `/status/:key` detail page has an "Embed this component" section with a live per-service badge (`/api/status/badge.svg?component=<key>`) plus copyable HTML + Markdown snippets that link back to that component page.
+- **Status History Feed**: public `GET /api/status/feed.xml` — a well-formed RSS 2.0 feed of incidents (with links to the affected component page) and maintenance windows, newest first, cached 120s, CORS-open. A "Subscribe via RSS" link sits in the `/status` footer.
+- Verified (iteration_50): backend + frontend 100%, feed XML well-formed with correct items/links, component embed preview + copy snippets verified. Zero issues.
+
 ### Status Page backlog (from code review)
 - Split the ~1160-line `deploy_center.py` into diagnostics / deploy-bundle / status-page / subscribers / maintenance submodules.
 - Add a TTL cache / pre-aggregation for `/status/public` + `/status/public/component/{key}` (both rescan diagnostics_history per request).
