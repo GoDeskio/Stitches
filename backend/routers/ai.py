@@ -336,6 +336,20 @@ async def send_memory_digest_now(user: dict = Depends(get_current_user)):
     return {"ok": ok, "detail": detail}
 
 
+@router.get("/ai/memory/digest/preview")
+async def preview_memory_digest(user: dict = Depends(get_current_user)):
+    cfg = await _ai_memory_cfg()
+    doc = await db.users.find_one({"user_id": user["user_id"]}) or user
+    uid = user["user_id"]
+    mems = await db.ai_memories.find({"scope": "user", "owner_id": uid}, {"_id": 0}).sort("created_at", -1).to_list(cfg["max_items"])
+    groups = {}
+    for m in mems:
+        groups.setdefault(_norm_category(m.get("category")), []).append(m["content"])
+    frontend = os.environ.get("FRONTEND_URL", "")
+    html = _build_memory_digest_html(doc.get("name"), groups, f"{frontend}/assistant?memory=open")
+    return {"html": html, "count": len(mems)}
+
+
 async def scan_memory_digests():
     """Weekly/monthly: email a memory summary to users per their chosen cadence."""
     try:

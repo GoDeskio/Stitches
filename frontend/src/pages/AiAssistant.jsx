@@ -63,10 +63,19 @@ function MemoryPanel({ open, onClose }) {
       else toast.error("Email not configured yet — ask your admin to set up email");
     } catch (e) { toast.error("Couldn't send"); } finally { setSavingDigest(false); }
   };
+  const [preview, setPreview] = useState(null);
+  const openPreview = async () => {
+    try { const { data: r } = await api.get("/ai/memory/digest/preview"); setPreview(r.html); }
+    catch (e) { toast.error("Couldn't build preview"); }
+  };
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkCat, setBulkCat] = useState("general");
   const toggleSelect = (id) => setSelectedIds((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id]);
+  const selectAllIn = (ids) => setSelectedIds((s) => {
+    const allIn = ids.every((i) => s.includes(i));
+    return allIn ? s.filter((x) => !ids.includes(x)) : [...new Set([...s, ...ids])];
+  });
   const exitSelect = () => { setSelectMode(false); setSelectedIds([]); };
   const bulkMove = async () => {
     if (selectedIds.length === 0) return;
@@ -140,6 +149,18 @@ function MemoryPanel({ open, onClose }) {
   };
   return (
     <div className="fixed inset-0 z-50 flex justify-end" data-testid="memory-panel">
+      {preview !== null && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" data-testid="digest-preview-modal">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setPreview(null)} />
+          <div className="relative neu-raised rounded-[1.75rem] p-4 w-full max-w-lg" style={{ background: "var(--surface)" }}>
+            <div className="flex items-center justify-between mb-3 px-1">
+              <p className="font-head font-bold text-lg" style={{ color: "var(--text)" }}>Summary email preview</p>
+              <button data-testid="digest-preview-close" onClick={() => setPreview(null)} className="neu-btn rounded-xl p-2 text-muted-stitch"><X className="w-4 h-4" /></button>
+            </div>
+            <iframe data-testid="digest-preview-frame" title="digest-preview" srcDoc={preview} className="w-full rounded-2xl bg-white" style={{ height: "60vh", border: "none" }} />
+          </div>
+        </div>
+      )}
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
       <div className="relative w-full max-w-md h-full neu-raised overflow-y-auto p-6 animate-fade-up" style={{ background: "var(--surface)" }}>
         <div className="flex items-center justify-between mb-1">
@@ -188,6 +209,7 @@ function MemoryPanel({ open, onClose }) {
                     ))}
                   </div>
                   <button data-testid="digest-send-now" onClick={sendDigestNow} disabled={savingDigest} className="neu-btn rounded-xl px-3 py-2 text-xs font-semibold text-primary-stitch ml-auto">{savingDigest ? "Sending…" : "Send now"}</button>
+                  <button data-testid="digest-preview-btn" onClick={openPreview} className="neu-btn rounded-xl px-3 py-2 text-xs font-semibold text-primary-stitch">Preview</button>
                 </div>
               </div>
             )}
@@ -238,16 +260,27 @@ function MemoryPanel({ open, onClose }) {
                     <p className="text-xs font-bold uppercase tracking-wide text-primary-stitch mb-2 flex items-center gap-1.5"><User className="w-3.5 h-3.5" /> About you</p>
                     {userList.length === 0 ? <p className="text-xs text-muted-stitch">Nothing here.</p> : (
                       <div className="space-y-4">
-                        {CAT_ORDER.filter((c) => userList.some((m) => (m.category || "general") === c)).map((c) => (
+                        {CAT_ORDER.filter((c) => userList.some((m) => (m.category || "general") === c)).map((c) => {
+                          const groupIds = userList.filter((m) => (m.category || "general") === c).map((m) => m.mem_id);
+                          const allSel = groupIds.every((i) => selectedIds.includes(i));
+                          return (
                           <div key={c} data-testid={`memory-group-${c}`}>
-                            <p className="text-[11px] font-bold uppercase tracking-wide mb-1.5 flex items-center gap-1.5" style={{ color: CAT_META[c].color }}>
-                              <span className="w-2 h-2 rounded-full" style={{ background: CAT_META[c].color }} />{CAT_META[c].label}
-                            </p>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <p className="text-[11px] font-bold uppercase tracking-wide flex items-center gap-1.5" style={{ color: CAT_META[c].color }}>
+                                <span className="w-2 h-2 rounded-full" style={{ background: CAT_META[c].color }} />{CAT_META[c].label}
+                              </p>
+                              {selectMode && (
+                                <button data-testid={`select-all-${c}`} onClick={() => selectAllIn(groupIds)} className="text-[10px] font-bold uppercase tracking-wide text-primary-stitch">
+                                  {allSel ? "Clear" : "Select all"}
+                                </button>
+                              )}
+                            </div>
                             <div className="space-y-2">
                               {userList.filter((m) => (m.category || "general") === c).map(renderRow)}
                             </div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>

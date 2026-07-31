@@ -370,3 +370,8 @@
 - **Digest Cadence**: memory summary email is now Off / Weekly / Monthly per user (ai_user_prefs.digest_cadence; backward-compatible with the old memory_digest bool -> monthly). GET /ai/memory returns digest_cadence; PUT /ai/memory/prefs accepts it. scan_memory_digests() now sends weekly (>=7d) or monthly (>=30d) per user cadence. Frontend: 3-way segmented control replacing the toggle.
 - **Bulk Recategorize**: new POST /api/ai/memory/bulk-category {ids, category} (update_many, own user-scoped only). Frontend: a Select mode in the Memory panel with row checkboxes and an action bar (N selected + category dropdown + Move).
 - Verified via curl (cadence weekly set+read, bulk-category updated=2) and screenshot (segmented cadence control + bulk select bar with 2 selected).
+
+## Implemented (2026-07-31, part 8) — Select All (per category), Digest Preview
+- **Select All**: in the Memory panel's Select mode, each category header shows a "Select all" / "Clear" shortcut that toggles selection of every fact in that group in one tap (frontend-only, uses existing bulk-category endpoint to move).
+- **Digest Preview**: new GET /api/ai/memory/digest/preview returns the exact rendered summary-email HTML (+count). Frontend "Preview" button in the digest card opens a modal rendering it in an iframe (srcDoc) so users see precisely what will be emailed before sending.
+- Verified via curl (preview count=4, HTML contains header) and screenshots (email preview modal + per-category Select all selecting 2 in one tap).
