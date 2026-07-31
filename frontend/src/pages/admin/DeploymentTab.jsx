@@ -478,8 +478,8 @@ export function DeploymentTab() {
                       <span className="font-semibold capitalize w-20 shrink-0" style={{ color: "var(--text)" }}>{c}</span>
                       <div className="flex gap-1.5 flex-wrap">
                         {deliveries[c].map((d, i) => (
-                          <span key={i} title={`${d.event} · ${new Date(d.at).toLocaleString()}${d.error ? ` · ${d.error}` : ""}`} className="px-2 py-0.5 rounded-full font-semibold" style={{ background: "var(--neu-dark)", color: d.ok ? "#22c55e" : "#ef4444" }}>
-                            {d.ok ? d.status : (d.status || "err")} · {timeAgo(d.at)}
+                          <span key={i} title={`${d.event} · ${new Date(d.at).toLocaleString()}${d.attempts > 1 ? ` · ${d.attempts} attempts` : ""}${d.error ? ` · ${d.error}` : ""}`} className="px-2 py-0.5 rounded-full font-semibold" style={{ background: "var(--neu-dark)", color: d.ok ? "#22c55e" : "#ef4444" }}>
+                            {d.ok ? d.status : (d.status || "err")}{d.attempts > 1 ? ` ↻${d.attempts}` : ""} · {timeAgo(d.at)}
                           </span>
                         ))}
                       </div>

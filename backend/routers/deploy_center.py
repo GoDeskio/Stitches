@@ -1,5 +1,6 @@
 import io
 import re
+import asyncio
 import zipfile
 import secrets as pysecrets
 from email.utils import format_datetime
@@ -577,10 +578,10 @@ async def scan_auto_diagnostics():
         return 0
 
 
-async def _record_delivery(channel, event, status, ok, error=""):
+async def _record_delivery(channel, event, status, ok, error="", attempts=1):
     try:
         await db.webhook_deliveries.insert_one({"channel": channel, "event": event, "status": status,
-                                                "ok": ok, "error": (error or "")[:200], "at": now_iso()})
+                                                "ok": ok, "error": (error or "")[:200], "attempts": attempts, "at": now_iso()})
         old = await db.webhook_deliveries.find({"channel": channel}, {"_id": 1}).sort("at", -1).skip(15).to_list(200)
         if old:
             await db.webhook_deliveries.delete_many({"_id": {"$in": [o["_id"] for o in old]}})
@@ -588,16 +589,24 @@ async def _record_delivery(channel, event, status, ok, error=""):
         logger.warning(f"delivery log failed: {e}")
 
 
-async def _send(client, channel, url, payload, event):
-    """POST to a webhook and record the result in the per-channel delivery log."""
-    try:
-        r = await client.post(url, json=payload)
-        await _record_delivery(channel, event, r.status_code, 200 <= r.status_code < 300)
-        return r.status_code
-    except Exception as e:
-        logger.warning(f"{channel} {event} send failed: {e}")
-        await _record_delivery(channel, event, 0, False, str(e))
-        return None
+async def _send(client, channel, url, payload, event, retries=2):
+    """POST to a webhook with retry + backoff; record the (final) result in the delivery log."""
+    delays = [1, 3]
+    last_status, last_err = 0, ""
+    for attempt in range(retries + 1):
+        try:
+            r = await client.post(url, json=payload)
+            if 200 <= r.status_code < 300:
+                await _record_delivery(channel, event, r.status_code, True, "", attempt + 1)
+                return r.status_code
+            last_status, last_err = r.status_code, f"HTTP {r.status_code}"
+        except Exception as e:
+            last_status, last_err = 0, str(e)
+            logger.warning(f"{channel} {event} send attempt {attempt + 1} failed: {e}")
+        if attempt < retries:
+            await asyncio.sleep(delays[min(attempt, len(delays) - 1)])
+    await _record_delivery(channel, event, last_status, False, last_err, retries + 1)
+    return last_status or None
 
 
 async def _dispatch_alerts(broke=None, recovered=None):

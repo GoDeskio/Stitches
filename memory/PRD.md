@@ -336,6 +336,11 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - New endpoint `GET /admin/deploy/alert-channels/deliveries` returns the last ~8 sends grouped per channel. The Channels panel shows a "Recent deliveries" section (green=2xx, red=failure, with time-ago + hover tooltip for event/error) and a Refresh button; it loads on panel open and after any test.
 - Verified (curl): discord test → 200 (ok), slack test → 500 (not ok), grouped correctly. Frontend build clean. (Backend curl-verified; UI reuses the tested Channels panel.)
 
+## Implemented (2026-07-31, part 11) — Webhook Retry with Backoff
+- **Retry Failed Sends**: `_send()` now retries a webhook up to 2 extra times (3 attempts total) with backoff (1s, 3s) on any non-2xx response or exception. The final outcome and the attempt count are recorded in the delivery log (`attempts` field). Applies to all automated dispatches (health/incident/maintenance); the manual per-channel "Test" stays single-shot for snappy feedback.
+- The delivery-log chip now shows a `↻N` marker + tooltip when more than one attempt was made.
+- Verified (curl): a failing generic webhook (HTTP 500) was retried to `attempts: 3` with ~4s backoff and logged `ok:false`. Frontend build clean.
+
 ### Status Page backlog (from code review)
 - Split the ~1160-line `deploy_center.py` into diagnostics / deploy-bundle / status-page / subscribers / maintenance submodules.
 - Add a TTL cache / pre-aggregation for `/status/public` + `/status/public/component/{key}` (both rescan diagnostics_history per request).
