@@ -37,6 +37,7 @@ export function DeploymentTab() {
   const [files, setFiles] = useState(null);
   const [paste, setPaste] = useState(null);
   const [activeFile, setActiveFile] = useState(0);
+  const [importPreview, setImportPreview] = useState(null);
 
   const load = async () => {
     try {
@@ -121,11 +122,23 @@ export function DeploymentTab() {
     try {
       const obj = JSON.parse(decodeURIComponent(escape(atob(code.trim()))));
       if (!obj.name || !Array.isArray(obj.ids)) throw new Error("bad");
-      await api.post("/admin/deploy/presets", { name: obj.name, selected: obj.ids });
-      toast.success(`Imported preset "${obj.name}"`);
-      load();
-    } catch (err) { toast.error(err?.response?.data?.detail || "Invalid preset code"); }
+      const ids = obj.ids.filter((i) => cat.catalog.some((c) => c.id === i));
+      const adds = ids.filter((i) => !selected.includes(i));
+      const removes = selected.filter((i) => !ids.includes(i));
+      setImportPreview({ name: obj.name, ids, adds, removes });
+    } catch (err) { toast.error("Invalid preset code"); }
   };
+  const confirmImport = async () => {
+    if (!importPreview) return;
+    try {
+      await api.post("/admin/deploy/presets", { name: importPreview.name, selected: importPreview.ids });
+      setSelected(importPreview.ids);
+      toast.success(`Imported "${importPreview.name}"`);
+      setImportPreview(null);
+      load();
+    } catch (err) { toast.error(err?.response?.data?.detail || "Import failed"); }
+  };
+  const nameOf = (id) => (cat?.catalog.find((c) => c.id === id)?.name) || id;
 
   if (!cat) return null;
   const cats = [...new Set(cat.catalog.map((c) => c.category))];
@@ -133,6 +146,37 @@ export function DeploymentTab() {
 
   return (
     <div className="space-y-6" data-testid="deployment-tab">
+      {importPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" data-testid="import-preview-modal">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setImportPreview(null)} />
+          <div className="relative neu-raised rounded-[1.75rem] p-6 w-full max-w-md" style={{ background: "var(--surface)" }}>
+            <h3 className="font-head font-bold text-xl mb-1" style={{ color: "var(--text)" }}>Import "{importPreview.name}"</h3>
+            <p className="text-sm text-muted-stitch mb-4">This preset will change your current selection as follows:</p>
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide text-green-500 mb-1.5">Adds ({importPreview.adds.length})</p>
+                {importPreview.adds.length === 0 ? <p className="text-xs text-muted-stitch">Nothing new.</p> : (
+                  <div className="flex flex-wrap gap-2" data-testid="import-adds">
+                    {importPreview.adds.map((id) => <span key={id} className="neu-pressed rounded-xl px-3 py-1.5 text-xs font-semibold text-green-500">+ {nameOf(id)}</span>)}
+                  </div>
+                )}
+              </div>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide text-red-400 mb-1.5">Removes ({importPreview.removes.length})</p>
+                {importPreview.removes.length === 0 ? <p className="text-xs text-muted-stitch">Nothing removed.</p> : (
+                  <div className="flex flex-wrap gap-2" data-testid="import-removes">
+                    {importPreview.removes.map((id) => <span key={id} className="neu-pressed rounded-xl px-3 py-1.5 text-xs font-semibold text-red-400">− {nameOf(id)}</span>)}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button data-testid="import-confirm-btn" onClick={confirmImport} className="neu-primary rounded-2xl px-5 py-3 font-semibold flex-1">Apply preset</button>
+              <button data-testid="import-cancel-btn" onClick={() => setImportPreview(null)} className="neu-btn rounded-2xl px-5 py-3 font-semibold text-muted-stitch">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up">
         <div className="flex items-center gap-3 mb-1">
           <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center"><Rocket className="w-5 h-5 text-primary-stitch" /></div>

@@ -1,0 +1,40 @@
+{
+  "summary": "Iter 44 — Memory Categories, Suggested Memories, and Preset Diff Preview. Backend pytest 14/14 pass. Verified: (a) POST /api/ai/memory accepts category (preference|project|deadline|tool|general) and stores it; invalid category defaults to 'general'; GET /api/ai/memory returns category on items. (b) PATCH /api/ai/memory/{id} still edits content (empty content -> 400). (c) POST /api/ai/memory/suggest returns {suggestion, category} for a durable-fact exchange (Emergent LLM gpt-5.4-mini extracted 'Prefers dark mode' during E2E) and {suggestion: null} when user_enabled is false. (d) POST /api/ai/memory with source='suggested' persists correctly. (e) POST /api/ai/agent still replies (regression). (f) GET /api/admin/deploy/catalog exposes presets; POST /api/admin/deploy/presets {name, selected} saves a preset and it appears in catalog.presets; DELETE /api/admin/deploy/presets/{id} removes it. Frontend E2E (admin@stitches.app): opened /assistant → seeded 3 categorized memories (preference/project/deadline) via API → Memory panel showed data-testid memory-group-preference, memory-group-project, memory-group-deadline with color-coded headers and category rows underneath. Sent a durable-fact chat message ('I always prefer dark mode and I work on the Q3 Launch project as engineering lead.') → memory-suggestion chip appeared with suggestion 'Prefers dark mode' + Remember/Dismiss buttons → clicking suggestion-accept saved via POST /api/ai/memory (source=suggested) and hid the chip. Admin → Deployment tab: clicked deploy-import-preset-btn with dialog handler accepting the base64 code for {name:'TEST_iter44_UI Import',ids:['coturn','livekit','grafana']} → import-preview-modal opened with import-adds (0 new since preset overlapped) and import-removes (1 chip for the item being removed) → import-confirm-btn applied, modal closed, and the new custom preset 'TEST_iter44_UI Import' appeared in the presets row. All test data cleaned up (memories + custom preset removed via API).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter44_memory_deploy.py",
+    "/app/test_reports/pytest/iter44.xml"
+  ],
+  "verified": [
+    "POST /api/ai/memory with category=preference|project|deadline|tool|general persists + returns category",
+    "Unknown category value normalizes to 'general'",
+    "GET /api/ai/memory returns category on items (5 categories confirmed)",
+    "PATCH /api/ai/memory/{id} edits content; empty content -> 400",
+    "POST /api/ai/memory/suggest returns {suggestion, category} for durable-fact exchange",
+    "POST /api/ai/memory/suggest returns {suggestion: null} when memory user_enabled=false",
+    "POST /api/ai/memory with source='suggested' persists with source correctly",
+    "POST /api/ai/agent still replies (regression)",
+    "GET /api/admin/deploy/catalog exposes presets list",
+    "POST /api/admin/deploy/presets {name, selected} saves + appears in catalog.presets; ids match",
+    "DELETE /api/admin/deploy/presets/{id} removes preset",
+    "Frontend /assistant MemoryPanel renders memory-group-preference/project/deadline/general with color headers",
+    "memory-suggestion chip appears after durable-fact chat; suggestion-accept saves + hides chip",
+    "Admin Deployment tab: deploy-import-preset-btn -> import-preview-modal with import-adds + import-removes",
+    "import-confirm-btn applies preset, closes modal, and new custom preset appears in presets row"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "MemoryPanel pin form (pin-memory-input / pin-memory-btn) does not include a category picker, so user-pinned memories always fall into 'general' category. Consider adding a category selector alongside the pin input so users can pin project/deadline/tool facts without needing an admin to seed them.",
+    "ai.py _distill_facts uses openai/gpt-5.4-mini — per July-2026 releases (gpt-5.6 available). Centralize model id in one constant so extractor + suggestion can be bumped without touching call sites.",
+    "DeploymentTab importPreset uses window.prompt for the code (non-testable UX and awkward on mobile). Consider a proper modal input; the current dialog handler is only reachable via Playwright's dialog listener."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter44_memory_deploy.py"],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100%"},
+  "seed_data_creation": "During E2E, seeded/removed 3 pinned test memories (TEST_iter44_ui *) and 1 custom preset (TEST_iter44_UI Import) via API cleanup after each flow. LLM-generated suggestion memory ('Prefers dark mode') also cleaned up. Any leftover 'Prefers dark mode' memory (source=suggested) was purged.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@stitches.app / Admin@123",
+  "context_for_next_testing_agent": "AI Memory config was ensured user_enabled=true via PUT /api/admin/ai-memory/config before suggestion testing. workspace_enabled was left as-is (was true during test). The MemoryPanel pin-memory-input UI has no category picker — pinned memories always become category='general'; use the API directly with 'category' field to seed the other groups (as this test does). For preset diff: DeploymentTab.importPreset uses window.prompt so tests must register a page.once('dialog', ...) BEFORE clicking deploy-import-preset-btn. Preset code format: btoa(JSON.stringify({name, ids})). Save endpoint is POST /api/admin/deploy/presets with body {name, selected} (NOT ids); the frontend translates ids->selected before POST.",
+  "rca_of_the_issue": "N/A — no defects found. Initial local test used the wrong preset payload key ('ids' vs backend's 'selected') and assumed a GET /api/admin/deploy/presets endpoint that doesn't exist; corrected to use catalog.presets. All 14 backend + all frontend flows pass."
+}

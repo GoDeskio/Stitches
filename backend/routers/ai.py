@@ -48,6 +48,46 @@ async def _prune_memory(scope, owner_id, cfg):
         await db.ai_memories.delete_many({"_id": {"$in": [e["_id"] for e in extra]}})
 
 
+_MEM_CATEGORIES = ["preference", "project", "deadline", "tool", "general"]
+_EXTRACT_PROMPT = ("Extract durable, reusable facts about the user or their team from the exchange "
+                   "(preferences, roles, projects, tools, deadlines, stable context). "
+                   "Return ONLY a JSON array of objects: {\"content\": short string, \"category\": one of "
+                   "preference|project|deadline|tool|general}. No facts -> return []. Max 4 items.")
+
+
+def _norm_category(c):
+    c = str(c or "general").strip().lower()
+    return c if c in _MEM_CATEGORIES else "general"
+
+
+async def _distill_facts(user_id, user_text, assistant_text):
+    """Run the LLM to extract candidate facts. Returns list of {content, category}."""
+    from emergentintegrations.llm.chat import LlmChat, UserMessage, StreamDone, TextDelta
+    chat = LlmChat(api_key=EMERGENT_KEY, session_id=f"mem_{user_id}_{uuid.uuid4().hex[:6]}",
+                   system_message=_EXTRACT_PROMPT).with_model("openai", "gpt-5.4-mini")
+    full = ""
+    async for event in chat.stream_message(UserMessage(text=f"User: {user_text}\nAssistant: {assistant_text}")):
+        if isinstance(event, TextDelta):
+            full += event.content
+        elif isinstance(event, StreamDone):
+            break
+    raw = full.strip().strip("`")
+    if raw.lower().startswith("json"):
+        raw = raw[4:].strip()
+    start, end = raw.find("["), raw.rfind("]")
+    if start < 0 or end < 0:
+        return []
+    out = []
+    for f in json.loads(raw[start:end + 1])[:4]:
+        if isinstance(f, dict):
+            content, cat = str(f.get("content", "")).strip(), _norm_category(f.get("category"))
+        else:
+            content, cat = str(f).strip(), "general"
+        if content:
+            out.append({"content": content[:400], "category": cat})
+    return out
+
+
 async def _extract_memory(user, user_text, assistant_text, cfg, auto_capture=True):
     """Background: distill durable facts from the exchange and persist them."""
     try:
@@ -58,37 +98,17 @@ async def _extract_memory(user, user_text, assistant_text, cfg, auto_capture=Tru
             scope, owner = "workspace", _WORKSPACE_OWNER
         else:
             return
-        from emergentintegrations.llm.chat import LlmChat, UserMessage, StreamDone, TextDelta
-        chat = LlmChat(api_key=EMERGENT_KEY, session_id=f"mem_{user['user_id']}_{uuid.uuid4().hex[:6]}",
-                       system_message=("Extract durable, reusable facts about the user or their team from the exchange "
-                                       "(preferences, roles, projects, tools, deadlines, stable context). "
-                                       "Return ONLY a JSON array of short strings. No facts -> return []. Max 4 items.")).with_model("openai", "gpt-5.4-mini")
-        full = ""
-        async for event in chat.stream_message(UserMessage(text=f"User: {user_text}\nAssistant: {assistant_text}")):
-            if isinstance(event, TextDelta):
-                full += event.content
-            elif isinstance(event, StreamDone):
-                break
-        raw = full.strip().strip("`")
-        if raw.lower().startswith("json"):
-            raw = raw[4:].strip()
-        start, end = raw.find("["), raw.rfind("]")
-        if start < 0 or end < 0:
-            return
-        facts = json.loads(raw[start:end + 1])
-        for f in facts[:4]:
-            f = str(f).strip()
-            if not f:
-                continue
-            exists = await db.ai_memories.find_one({"scope": scope, "owner_id": owner, "content": f})
+        for f in await _distill_facts(user["user_id"], user_text, assistant_text):
+            exists = await db.ai_memories.find_one({"scope": scope, "owner_id": owner, "content": f["content"]})
             if exists:
                 continue
             await db.ai_memories.insert_one({"mem_id": f"mem_{uuid.uuid4().hex[:12]}", "scope": scope,
-                                             "owner_id": owner, "content": f[:400], "created_at": now_iso(),
-                                             "source": "auto"})
+                                             "owner_id": owner, "content": f["content"], "category": f["category"],
+                                             "created_at": now_iso(), "source": "auto"})
         await _prune_memory(scope, owner, cfg)
     except Exception as e:
         logger.error(f"memory extract error: {e}")
+
 
 
 @router.get("/admin/ai-memory/config")
@@ -185,11 +205,35 @@ async def pin_my_memory(request: Request, user: dict = Depends(get_current_user)
     if not content:
         raise HTTPException(status_code=400, detail="content required")
     mem = {"mem_id": f"mem_{uuid.uuid4().hex[:12]}", "scope": "user", "owner_id": user["user_id"],
-           "content": content[:400], "created_at": now_iso(), "source": "pinned"}
+           "content": content[:400], "category": _norm_category(body.get("category")),
+           "created_at": now_iso(), "source": body.get("source") or "pinned"}
     await db.ai_memories.insert_one(mem)
     await _prune_memory("user", user["user_id"], cfg)
     mem.pop("_id", None)
     return mem
+
+
+@router.post("/ai/memory/suggest")
+async def suggest_memory(request: Request, user: dict = Depends(get_current_user)):
+    """After a chat, propose one durable fact for the user to accept or dismiss (no auto-store)."""
+    cfg = await _ai_memory_cfg()
+    if not cfg["user_enabled"]:
+        return {"suggestion": None}
+    body = await request.json()
+    user_text = (body.get("user_text") or "")[:2000]
+    assistant_text = (body.get("assistant_text") or "")[:2000]
+    if not user_text and not assistant_text:
+        return {"suggestion": None}
+    try:
+        facts = await _distill_facts(user["user_id"], user_text, assistant_text)
+    except Exception as e:
+        logger.error(f"suggest error: {e}")
+        return {"suggestion": None}
+    for f in facts:
+        exists = await db.ai_memories.find_one({"scope": "user", "owner_id": user["user_id"], "content": f["content"]})
+        if not exists:
+            return {"suggestion": f["content"], "category": f["category"]}
+    return {"suggestion": None}
 
 
 @router.delete("/ai/memory/{mem_id}")

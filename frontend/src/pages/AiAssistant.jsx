@@ -17,6 +17,15 @@ const SUGGESTIONS = [
   "Show my dashboard stats",
 ];
 
+const CAT_META = {
+  preference: { label: "Preferences", color: "#8b5cf6" },
+  project: { label: "Projects", color: "#3b82f6" },
+  deadline: { label: "Deadlines", color: "#f59e0b" },
+  tool: { label: "Tools", color: "#10b981" },
+  general: { label: "General", color: "#9ca3af" },
+};
+const CAT_ORDER = ["preference", "project", "deadline", "tool", "general"];
+
 function MemoryPanel({ open, onClose }) {
   const [data, setData] = useState(null);
   const [pinText, setPinText] = useState("");
@@ -55,6 +64,33 @@ function MemoryPanel({ open, onClose }) {
   const wsList = data ? data.workspace.filter(matches) : [];
   const nothing = data && data.user.length === 0 && data.workspace.length === 0;
   const noMatches = data && !nothing && userList.length === 0 && wsList.length === 0;
+
+  const renderRow = (m) => (
+    <div key={m.mem_id} data-testid="my-memory-row" className="neu-pressed rounded-2xl px-4 py-3">
+      {editId === m.mem_id ? (
+        <div className="flex gap-2 items-center" data-testid="memory-edit-row">
+          <input data-testid="memory-edit-input" value={editText} onChange={(e) => setEditText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") saveEdit(m.mem_id); if (e.key === "Escape") setEditId(null); }}
+            autoFocus className="neu-input flex-1 rounded-xl py-2 px-3 text-sm" />
+          <button data-testid="memory-edit-save" onClick={() => saveEdit(m.mem_id)} className="neu-primary rounded-xl p-2 shrink-0"><Check className="w-4 h-4" /></button>
+          <button data-testid="memory-edit-cancel" onClick={() => setEditId(null)} className="neu-btn rounded-xl p-2 text-muted-stitch shrink-0"><X className="w-4 h-4" /></button>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm flex items-center gap-1.5" style={{ color: "var(--text)" }}>
+              {m.source === "pinned" && <Pin className="w-3 h-3 text-primary-stitch shrink-0" />}{m.content}
+            </p>
+            <p className="text-[11px] text-muted-stitch mt-0.5">{m.source === "pinned" ? "Pinned by you · " : m.source === "suggested" ? "Suggested · " : ""}{m.edited_at ? "edited · " : ""}{new Date(m.created_at).toLocaleDateString([], { month: "short", day: "numeric" })}</p>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button data-testid="my-memory-edit" onClick={() => startEdit(m)} title="Edit" className="neu-btn rounded-xl p-2.5 text-primary-stitch"><Pencil className="w-4 h-4" /></button>
+            <button data-testid="my-memory-forget" onClick={() => forget(m.mem_id)} title="Forget this" className="neu-btn rounded-xl p-2.5 text-red-500"><Trash2 className="w-4 h-4" /></button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
   return (
     <div className="fixed inset-0 z-50 flex justify-end" data-testid="memory-panel">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
@@ -115,31 +151,15 @@ function MemoryPanel({ open, onClose }) {
                   <div>
                     <p className="text-xs font-bold uppercase tracking-wide text-primary-stitch mb-2 flex items-center gap-1.5"><User className="w-3.5 h-3.5" /> About you</p>
                     {userList.length === 0 ? <p className="text-xs text-muted-stitch">Nothing here.</p> : (
-                      <div className="space-y-2">
-                        {userList.map((m) => (
-                          <div key={m.mem_id} data-testid="my-memory-row" className="neu-pressed rounded-2xl px-4 py-3">
-                            {editId === m.mem_id ? (
-                              <div className="flex gap-2 items-center" data-testid="memory-edit-row">
-                                <input data-testid="memory-edit-input" value={editText} onChange={(e) => setEditText(e.target.value)}
-                                  onKeyDown={(e) => { if (e.key === "Enter") saveEdit(m.mem_id); if (e.key === "Escape") setEditId(null); }}
-                                  autoFocus className="neu-input flex-1 rounded-xl py-2 px-3 text-sm" />
-                                <button data-testid="memory-edit-save" onClick={() => saveEdit(m.mem_id)} className="neu-primary rounded-xl p-2 shrink-0"><Check className="w-4 h-4" /></button>
-                                <button data-testid="memory-edit-cancel" onClick={() => setEditId(null)} className="neu-btn rounded-xl p-2 text-muted-stitch shrink-0"><X className="w-4 h-4" /></button>
-                              </div>
-                            ) : (
-                              <div className="flex items-center justify-between gap-3">
-                                <div className="min-w-0">
-                                  <p className="text-sm flex items-center gap-1.5" style={{ color: "var(--text)" }}>
-                                    {m.source === "pinned" && <Pin className="w-3 h-3 text-primary-stitch shrink-0" />}{m.content}
-                                  </p>
-                                  <p className="text-[11px] text-muted-stitch mt-0.5">{m.source === "pinned" ? "Pinned by you · " : ""}{m.edited_at ? "edited · " : ""}{new Date(m.created_at).toLocaleDateString([], { month: "short", day: "numeric" })}</p>
-                                </div>
-                                <div className="flex items-center gap-1.5 shrink-0">
-                                  <button data-testid="my-memory-edit" onClick={() => startEdit(m)} title="Edit" className="neu-btn rounded-xl p-2.5 text-primary-stitch"><Pencil className="w-4 h-4" /></button>
-                                  <button data-testid="my-memory-forget" onClick={() => forget(m.mem_id)} title="Forget this" className="neu-btn rounded-xl p-2.5 text-red-500"><Trash2 className="w-4 h-4" /></button>
-                                </div>
-                              </div>
-                            )}
+                      <div className="space-y-4">
+                        {CAT_ORDER.filter((c) => userList.some((m) => (m.category || "general") === c)).map((c) => (
+                          <div key={c} data-testid={`memory-group-${c}`}>
+                            <p className="text-[11px] font-bold uppercase tracking-wide mb-1.5 flex items-center gap-1.5" style={{ color: CAT_META[c].color }}>
+                              <span className="w-2 h-2 rounded-full" style={{ background: CAT_META[c].color }} />{CAT_META[c].label}
+                            </p>
+                            <div className="space-y-2">
+                              {userList.filter((m) => (m.category || "general") === c).map(renderRow)}
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -175,22 +195,36 @@ export default function AiAssistant() {
   const [busy, setBusy] = useState(false);
   const [model, setModel] = useState(MODELS[0]);
   const [memOpen, setMemOpen] = useState(false);
+  const [suggestion, setSuggestion] = useState(null);
   const bottomRef = useRef(null);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, busy]);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, busy, suggestion]);
 
   const send = async (text) => {
     const content = (text ?? input).trim();
     if (!content || busy) return;
     setInput("");
+    setSuggestion(null);
     setMessages((prev) => [...prev, { role: "user", content }]);
     setBusy(true);
     try {
       const { data } = await api.post("/ai/agent", { message: content, provider: model.provider, model: model.model });
-      setMessages((prev) => [...prev, { role: "assistant", content: data.reply || "Done.", result: data.result, action: data.action }]);
+      const reply = data.reply || "Done.";
+      setMessages((prev) => [...prev, { role: "assistant", content: reply, result: data.result, action: data.action }]);
+      // Propose a memory (fire-and-forget; only shows if memory is on and a durable fact is found)
+      api.post("/ai/memory/suggest", { user_text: content, assistant_text: reply })
+        .then(({ data }) => { if (data.suggestion) setSuggestion({ content: data.suggestion, category: data.category }); })
+        .catch(() => {});
     } catch (e) {
       setMessages((prev) => [...prev, { role: "assistant", content: "Sorry, something went wrong reaching the AI." }]);
     } finally { setBusy(false); }
+  };
+
+  const acceptSuggestion = async () => {
+    if (!suggestion) return;
+    try { await api.post("/ai/memory", { content: suggestion.content, category: suggestion.category, source: "suggested" }); toast.success("Stitch will remember this"); }
+    catch (e) { toast.error("Couldn't save that"); }
+    finally { setSuggestion(null); }
   };
 
   return (
@@ -260,6 +294,18 @@ export default function AiAssistant() {
           )}
           <div ref={bottomRef} />
         </div>
+
+        {suggestion && (
+          <div data-testid="memory-suggestion" className="mx-4 mb-3 neu-pressed rounded-2xl px-4 py-3 flex items-center gap-3 animate-fade-up">
+            <Brain className="w-5 h-5 text-primary-stitch shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs text-muted-stitch">Want Stitch to remember this?</p>
+              <p className="text-sm font-medium truncate" style={{ color: "var(--text)" }}>{suggestion.content}</p>
+            </div>
+            <button data-testid="suggestion-accept" onClick={acceptSuggestion} className="neu-primary rounded-xl px-3 py-2 text-sm font-semibold flex items-center gap-1.5 shrink-0"><Check className="w-4 h-4" /> Remember</button>
+            <button data-testid="suggestion-dismiss" onClick={() => setSuggestion(null)} className="neu-btn rounded-xl px-3 py-2 text-sm font-semibold text-muted-stitch shrink-0">Dismiss</button>
+          </div>
+        )}
 
         <form onSubmit={(e) => { e.preventDefault(); send(); }} className="p-4 pt-0 flex gap-3">
           <input data-testid="ai-input" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Message Stitch AI..."
