@@ -1101,14 +1101,33 @@ async def update_status_incident(incident_id: str, request: Request, user: dict 
 
 @router.get("/admin/deploy/ops-overview")
 async def ops_overview(user: dict = Depends(require_admin)):
-    runs = await db.diagnostics_history.find({}, {"_id": 0}).sort("generated_at", -1).to_list(1)
+    runs = await db.diagnostics_history.find({}, {"_id": 0}).sort("generated_at", -1).to_list(500)
     latest = (runs[0].get("statuses") or {}) if runs else {}
-    worst = "ok"
-    for g in PUBLIC_GROUPS:
-        s = _worst(g["ids"], latest) if latest else "ok"
-        if _RANK.get(s, 0) > _RANK.get(worst, 0):
-            worst = s
+
+    def overall_worst(statuses):
+        w = "ok"
+        for g in PUBLIC_GROUPS:
+            s = _worst(g["ids"], statuses)
+            if _RANK.get(s, 0) > _RANK.get(w, 0):
+                w = s
+        return w
+    worst = overall_worst(latest) if latest else "ok"
     overall = {"ok": "operational", "warn": "degraded", "fail": "outage"}[worst]
+    # 7-day uptime trend (per-day overall % healthy)
+    buckets = {}
+    for r in runs:
+        day = (r.get("generated_at") or "")[:10]
+        if not day:
+            continue
+        st = overall_worst(r.get("statuses") or {})
+        b = buckets.setdefault(day, {"ok": 0, "total": 0, "worst": "ok"})
+        b["total"] += 1
+        if st == "ok":
+            b["ok"] += 1
+        if _RANK.get(st, 0) > _RANK.get(b["worst"], 0):
+            b["worst"] = st
+    trend = [{"date": d, "pct": round(v["ok"] / v["total"] * 100) if v["total"] else 100, "status": v["worst"]}
+             for d, v in sorted(buckets.items())][-7:]
     cfg = await _status_page_cfg()
     open_inc = await db.status_incidents.count_documents({"status": "investigating"})
     subs = await db.status_subscribers.count_documents({"active": True})
@@ -1123,7 +1142,7 @@ async def ops_overview(user: dict = Depends(require_admin)):
             break
     return {"overall": overall, "open_incidents": open_inc, "subscribers": subs,
             "status_public": cfg["enabled"], "generated_at": runs[0]["generated_at"] if runs else None,
-            "recent_deliveries": recent, "next_maintenance": next_maint}
+            "trend": trend, "recent_deliveries": recent, "next_maintenance": next_maint}
 
 
 @router.get("/status/public")

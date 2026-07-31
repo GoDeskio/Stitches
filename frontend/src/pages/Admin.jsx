@@ -303,6 +303,19 @@ function OpsOverview({ onNav }) {
           {d.next_maintenance && <p className="text-[11px] text-blue-400 mt-1 truncate">Next: {d.next_maintenance.title}</p>}
         </div>
       </div>
+      {d.trend?.length > 0 && (
+        <div className="mt-4" data-testid="ops-trend">
+          <div className="flex items-center justify-between mb-1.5">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-muted-stitch">7-day uptime</p>
+            <span className="text-[11px] text-muted-stitch">{d.trend[d.trend.length - 1]?.pct}% today</span>
+          </div>
+          <div className="flex items-end gap-1 h-10">
+            {d.trend.map((t, i) => (
+              <div key={i} title={`${t.date}: ${t.pct}%`} className="flex-1 rounded-sm transition-all" style={{ height: `${Math.max(8, t.pct)}%`, background: t.status === "fail" ? "#dc2626" : t.status === "warn" ? "#d97706" : "#16a34a", minWidth: "6px" }} />
+            ))}
+          </div>
+        </div>
+      )}
       {d.recent_deliveries?.length > 0 && (
         <div className="mt-4 pt-3 border-t" style={{ borderColor: "var(--neu-dark)" }}>
           <p className="text-xs font-bold uppercase tracking-wide text-muted-stitch mb-2">Recent webhook deliveries</p>
