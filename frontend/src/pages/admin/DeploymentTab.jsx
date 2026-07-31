@@ -107,6 +107,25 @@ export function DeploymentTab() {
     try { await api.delete(`/admin/deploy/presets/${id}`); toast.success("Preset removed"); load(); }
     catch (e) { toast.error("Could not remove preset"); }
   };
+  const exportPreset = async (p, e) => {
+    e.stopPropagation();
+    try {
+      const code = btoa(unescape(encodeURIComponent(JSON.stringify({ name: p.name, ids: p.ids }))));
+      await navigator.clipboard.writeText(code);
+      toast.success("Preset code copied — share it to import elsewhere");
+    } catch (err) { toast.error("Copy failed"); }
+  };
+  const importPreset = async () => {
+    const code = window.prompt("Paste a preset code to import:");
+    if (!code || !code.trim()) return;
+    try {
+      const obj = JSON.parse(decodeURIComponent(escape(atob(code.trim()))));
+      if (!obj.name || !Array.isArray(obj.ids)) throw new Error("bad");
+      await api.post("/admin/deploy/presets", { name: obj.name, selected: obj.ids });
+      toast.success(`Imported preset "${obj.name}"`);
+      load();
+    } catch (err) { toast.error(err?.response?.data?.detail || "Invalid preset code"); }
+  };
 
   if (!cat) return null;
   const cats = [...new Set(cat.catalog.map((c) => c.category))];
@@ -165,14 +184,18 @@ export function DeploymentTab() {
               const active = p.ids.length === selected.length && p.ids.every((i) => selected.includes(i));
               return (
                 <span key={p.id} data-testid={`deploy-custom-preset-${p.id}`} onClick={() => setSelected(p.ids)}
-                  className={`rounded-2xl pl-4 pr-2 py-2.5 text-sm font-semibold transition-all cursor-pointer flex items-center gap-2 ${active ? "neu-primary" : "neu-pressed text-primary-stitch"}`}>
+                  className={`rounded-2xl pl-4 pr-2 py-2.5 text-sm font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${active ? "neu-primary" : "neu-pressed text-primary-stitch"}`}>
                   {p.name}
-                  <button data-testid={`deploy-preset-delete-${p.id}`} onClick={(e) => deletePreset(p.id, e)} className={`rounded-lg p-1 ${active ? "hover:bg-white/20" : "hover:bg-black/10"}`}><X className="w-3.5 h-3.5" /></button>
+                  <button data-testid={`deploy-preset-export-${p.id}`} title="Copy shareable code" onClick={(e) => exportPreset(p, e)} className={`rounded-lg p-1 ${active ? "hover:bg-white/20" : "hover:bg-black/10"}`}><Copy className="w-3.5 h-3.5" /></button>
+                  <button data-testid={`deploy-preset-delete-${p.id}`} title="Delete preset" onClick={(e) => deletePreset(p.id, e)} className={`rounded-lg p-1 ${active ? "hover:bg-white/20" : "hover:bg-black/10"}`}><X className="w-3.5 h-3.5" /></button>
                 </span>
               );
             })}
             <button data-testid="deploy-save-preset-btn" onClick={savePreset} className="rounded-2xl px-4 py-2.5 text-sm font-semibold neu-btn text-muted-stitch flex items-center gap-1.5">
               <Plus className="w-4 h-4" /> Save current as preset
+            </button>
+            <button data-testid="deploy-import-preset-btn" onClick={importPreset} className="rounded-2xl px-4 py-2.5 text-sm font-semibold neu-btn text-muted-stitch flex items-center gap-1.5">
+              <Download className="w-4 h-4" /> Import code
             </button>
           </div>
         </div>

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Sparkles, Send, User, Zap, Brain, Trash2, X, Users, Pin } from "lucide-react";
+import { Sparkles, Send, User, Zap, Brain, Trash2, X, Users, Pin, Search, Pencil, Check } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { PageShell, PageHeader } from "@/components/Stitch";
@@ -21,11 +21,20 @@ function MemoryPanel({ open, onClose }) {
   const [data, setData] = useState(null);
   const [pinText, setPinText] = useState("");
   const [pinning, setPinning] = useState(false);
+  const [query, setQuery] = useState("");
+  const [editId, setEditId] = useState(null);
+  const [editText, setEditText] = useState("");
   const load = () => api.get("/ai/memory").then(({ data }) => setData(data)).catch(() => setData({ user_enabled: false, workspace_enabled: false, auto_capture: true, user: [], workspace: [] }));
   useEffect(() => { if (open) load(); }, [open]);
   const forget = async (id) => {
     try { await api.delete(`/ai/memory/${id}`); toast.success("Forgotten"); load(); }
     catch (e) { toast.error("Couldn't forget that"); }
+  };
+  const startEdit = (m) => { setEditId(m.mem_id); setEditText(m.content); };
+  const saveEdit = async (id) => {
+    if (!editText.trim()) return;
+    try { await api.patch(`/ai/memory/${id}`, { content: editText }); setEditId(null); toast.success("Memory updated"); load(); }
+    catch (e) { toast.error("Couldn't update that"); }
   };
   const toggleAuto = async () => {
     const next = !data.auto_capture;
@@ -40,7 +49,12 @@ function MemoryPanel({ open, onClose }) {
     catch (e) { toast.error(e?.response?.data?.detail || "Couldn't pin that"); } finally { setPinning(false); }
   };
   if (!open) return null;
+  const q = query.trim().toLowerCase();
+  const matches = (m) => !q || m.content.toLowerCase().includes(q);
+  const userList = data ? data.user.filter(matches) : [];
+  const wsList = data ? data.workspace.filter(matches) : [];
   const nothing = data && data.user.length === 0 && data.workspace.length === 0;
+  const noMatches = data && !nothing && userList.length === 0 && wsList.length === 0;
   return (
     <div className="fixed inset-0 z-50 flex justify-end" data-testid="memory-panel">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
@@ -75,7 +89,7 @@ function MemoryPanel({ open, onClose }) {
             )}
 
             {data.user_enabled && (
-              <div className="flex gap-2 mb-5" data-testid="pin-memory-row">
+              <div className="flex gap-2 mb-3" data-testid="pin-memory-row">
                 <input data-testid="pin-memory-input" value={pinText} onChange={(e) => setPinText(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && pin()} placeholder="Pin something for Stitch to remember…"
                   className="neu-input flex-1 rounded-2xl py-2.5 px-4 text-sm" />
@@ -83,35 +97,60 @@ function MemoryPanel({ open, onClose }) {
               </div>
             )}
 
+            {!nothing && (
+              <div className="neu-pressed rounded-2xl flex items-center gap-2 px-3 py-2 mb-5" data-testid="memory-search-box">
+                <Search className="w-4 h-4 text-muted-stitch shrink-0" />
+                <input data-testid="memory-search-input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search memories…" className="bg-transparent text-sm outline-none flex-1" style={{ color: "var(--text)" }} />
+                {query && <button data-testid="memory-search-clear" onClick={() => setQuery("")} className="text-muted-stitch"><X className="w-3.5 h-3.5" /></button>}
+              </div>
+            )}
+
             {nothing ? (
               <div className="neu-pressed rounded-2xl p-4 text-sm text-muted-stitch">Nothing remembered yet. Pin a fact above, or (with auto-learn on) just chat and Stitch will pick up durable facts.</div>
+            ) : noMatches ? (
+              <div className="neu-pressed rounded-2xl p-4 text-sm text-muted-stitch" data-testid="memory-no-matches">No memories match "{query}".</div>
             ) : (
               <div className="space-y-5">
                 {data.user_enabled && (
                   <div>
                     <p className="text-xs font-bold uppercase tracking-wide text-primary-stitch mb-2 flex items-center gap-1.5"><User className="w-3.5 h-3.5" /> About you</p>
-                    {data.user.length === 0 ? <p className="text-xs text-muted-stitch">Nothing yet.</p> : (
+                    {userList.length === 0 ? <p className="text-xs text-muted-stitch">Nothing here.</p> : (
                       <div className="space-y-2">
-                        {data.user.map((m) => (
-                          <div key={m.mem_id} data-testid="my-memory-row" className="neu-pressed rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="text-sm flex items-center gap-1.5" style={{ color: "var(--text)" }}>
-                                {m.source === "pinned" && <Pin className="w-3 h-3 text-primary-stitch shrink-0" />}{m.content}
-                              </p>
-                              <p className="text-[11px] text-muted-stitch mt-0.5">{m.source === "pinned" ? "Pinned by you · " : ""}{new Date(m.created_at).toLocaleDateString([], { month: "short", day: "numeric" })}</p>
-                            </div>
-                            <button data-testid="my-memory-forget" onClick={() => forget(m.mem_id)} title="Forget this" className="neu-btn rounded-xl p-2.5 text-red-500 shrink-0"><Trash2 className="w-4 h-4" /></button>
+                        {userList.map((m) => (
+                          <div key={m.mem_id} data-testid="my-memory-row" className="neu-pressed rounded-2xl px-4 py-3">
+                            {editId === m.mem_id ? (
+                              <div className="flex gap-2 items-center" data-testid="memory-edit-row">
+                                <input data-testid="memory-edit-input" value={editText} onChange={(e) => setEditText(e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === "Enter") saveEdit(m.mem_id); if (e.key === "Escape") setEditId(null); }}
+                                  autoFocus className="neu-input flex-1 rounded-xl py-2 px-3 text-sm" />
+                                <button data-testid="memory-edit-save" onClick={() => saveEdit(m.mem_id)} className="neu-primary rounded-xl p-2 shrink-0"><Check className="w-4 h-4" /></button>
+                                <button data-testid="memory-edit-cancel" onClick={() => setEditId(null)} className="neu-btn rounded-xl p-2 text-muted-stitch shrink-0"><X className="w-4 h-4" /></button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="text-sm flex items-center gap-1.5" style={{ color: "var(--text)" }}>
+                                    {m.source === "pinned" && <Pin className="w-3 h-3 text-primary-stitch shrink-0" />}{m.content}
+                                  </p>
+                                  <p className="text-[11px] text-muted-stitch mt-0.5">{m.source === "pinned" ? "Pinned by you · " : ""}{m.edited_at ? "edited · " : ""}{new Date(m.created_at).toLocaleDateString([], { month: "short", day: "numeric" })}</p>
+                                </div>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <button data-testid="my-memory-edit" onClick={() => startEdit(m)} title="Edit" className="neu-btn rounded-xl p-2.5 text-primary-stitch"><Pencil className="w-4 h-4" /></button>
+                                  <button data-testid="my-memory-forget" onClick={() => forget(m.mem_id)} title="Forget this" className="neu-btn rounded-xl p-2.5 text-red-500"><Trash2 className="w-4 h-4" /></button>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
                     )}
                   </div>
                 )}
-                {data.workspace_enabled && data.workspace.length > 0 && (
+                {data.workspace_enabled && wsList.length > 0 && (
                   <div>
                     <p className="text-xs font-bold uppercase tracking-wide text-amber-500 mb-2 flex items-center gap-1.5"><Users className="w-3.5 h-3.5" /> Shared with your team</p>
                     <div className="space-y-2">
-                      {data.workspace.map((m) => (
+                      {wsList.map((m) => (
                         <div key={m.mem_id} data-testid="team-memory-row" className="neu-pressed rounded-2xl px-4 py-3">
                           <p className="text-sm" style={{ color: "var(--text)" }}>{m.content}</p>
                           <p className="text-[11px] text-muted-stitch mt-0.5">Team memory · managed by admins</p>

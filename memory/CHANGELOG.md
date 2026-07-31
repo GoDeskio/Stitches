@@ -348,3 +348,8 @@
 - **Pin A Memory** (user): POST /api/ai/memory {content} adds a user-scoped memory (source:"pinned"); rendered with a pin icon + input in the Memory panel.
 - **Preset From Selection** (admin): save the current service selection as a named preset — POST /api/admin/deploy/presets, DELETE /api/admin/deploy/presets/{id}; presets returned in catalog and rendered (clickable, deletable) beside the built-in Calls only / Calls+Monitoring / Full stack presets.
 - Verified via curl (prefs toggle, pin source, preset save+list, forget own=200/team=404) + screenshots of both UIs.
+
+## Implemented (2026-07-31, part 4) — Memory Search, Edit A Memory, Preset Import/Export
+- **Memory Search**: the AI Assistant Memory panel now has a live search box (data-testid memory-search-input) that filters both "About you" and team memories client-side; shows a "no matches" state.
+- **Edit A Memory**: each user memory row has an edit (pencil) button -> inline input with save/cancel. New endpoint PATCH /api/ai/memory/{mem_id} (users can edit ONLY their own user-scoped memory; sets edited_at; 404 otherwise). Verified via curl (200 own / 404 missing).
+- **Preset Import/Export**: custom deploy presets have a Copy icon that copies a base64 shareable code (btoa of {name, ids}); an "Import code" button decodes a pasted code and saves it via the existing POST /admin/deploy/presets. Cross-environment sharing with no new backend.

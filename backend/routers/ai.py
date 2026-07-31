@@ -200,6 +200,20 @@ async def forget_my_memory(mem_id: str, user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 
+@router.patch("/ai/memory/{mem_id}")
+async def edit_my_memory(mem_id: str, request: Request, user: dict = Depends(get_current_user)):
+    body = await request.json()
+    content = (body.get("content") or "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="content required")
+    res = await db.ai_memories.update_one(
+        {"mem_id": mem_id, "scope": "user", "owner_id": user["user_id"]},
+        {"$set": {"content": content[:400], "edited_at": now_iso()}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Not found or not yours to edit")
+    return {"ok": True, "content": content[:400]}
+
+
 # ---------------- AI Assistant ----------------
 @router.get("/ai/conversations")
 async def list_conversations(user: dict = Depends(get_current_user)):
