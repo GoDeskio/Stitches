@@ -353,3 +353,9 @@
 - **Memory Search**: the AI Assistant Memory panel now has a live search box (data-testid memory-search-input) that filters both "About you" and team memories client-side; shows a "no matches" state.
 - **Edit A Memory**: each user memory row has an edit (pencil) button -> inline input with save/cancel. New endpoint PATCH /api/ai/memory/{mem_id} (users can edit ONLY their own user-scoped memory; sets edited_at; 404 otherwise). Verified via curl (200 own / 404 missing).
 - **Preset Import/Export**: custom deploy presets have a Copy icon that copies a base64 shareable code (btoa of {name, ids}); an "Import code" button decodes a pasted code and saves it via the existing POST /admin/deploy/presets. Cross-environment sharing with no new backend.
+
+## Implemented (2026-07-31, part 5) — Memory Categories, Suggested Memories, Preset Diff Preview
+- **Memory Categories**: memories now carry a category (preference/project/deadline/tool/general). Auto-extraction (`_distill_facts`) returns {content, category}; POST /api/ai/memory accepts category. The Memory panel groups "About you" facts under colored category headers.
+- **Suggested Memories**: new POST /api/ai/memory/suggest {user_text, assistant_text} distills one candidate fact (no store). After each AI Assistant reply the frontend shows a suggestion chip with Remember (pins it, source=suggested) / Dismiss. Only surfaces when memory is enabled and a durable, not-already-stored fact is found.
+- **Preset Diff Preview**: importing a deploy preset code now opens a modal showing which services it Adds / Removes vs the current selection before Apply (which saves the preset + updates selection). Export stays a one-click base64 copy.
+- Verified iteration_44: backend 14/14, frontend 100%, zero issues.
