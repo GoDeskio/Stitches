@@ -1,0 +1,16 @@
+{
+  "summary": "Verified Status Embed Widget + Maintenance Auto-Silence end-to-end. Public badge SVG returns 200 with content-type image/svg+xml and correct aria-label (overall 'status: degraded', per-component 'email delivery: degraded', 'email delivery: maintenance' while a window is active). Admin embed panel opens via embed-toggle-btn, live preview <img> loads (naturalWidth=110), HTML/Markdown snippets contain both /api/status/badge.svg and /status; embed-html-copy and embed-md-copy show success toasts ('HTML snippet copied' / 'Markdown snippet copied') and clipboard contents verified. Auto-silence re-confirmed via API: after resolving pre-existing email incident, creating an in-progress maintenance window for group 'email' blocked a new investigating incident from opening on POST /api/admin/deploy/diagnose (active_email=0), and after DELETE of the window a subsequent diagnose auto-opened a fresh incident (active_email=1, inc_c5ef3c8a9c). Public /status page still renders overall banner, uptime tabs (24h/7d/90d), Subscribe box, per-component rows and incident history; /status/email component page renders. All test-created maintenance windows and incidents were cleaned up.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Created and deleted transient maintenance windows (mnt_a225494dee, mnt_97a1bc74fb) and resolved transient auto-incidents (inc_73c935b6f2, inc_c5ef3c8a9c). No residual test data.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@stitches.app / Admin@123",
+  "context_for_next_testing_agent": "Copy buttons use navigator.clipboard.writeText — in headless Playwright grant clipboard-read/clipboard-write via page.context.grant_permissions before asserting success toasts, otherwise you'll see 'Copy failed' which is a browser permission artifact, not a bug. Email delivery is legitimately 'degraded' in this env (no provider key) so overall badge=degraded is EXPECTED.",
+  "rca_of_the_issue": "N/A — no defects found."
+}

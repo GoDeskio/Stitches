@@ -101,6 +101,11 @@ export function DeploymentTab() {
   };
   const refreshStatusMeta = () => api.get("/admin/deploy/status-page").then(({ data }) => setStatusPage(data)).catch(() => {});
   const toggleAutoInc = () => saveStatusPage({ auto_incidents: !statusPage.auto_incidents });
+  const badgeUrl = `${window.location.origin}/api/status/badge.svg`;
+  const htmlSnippet = `<a href="${statusUrl}" target="_blank" rel="noreferrer"><img src="${badgeUrl}" alt="Stitches status" height="20" /></a>`;
+  const mdSnippet = `[![Stitches status](${badgeUrl})](${statusUrl})`;
+  const [showEmbed, setShowEmbed] = useState(false);
+  const copyText = async (t, msg) => { try { await navigator.clipboard.writeText(t); toast.success(msg); } catch (e) { toast.error("Copy failed"); } };
 
   const [pubIncidents, setPubIncidents] = useState([]);
   const [pubGroups, setPubGroups] = useState([]);
@@ -566,6 +571,7 @@ export function DeploymentTab() {
           <div className="flex gap-2 ml-auto">
             <button data-testid="manage-incidents-btn" onClick={togglePubInc} className="neu-btn rounded-xl px-4 py-1.5 text-xs font-semibold text-primary-stitch">{showPubInc ? "Hide incidents" : "Manage incidents"}</button>
             <button data-testid="manage-maintenance-btn" onClick={toggleMaint} className="neu-btn rounded-xl px-4 py-1.5 text-xs font-semibold text-primary-stitch">{showMaint ? "Hide maintenance" : "Schedule maintenance"}</button>
+            <button data-testid="embed-toggle-btn" onClick={() => setShowEmbed((v) => !v)} className="neu-btn rounded-xl px-4 py-1.5 text-xs font-semibold text-primary-stitch">{showEmbed ? "Hide embed" : "Embed badge"}</button>
           </div>
         </div>
 
@@ -650,6 +656,28 @@ export function DeploymentTab() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {showEmbed && (
+          <div className="neu-pressed rounded-2xl p-4 mt-3" data-testid="embed-panel">
+            <p className="text-xs font-bold uppercase tracking-wide text-muted-stitch mb-2">Status badge</p>
+            <p className="text-xs text-muted-stitch mb-3">Drop this live badge on your marketing site, docs or README. It auto-updates and links back to your status page.</p>
+            <div className="flex items-center gap-3 mb-3">
+              <img data-testid="embed-badge-preview" src={badgeUrl} alt="status badge" className="h-5" />
+              <span className="text-[11px] text-muted-stitch">live preview</span>
+            </div>
+            <label className="text-[11px] text-muted-stitch">HTML</label>
+            <div className="flex gap-2 mb-2">
+              <code data-testid="embed-html" className="neu-input rounded-xl py-2 px-3 text-[11px] font-mono-stitch flex-1 overflow-x-auto whitespace-nowrap" style={{ color: "var(--text)" }}>{htmlSnippet}</code>
+              <button data-testid="embed-html-copy" onClick={() => copyText(htmlSnippet, "HTML snippet copied")} className="neu-btn rounded-xl px-3 py-2 text-xs font-semibold text-primary-stitch shrink-0"><Copy className="w-3.5 h-3.5" /></button>
+            </div>
+            <label className="text-[11px] text-muted-stitch">Markdown</label>
+            <div className="flex gap-2">
+              <code data-testid="embed-md" className="neu-input rounded-xl py-2 px-3 text-[11px] font-mono-stitch flex-1 overflow-x-auto whitespace-nowrap" style={{ color: "var(--text)" }}>{mdSnippet}</code>
+              <button data-testid="embed-md-copy" onClick={() => copyText(mdSnippet, "Markdown snippet copied")} className="neu-btn rounded-xl px-3 py-2 text-xs font-semibold text-primary-stitch shrink-0"><Copy className="w-3.5 h-3.5" /></button>
+            </div>
+            {!statusPage.enabled && <p className="text-xs text-amber-500 mt-3">The badge shows "unknown" until you make the status page public.</p>}
           </div>
         )}
       </div>

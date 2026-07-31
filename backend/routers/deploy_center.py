@@ -1,7 +1,7 @@
 import io
 import zipfile
 import secrets as pysecrets
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 from fastapi.responses import HTMLResponse
 from core import *
 from core import _fernet
@@ -539,12 +539,16 @@ async def scan_auto_diagnostics():
         cooldown_min = int(auto.get("cooldown_min", 60))
         cooldown_cut = (datetime.now(timezone.utc) - timedelta(minutes=cooldown_min)).isoformat()
         report = await _run_diagnostics(True, trigger="auto")
+        maint_keys = await _active_maintenance_group_keys()
         new_alerts = 0
         broke = []
         recovered = []
         for c in report["checks"]:
             was = prev.get(c["id"], "ok")
             if _RANK.get(c["status"], 0) > _RANK.get(was, 0):  # regressed
+                # Silence: planned maintenance is in progress for this component
+                if _GROUP_KEY_BY_ID.get(c["id"]) in maint_keys:
+                    continue
                 # Throttle: skip if we alerted on this check within the cooldown window
                 recent = await db.diagnostics_alerts.find_one({"check_id": c["id"], "kind": {"$ne": "recovery"}, "created_at": {"$gte": cooldown_cut}})
                 if recent:
@@ -692,6 +696,7 @@ PUBLIC_GROUPS = [
     {"key": "email", "label": "Email delivery", "ids": ["email"]},
 ]
 _ID_TO_GROUP = {i: g["label"] for g in PUBLIC_GROUPS for i in g["ids"]}
+_GROUP_KEY_BY_ID = {i: g["key"] for g in PUBLIC_GROUPS for i in g["ids"]}
 
 
 async def _status_page_cfg():
@@ -774,17 +779,32 @@ async def status_unsubscribe(token: str = ""):
                         "<h2>You're unsubscribed</h2><p>You will no longer receive Stitches status updates.</p></body></html>")
 
 
+async def _active_maintenance_group_keys():
+    """Group keys currently under an in-progress maintenance window (auto-incidents silenced)."""
+    now = datetime.now(timezone.utc)
+    items = await db.maintenance_windows.find({"status": {"$ne": "cancelled"}}).to_list(200)
+    keys = set()
+    for m in items:
+        if _maint_status(m, now) == "in_progress":
+            for k in (m.get("group_keys") or []):
+                keys.add(k)
+    return keys
+
+
 # ---------------- Public incidents (auto + manual) ----------------
 async def _sync_public_incidents(report):
     """Open a public incident when a subsystem breaks; resolve it when it recovers."""
     cfg = await _status_page_cfg()
     if not cfg.get("auto_incidents", True):
         return
+    maint_keys = await _active_maintenance_group_keys()
     latest = {c["id"]: c["status"] for c in report.get("checks", [])}
     for g in PUBLIC_GROUPS:
         st = _worst(g["ids"], latest)
         openinc = await db.status_incidents.find_one({"group_key": g["key"], "status": "investigating"})
         if st != "ok" and not openinc:
+            if g["key"] in maint_keys:
+                continue  # silenced: planned maintenance is in progress for this component
             impact = "outage" if st == "fail" else "degraded"
             word = "down" if st == "fail" else "degraded"
             inc = {"incident_id": f"inc_{uuid.uuid4().hex[:10]}", "group_key": g["key"],
@@ -1032,6 +1052,72 @@ async def public_component(key: str):
                  for i in raw]
     return {"enabled": True, "title": cfg["title"], "key": key, "label": g["label"],
             "status": cur, "windows": windows, "daily": daily, "incidents": incidents}
+
+
+# ---------------- Embeddable status badge (SVG) ----------------
+_BADGE_META = {
+    "operational": ("operational", "#22c55e"),
+    "degraded": ("degraded", "#f59e0b"),
+    "outage": ("major outage", "#ef4444"),
+    "maintenance": ("maintenance", "#3b82f6"),
+    "unknown": ("unknown", "#9ca3af"),
+}
+
+
+def _render_badge(label, value, color):
+    def w(t):
+        return int(6.2 * len(t)) + 12
+    lw, vw = w(label), w(value)
+    total = lw + vw
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{total}" height="20" role="img" aria-label="{label}: {value}">
+<linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>
+<mask id="m"><rect width="{total}" height="20" rx="3" fill="#fff"/></mask>
+<g mask="url(#m)">
+<rect width="{lw}" height="20" fill="#3b3138"/>
+<rect x="{lw}" width="{vw}" height="20" fill="{color}"/>
+<rect width="{total}" height="20" fill="url(#s)"/>
+</g>
+<g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11">
+<text x="{lw/2}" y="15" fill="#010101" fill-opacity=".3">{label}</text>
+<text x="{lw/2}" y="14">{label}</text>
+<text x="{lw+vw/2}" y="15" fill="#010101" fill-opacity=".3">{value}</text>
+<text x="{lw+vw/2}" y="14">{value}</text>
+</g></svg>'''
+
+
+@router.get("/status/badge.svg")
+async def status_badge(component: str = "", label: str = ""):
+    cfg = await _status_page_cfg()
+    state = "unknown"
+    badge_label = label.strip()[:24] or "status"
+    if cfg["enabled"]:
+        runs = await db.diagnostics_history.find({}, {"_id": 0}).sort("generated_at", -1).to_list(1)
+        latest = (runs[0].get("statuses") or {}) if runs else {}
+        maint_keys = await _active_maintenance_group_keys()
+        if component:
+            g = next((x for x in PUBLIC_GROUPS if x["key"] == component), None)
+            if g:
+                if not badge_label or badge_label == "status":
+                    badge_label = g["label"].lower()
+                if g["key"] in maint_keys:
+                    state = "maintenance"
+                else:
+                    s = _worst(g["ids"], latest) if latest else "ok"
+                    state = {"ok": "operational", "warn": "degraded", "fail": "outage"}[s]
+        else:
+            worst = "ok"
+            for g in PUBLIC_GROUPS:
+                s = _worst(g["ids"], latest) if latest else "ok"
+                if _RANK.get(s, 0) > _RANK.get(worst, 0):
+                    worst = s
+            if maint_keys:
+                state = "maintenance"
+            else:
+                state = {"ok": "operational", "warn": "degraded", "fail": "outage"}[worst]
+    value, color = _BADGE_META.get(state, _BADGE_META["unknown"])
+    svg = _render_badge(badge_label, value, color)
+    return Response(content=svg, media_type="image/svg+xml",
+                    headers={"Cache-Control": "public, max-age=60", "Access-Control-Allow-Origin": "*"})
 
 
 
