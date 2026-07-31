@@ -245,7 +245,13 @@ function SetupStatusStrip({ onNav }) {
 
 function OpsOverview({ onNav }) {
   const [d, setD] = useState(null);
-  useEffect(() => { api.get("/admin/deploy/ops-overview").then(({ data }) => setD(data)).catch(() => setD(null)); }, []);
+  useEffect(() => {
+    let alive = true;
+    const load = () => api.get("/admin/deploy/ops-overview").then(({ data }) => { if (alive) setD(data); }).catch(() => {});
+    load();
+    const id = setInterval(load, 30000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
   if (!d) return null;
   const META = { operational: { c: "#16a34a", t: "All systems operational" }, degraded: { c: "#d97706", t: "Some systems degraded" }, outage: { c: "#dc2626", t: "Active outage" } };
   const m = META[d.overall] || META.operational;
@@ -257,7 +263,7 @@ function OpsOverview({ onNav }) {
           <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center"><Activity className="w-5 h-5 text-primary-stitch" /></div>
           <div>
             <h2 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Ops overview</h2>
-            <p className="text-sm text-muted-stitch">Live system health at a glance.</p>
+            <p className="text-sm text-muted-stitch flex items-center gap-1.5"><span data-testid="ops-live-indicator" className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> Live system health · auto-refreshes every 30s.</p>
           </div>
         </div>
         <button data-testid="ops-open-deploy" onClick={() => onNav && onNav("deploy")} className="neu-btn rounded-2xl px-4 py-2.5 text-xs font-semibold text-primary-stitch flex items-center gap-2"><Rocket className="w-4 h-4" /> Open Deployment</button>
