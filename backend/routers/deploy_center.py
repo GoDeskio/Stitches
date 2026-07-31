@@ -606,23 +606,24 @@ async def _dispatch_alerts(broke=None, recovered=None):
     ch = ((await db.settings.find_one({"key": "alert_channels"})) or {}).get("value", {})
     import httpx
     emoji = ":white_check_mark:" if (recovered and not broke) else ":rotating_light:"
+    sev = "outage" if broke else "recovery"
     async with httpx.AsyncClient(timeout=10) as client:
-        if ch.get("slack_webhook"):
+        if ch.get("slack_webhook") and _mode_allows(ch.get("slack_mode", "all"), "health", sev):
             try:
                 await client.post(ch["slack_webhook"], json={"text": f"{emoji} {text}"})
             except Exception as e:
                 logger.warning(f"slack alert failed: {e}")
-        if ch.get("webhook_url"):
+        if ch.get("webhook_url") and _mode_allows(ch.get("webhook_mode", "all"), "health", sev):
             try:
                 await client.post(ch["webhook_url"], json={"event": "stitches.health.update", "message": text, "regressed": broke, "recovered": recovered})
             except Exception as e:
                 logger.warning(f"webhook alert failed: {e}")
-        if ch.get("discord_webhook"):
+        if ch.get("discord_webhook") and _mode_allows(ch.get("discord_mode", "all"), "health", sev):
             try:
                 await client.post(ch["discord_webhook"], json={"content": f"{emoji} {text}"})
             except Exception as e:
                 logger.warning(f"discord alert failed: {e}")
-        if ch.get("whatsapp_webhook"):
+        if ch.get("whatsapp_webhook") and _mode_allows(ch.get("whatsapp_mode", "all"), "health", sev):
             try:
                 await client.post(ch["whatsapp_webhook"], json={"message": f"{text}", "event": "stitches.health.update"})
             except Exception as e:
@@ -659,20 +660,46 @@ async def diagnose_history(user: dict = Depends(require_admin)):
     return {"runs": runs}
 
 
+_CHANNEL_MODES = ("all", "incidents", "outages", "maintenance")
+
+
+def _mode_allows(mode, category, severity=""):
+    """Whether a channel with the given routing mode should receive an event of this category/severity."""
+    if mode not in _CHANNEL_MODES:
+        mode = "all"
+    if mode == "all":
+        return True
+    if mode == "maintenance":
+        return category == "maintenance"
+    if mode == "incidents":
+        return category in ("incident", "health")
+    if mode == "outages":
+        return severity == "outage"
+    return True
+
+
 @router.get("/admin/deploy/alert-channels")
 async def get_alert_channels(user: dict = Depends(require_admin)):
     ch = ((await db.settings.find_one({"key": "alert_channels"})) or {}).get("value", {})
     return {"slack_webhook": ch.get("slack_webhook", ""), "webhook_url": ch.get("webhook_url", ""),
-            "discord_webhook": ch.get("discord_webhook", ""), "whatsapp_webhook": ch.get("whatsapp_webhook", "")}
+            "discord_webhook": ch.get("discord_webhook", ""), "whatsapp_webhook": ch.get("whatsapp_webhook", ""),
+            "slack_mode": ch.get("slack_mode", "all"), "webhook_mode": ch.get("webhook_mode", "all"),
+            "discord_mode": ch.get("discord_mode", "all"), "whatsapp_mode": ch.get("whatsapp_mode", "all")}
 
 
 @router.put("/admin/deploy/alert-channels")
 async def set_alert_channels(request: Request, user: dict = Depends(require_admin)):
     body = await request.json()
+
+    def _m(v):
+        v = (v or "all")
+        return v if v in _CHANNEL_MODES else "all"
     val = {"slack_webhook": (body.get("slack_webhook") or "").strip(),
            "webhook_url": (body.get("webhook_url") or "").strip(),
            "discord_webhook": (body.get("discord_webhook") or "").strip(),
-           "whatsapp_webhook": (body.get("whatsapp_webhook") or "").strip()}
+           "whatsapp_webhook": (body.get("whatsapp_webhook") or "").strip(),
+           "slack_mode": _m(body.get("slack_mode")), "webhook_mode": _m(body.get("webhook_mode")),
+           "discord_mode": _m(body.get("discord_mode")), "whatsapp_mode": _m(body.get("whatsapp_mode"))}
     await db.settings.update_one({"key": "alert_channels"},
                                  {"$set": {"key": "alert_channels", "value": val}}, upsert=True)
     return {"ok": True, **val}
@@ -882,30 +909,58 @@ async def _notify_incident_channels(event, label, impact="", text="", component=
     emoji = ":white_check_mark:" if event == "resolved" else (":rotating_light:" if event == "opened" else ":memo:")
     summary = f"{label}: incident {verb}" + (f" ({impact})" if impact else "")
     msg_text = f"{emoji} {summary}" + (f"\n{text}" if text else "") + (f"\n{link}" if link else "")
+    sev = "recovery" if event == "resolved" else (impact or "")
     import httpx
     async with httpx.AsyncClient(timeout=10) as client:
-        if ch.get("slack_webhook"):
+        if ch.get("slack_webhook") and _mode_allows(ch.get("slack_mode", "all"), "incident", sev):
             try:
                 await client.post(ch["slack_webhook"], json={"text": msg_text})
             except Exception as e:
                 logger.warning(f"incident slack failed: {e}")
-        if ch.get("discord_webhook"):
+        if ch.get("discord_webhook") and _mode_allows(ch.get("discord_mode", "all"), "incident", sev):
             try:
                 await client.post(ch["discord_webhook"], json={"content": msg_text})
             except Exception as e:
                 logger.warning(f"incident discord failed: {e}")
-        if ch.get("whatsapp_webhook"):
+        if ch.get("whatsapp_webhook") and _mode_allows(ch.get("whatsapp_mode", "all"), "incident", sev):
             try:
                 await client.post(ch["whatsapp_webhook"], json={"message": summary + (f" — {text}" if text else ""),
                                                                  "event": f"stitches.incident.{event}", "link": link})
             except Exception as e:
                 logger.warning(f"incident whatsapp failed: {e}")
-        if ch.get("webhook_url"):
+        if ch.get("webhook_url") and _mode_allows(ch.get("webhook_mode", "all"), "incident", sev):
             try:
                 await client.post(ch["webhook_url"], json={"event": f"stitches.incident.{event}", "label": label,
                                                            "impact": impact, "text": text, "component": component, "link": link})
             except Exception as e:
                 logger.warning(f"incident webhook failed: {e}")
+
+
+async def _dispatch_maint_to_channels(text):
+    """Fan out maintenance heads-ups to channels that opted into maintenance/all events."""
+    ch = ((await db.settings.find_one({"key": "alert_channels"})) or {}).get("value", {})
+    import httpx
+    async with httpx.AsyncClient(timeout=10) as client:
+        if ch.get("slack_webhook") and _mode_allows(ch.get("slack_mode", "all"), "maintenance"):
+            try:
+                await client.post(ch["slack_webhook"], json={"text": f":wrench: {text}"})
+            except Exception as e:
+                logger.warning(f"maint slack failed: {e}")
+        if ch.get("discord_webhook") and _mode_allows(ch.get("discord_mode", "all"), "maintenance"):
+            try:
+                await client.post(ch["discord_webhook"], json={"content": f":wrench: {text}"})
+            except Exception as e:
+                logger.warning(f"maint discord failed: {e}")
+        if ch.get("whatsapp_webhook") and _mode_allows(ch.get("whatsapp_mode", "all"), "maintenance"):
+            try:
+                await client.post(ch["whatsapp_webhook"], json={"message": text, "event": "stitches.maintenance"})
+            except Exception as e:
+                logger.warning(f"maint whatsapp failed: {e}")
+        if ch.get("webhook_url") and _mode_allows(ch.get("webhook_mode", "all"), "maintenance"):
+            try:
+                await client.post(ch["webhook_url"], json={"event": "stitches.maintenance", "message": text})
+            except Exception as e:
+                logger.warning(f"maint webhook failed: {e}")
 
 
 # ---------------- Public incidents (auto + manual) ----------------
@@ -1126,6 +1181,9 @@ async def scan_maintenance():
                     f"<h3>{m.get('title', 'Scheduled maintenance')}</h3>"
                     f"<p>Planned maintenance affecting <strong>{labels}</strong> begins at <strong>{when}</strong>.</p>"
                     f"<p>{m.get('message', '')}</p>")
+                await _dispatch_maint_to_channels(
+                    f"Upcoming maintenance: {m.get('title', 'Scheduled maintenance')} affecting {labels}, begins {when}."
+                    + (f" {m.get('message', '')}" if m.get("message") else ""))
                 await db.maintenance_windows.update_one({"maint_id": m["maint_id"]}, {"$set": {"reminder_sent": True}})
                 sent += 1
         return sent

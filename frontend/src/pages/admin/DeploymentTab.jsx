@@ -71,7 +71,7 @@ export function DeploymentTab() {
     if (next) { try { const { data } = await api.get("/admin/deploy/diagnose/history"); setHistory(data.runs); } catch (e) {} }
   };
   const [showChannels, setShowChannels] = useState(false);
-  const [channels, setChannels] = useState({ slack_webhook: "", webhook_url: "", discord_webhook: "", whatsapp_webhook: "" });
+  const [channels, setChannels] = useState({ slack_webhook: "", webhook_url: "", discord_webhook: "", whatsapp_webhook: "", slack_mode: "all", webhook_mode: "all", discord_mode: "all", whatsapp_mode: "all" });
   useEffect(() => { api.get("/admin/deploy/alert-channels").then(({ data }) => setChannels(data)).catch(() => {}); }, []);
   const saveChannels = async () => {
     try { await api.put("/admin/deploy/alert-channels", channels); toast.success("Alert channels saved"); }
@@ -419,12 +419,24 @@ export function DeploymentTab() {
         {showChannels && (
           <div className="neu-pressed rounded-2xl p-4 mt-4" data-testid="alert-channels-panel">
             <p className="text-sm font-semibold mb-1 flex items-center gap-2" style={{ color: "var(--text)" }}><Bell className="w-4 h-4 text-primary-stitch" /> Alert channels</p>
-            <p className="text-xs text-muted-stitch mb-3">Route health-regression alerts and incident open/resolve events to Slack, Discord, WhatsApp and/or a webhook, in addition to admin email.</p>
+            <p className="text-xs text-muted-stitch mb-3">Route health-regression alerts, incident events and maintenance heads-ups to Slack, Discord, WhatsApp and/or a webhook, in addition to admin email. Pick which events each channel receives to cut noise.</p>
             <div className="space-y-2">
-              <input data-testid="slack-webhook-input" value={channels.slack_webhook} onChange={(e) => setChannels({ ...channels, slack_webhook: e.target.value })} placeholder="Slack incoming webhook URL" className="neu-input rounded-2xl py-2.5 px-4 text-sm w-full font-mono-stitch" />
-              <input data-testid="discord-webhook-input" value={channels.discord_webhook || ""} onChange={(e) => setChannels({ ...channels, discord_webhook: e.target.value })} placeholder="Discord webhook URL" className="neu-input rounded-2xl py-2.5 px-4 text-sm w-full font-mono-stitch" />
-              <input data-testid="whatsapp-webhook-input" value={channels.whatsapp_webhook || ""} onChange={(e) => setChannels({ ...channels, whatsapp_webhook: e.target.value })} placeholder="WhatsApp webhook URL (Twilio / Zapier / gateway)" className="neu-input rounded-2xl py-2.5 px-4 text-sm w-full font-mono-stitch" />
-              <input data-testid="webhook-url-input" value={channels.webhook_url} onChange={(e) => setChannels({ ...channels, webhook_url: e.target.value })} placeholder="Generic webhook URL (JSON POST)" className="neu-input rounded-2xl py-2.5 px-4 text-sm w-full font-mono-stitch" />
+              {[
+                { key: "slack_webhook", modeKey: "slack_mode", testid: "slack", ph: "Slack incoming webhook URL" },
+                { key: "discord_webhook", modeKey: "discord_mode", testid: "discord", ph: "Discord webhook URL" },
+                { key: "whatsapp_webhook", modeKey: "whatsapp_mode", testid: "whatsapp", ph: "WhatsApp webhook URL (Twilio / Zapier / gateway)" },
+                { key: "webhook_url", modeKey: "webhook_mode", testid: "webhook-url", ph: "Generic webhook URL (JSON POST)" },
+              ].map((c) => (
+                <div key={c.key} className="flex gap-2">
+                  <input data-testid={`${c.testid}-webhook-input`} value={channels[c.key] || ""} onChange={(e) => setChannels({ ...channels, [c.key]: e.target.value })} placeholder={c.ph} className="neu-input rounded-2xl py-2.5 px-4 text-sm flex-1 font-mono-stitch" />
+                  <select data-testid={`${c.testid}-mode-select`} value={channels[c.modeKey] || "all"} onChange={(e) => setChannels({ ...channels, [c.modeKey]: e.target.value })} className="neu-input rounded-2xl py-2.5 px-3 text-xs w-36 shrink-0" style={{ color: "var(--text)" }}>
+                    <option value="all">All events</option>
+                    <option value="incidents">Incidents</option>
+                    <option value="outages">Outages only</option>
+                    <option value="maintenance">Maintenance only</option>
+                  </select>
+                </div>
+              ))}
             </div>
             <p className="text-[11px] text-muted-stitch mt-2">WhatsApp has no native incoming webhook — point this at a Twilio Function, Zapier/Make "Catch Hook", or your own WhatsApp gateway that forwards the JSON <span className="font-mono-stitch">{`{message}`}</span> to WhatsApp.</p>
             <div className="flex gap-2 mt-3">
