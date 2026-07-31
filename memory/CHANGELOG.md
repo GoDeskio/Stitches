@@ -396,3 +396,8 @@
 - **Scan History**: every diagnostics run (manual or auto) is recorded in `diagnostics_history` (compact per-check statuses + summary + trigger), pruned to last 100. GET /admin/deploy/diagnose/history returns recent runs. UI: a "History" panel in the diagnostics card showing a timeline (time, MANUAL/AUTO badge, ok/warn/fail counts).
 - **Alert Channels**: settings `alert_channels` {slack_webhook, webhook_url}. Health-regression alerts now dispatch via `_dispatch_alerts()` to admin email + Slack incoming webhook + a generic JSON webhook. Endpoints: GET/PUT /admin/deploy/alert-channels, POST /admin/deploy/alert-channels/test. UI: a "Channels" panel (Slack + webhook inputs, Save, Send test alert).
 - Verified via curl (history 5 runs w/ manual+auto triggers; channels save; test dispatch reports email+slack+webhook) and screenshot (both panels render, 5 history rows).
+
+## Implemented (2026-07-31, part 13) — Uptime Chart, Alert Throttle
+- **Uptime Chart**: the Scan History panel now renders a per-subsystem uptime strip (oldest→newest) built from diagnostics_history statuses — each check is a row of green/amber/red segments so trends (e.g. Email stuck amber) jump out. Legend included.
+- **Alert Throttle**: diagnostics_auto now stores cooldown_min (default 60). scan_auto_diagnostics skips re-firing an alert for a check if one was created within the cooldown window (prevents flapping-check spam). GET state returns cooldown_min; PUT /admin/deploy/diagnose/auto accepts {enabled, cooldown_min}. UI: a cooldown minutes input (shown when Auto is on) with Save.
+- Verified via curl (cooldown set=30/read; throttle query in scan) and screenshot (uptime strip with Email amber trend + cooldown row + history timeline).

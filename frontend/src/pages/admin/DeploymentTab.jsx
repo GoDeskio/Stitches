@@ -5,6 +5,12 @@ import { Rocket, Github, Copy, Check, Download, Server, ShieldCheck, Zap, AlertT
 
 const CAT_ICON = { Calls: Zap, Gateway: Server, Monitoring: Server };
 
+const DIAG_LABEL = {
+  mongo: "Database", llm: "AI (LLM)", frontendurl: "Frontend URL", email: "Email",
+  turn: "TURN", livekit: "LiveKit", deploysecrets: "Deploy secrets", deploytarget: "Deploy target",
+  aimemory: "AI memory", admin: "Admin acct", bots: "Bots", indexes: "DB indexes",
+};
+
 function FileBlock({ file }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
@@ -47,8 +53,12 @@ export function DeploymentTab() {
   const toggleAuto = async () => {
     const next = !diagState.auto_enabled;
     setDiagState({ ...diagState, auto_enabled: next });
-    try { await api.put("/admin/deploy/diagnose/auto", { enabled: next }); toast.success(next ? "Auto re-scan on — admins get alerted when something breaks" : "Auto re-scan off"); }
+    try { await api.put("/admin/deploy/diagnose/auto", { enabled: next, cooldown_min: diagState.cooldown_min ?? 60 }); toast.success(next ? "Auto re-scan on — admins get alerted when something breaks" : "Auto re-scan off"); }
     catch (e) { toast.error("Couldn't update"); loadDiagState(); }
+  };
+  const saveCooldown = async () => {
+    try { await api.put("/admin/deploy/diagnose/auto", { enabled: diagState.auto_enabled, cooldown_min: diagState.cooldown_min ?? 60 }); toast.success(`Alert cooldown set to ${diagState.cooldown_min} min`); }
+    catch (e) { toast.error("Couldn't save cooldown"); }
   };
   const dismissAlerts = async () => {
     try { await api.post("/admin/deploy/diagnose/alerts/seen"); setDiagState({ ...diagState, alerts: [] }); toast.success("Alerts cleared"); }
@@ -260,6 +270,17 @@ export function DeploymentTab() {
           </div>
         </div>
 
+        {diagState.auto_enabled && (
+          <div className="neu-pressed rounded-2xl px-4 py-3 mt-4 flex items-center gap-3 flex-wrap" data-testid="alert-cooldown-row">
+            <span className="text-sm text-muted-stitch">Re-alert cooldown — don't re-fire the same check for</span>
+            <input data-testid="cooldown-input" type="number" min="0" value={diagState.cooldown_min ?? 60}
+              onChange={(e) => setDiagState({ ...diagState, cooldown_min: parseInt(e.target.value) || 0 })}
+              className="neu-input rounded-xl py-1.5 px-3 text-sm w-20" style={{ color: "var(--text)" }} />
+            <span className="text-sm text-muted-stitch">minutes</span>
+            <button data-testid="cooldown-save-btn" onClick={saveCooldown} className="neu-btn rounded-xl px-3 py-1.5 text-xs font-semibold text-primary-stitch ml-auto">Save</button>
+          </div>
+        )}
+
         {diagState.alerts?.length > 0 && (
           <div className="neu-pressed rounded-2xl p-4 mt-4 border-l-4" style={{ borderColor: "#ef4444" }} data-testid="diagnose-alerts">
             <div className="flex items-center justify-between gap-3 mb-2">
@@ -293,7 +314,32 @@ export function DeploymentTab() {
           <div className="neu-pressed rounded-2xl p-4 mt-4" data-testid="scan-history-panel">
             <p className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: "var(--text)" }}><History className="w-4 h-4 text-primary-stitch" /> Scan history</p>
             {history.length === 0 ? <p className="text-xs text-muted-stitch">No scans recorded yet.</p> : (
-              <div className="space-y-1.5 max-h-64 overflow-y-auto">
+              <>
+                <div className="mb-4" data-testid="uptime-chart">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-muted-stitch mb-2">Per-subsystem uptime (oldest → newest)</p>
+                  {(() => {
+                    const runs = [...history].reverse();
+                    const ids = [...new Set(history.flatMap((r) => Object.keys(r.statuses || {})))];
+                    const color = (s) => s === "ok" ? "#22c55e" : s === "warn" ? "#f59e0b" : s === "fail" ? "#ef4444" : "var(--neu-dark)";
+                    return ids.map((id) => (
+                      <div key={id} data-testid={`uptime-row-${id}`} className="flex items-center gap-2 mb-1">
+                        <span className="text-[11px] w-24 shrink-0 truncate" style={{ color: "var(--text)" }}>{DIAG_LABEL[id] || id}</span>
+                        <div className="flex gap-0.5 flex-1">
+                          {runs.map((r) => (
+                            <span key={r.run_id} title={`${DIAG_LABEL[id] || id}: ${(r.statuses || {})[id] || "n/a"} · ${new Date(r.generated_at).toLocaleString()}`}
+                              className="h-4 flex-1 rounded-sm" style={{ background: color((r.statuses || {})[id]), minWidth: "6px", maxWidth: "20px" }} />
+                          ))}
+                        </div>
+                      </div>
+                    ));
+                  })()}
+                  <div className="flex items-center gap-3 mt-2 text-[10px] text-muted-stitch">
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: "#22c55e" }} /> OK</span>
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: "#f59e0b" }} /> Warn</span>
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm" style={{ background: "#ef4444" }} /> Fail</span>
+                  </div>
+                </div>
+                <div className="space-y-1.5 max-h-64 overflow-y-auto">
                 {history.map((r) => (
                   <div key={r.run_id} data-testid="scan-history-row" className="flex items-center justify-between gap-3 text-xs py-1.5 px-2 rounded-lg" style={{ background: "var(--neu-dark)" }}>
                     <span className="text-muted-stitch">{new Date(r.generated_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
@@ -305,7 +351,8 @@ export function DeploymentTab() {
                     </span>
                   </div>
                 ))}
-              </div>
+                </div>
+              </>
             )}
           </div>
         )}
