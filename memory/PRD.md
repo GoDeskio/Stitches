@@ -313,6 +313,11 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - **Status History Feed**: public `GET /api/status/feed.xml` — a well-formed RSS 2.0 feed of incidents (with links to the affected component page) and maintenance windows, newest first, cached 120s, CORS-open. A "Subscribe via RSS" link sits in the `/status` footer.
 - Verified (iteration_50): backend + frontend 100%, feed XML well-formed with correct items/links, component embed preview + copy snippets verified. Zero issues.
 
+## Implemented (2026-07-31, part 6) — Status Page Theme + Webhook On Incidents
+- **Status Page Theme**: admins set an accent color (hex, validated) and upload a logo (object storage) from the Deployment status card ("Brand your status page"). The public `/status` + `/status/:key` pages render the logo and apply the accent to the brand label, active uptime tab, Subscribe button, RSS link, and component back-link. Endpoints: accent via `PUT /admin/deploy/status-page`; `POST/DELETE /admin/deploy/status-logo`; public `GET /status/logo`; accent+logo added to `/status/public` and `/status/public/component/{key}`.
+- **Webhook On Incidents**: incident open/update/resolve events (auto + manual) POST to the configured Slack (`{text}`) and/or generic webhook (`{event:"stitches.incident.<e>", label, impact, text, component, link}`) via `_notify_incident_channels`, reusing the existing Deployment "Channels" (alert_channels) config.
+- Verified (iteration_51): backend 6/6 pytest + frontend 100% E2E, webhook dispatch confirmed (3× POST 200 across lifecycle), theme apply/upload/remove + public rendering verified. Zero issues. Test data cleaned.
+
 ### Status Page backlog (from code review)
 - Split the ~1160-line `deploy_center.py` into diagnostics / deploy-bundle / status-page / subscribers / maintenance submodules.
 - Add a TTL cache / pre-aggregation for `/status/public` + `/status/public/component/{key}` (both rescan diagnostics_history per request).
