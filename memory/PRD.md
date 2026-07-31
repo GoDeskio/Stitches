@@ -297,3 +297,13 @@ backend/.env: MONGO_URL, DB_NAME, JWT_SECRET, ADMIN_EMAIL, ADMIN_PASSWORD, EMERG
 - **Uptime Windows**: `/api/status/public` returns per-group `windows` for 24h / 7d / 90d (each with `pct` + `strip`); the public page has window tabs to switch the range. Incident history now renders a full update timeline (opened → notes → resolved) with impact badges.
 - Admin UI (`DeploymentTab.jsx`): auto-incident toggle, subscriber/open-incident count chips, and a Manage-incidents panel (post new / update / resolve). New endpoints: `GET/POST /api/admin/deploy/status-incidents`, `POST /api/admin/deploy/status-incidents/{id}/update`.
 - Verified (iteration_47): backend 9/9 pytest + frontend 6/6 E2E, zero issues. Test data purged afterward.
+
+## Implemented (2026-07-31, part 3) — Scheduled Maintenance + Component History (Status Page)
+- **Scheduled Maintenance**: admins schedule a maintenance window (title, message, affected components, start/end, notify-lead minutes) from the Deployment tab's status card. The public `/status` page shows a maintenance banner for scheduled/in-progress windows (completed/cancelled hidden). `scan_maintenance` (wired into the 30-min `_reminder_loop`) emails subscribers a heads-up before the window begins (once). Endpoints: `GET/POST/DELETE /api/admin/deploy/maintenance` (create validates end>start); `/api/status/public` now returns a `maintenance` array.
+- **Component History**: every subsystem row on `/status` links to a public detail page `/status/:key` (`ComponentStatus.jsx`) showing 24h/7d/90d uptime %, a 90-day daily uptime bar chart, and the component's full incident history with update timelines. Endpoint: `GET /api/status/public/component/{key}` (404 for unknown key). New route `/status/:key` in `App.js`.
+- Verified (iteration_48): backend 8/8 pytest + frontend 100% E2E, zero issues. Test data purged.
+
+### Status Page backlog (from code review)
+- Split the ~1160-line `deploy_center.py` into diagnostics / deploy-bundle / status-page / subscribers / maintenance submodules.
+- Add a TTL cache / pre-aggregation for `/status/public` + `/status/public/component/{key}` (both rescan diagnostics_history per request).
+- Fan out `_notify_subscribers` with `asyncio.gather` + bounded semaphore to avoid blocking the reminder loop with many subscribers.
