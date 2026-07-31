@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import api from "@/lib/api";
-import { Rocket, Github, Copy, Check, Download, Server, ShieldCheck, Zap, AlertTriangle, X, Plus, Stethoscope, Wand2, History, Bell } from "lucide-react";
+import { Rocket, Github, Copy, Check, Download, Server, ShieldCheck, Zap, AlertTriangle, X, Plus, Stethoscope, Wand2, History, Bell, Globe, ExternalLink, NotebookPen } from "lucide-react";
 
 const CAT_ICON = { Calls: Zap, Gateway: Server, Monitoring: Server };
 
@@ -80,6 +80,42 @@ export function DeploymentTab() {
   const testChannels = async () => {
     try { const { data } = await api.post("/admin/deploy/alert-channels/test"); const to = Object.entries(data.sent_to).filter(([, v]) => v).map(([k]) => k).join(", "); toast.success(`Test alert dispatched to: ${to}`); }
     catch (e) { toast.error("Test failed"); }
+  };
+
+  const [statusPage, setStatusPage] = useState({ enabled: false, title: "Stitches Status" });
+  const [savingStatus, setSavingStatus] = useState(false);
+  useEffect(() => { api.get("/admin/deploy/status-page").then(({ data }) => setStatusPage(data)).catch(() => {}); }, []);
+  const statusUrl = `${window.location.origin}/status`;
+  const saveStatusPage = async (patch) => {
+    const next = { ...statusPage, ...patch };
+    setStatusPage(next); setSavingStatus(true);
+    try {
+      await api.put("/admin/deploy/status-page", next);
+      if (patch.enabled !== undefined) toast.success(next.enabled ? "Status page is now public" : "Status page hidden");
+      else toast.success("Status page updated");
+    } catch (e) { toast.error("Couldn't save"); } finally { setSavingStatus(false); }
+  };
+  const copyStatusUrl = async () => {
+    try { await navigator.clipboard.writeText(statusUrl); toast.success("Status page link copied"); }
+    catch (e) { toast.error("Copy failed"); }
+  };
+
+  const [showIncidents, setShowIncidents] = useState(false);
+  const [allAlerts, setAllAlerts] = useState([]);
+  const [noteDrafts, setNoteDrafts] = useState({});
+  const toggleIncidents = async () => {
+    const next = !showIncidents; setShowIncidents(next);
+    if (next) {
+      try { const { data } = await api.get("/admin/deploy/diagnose/alerts/all"); setAllAlerts(data.alerts); setNoteDrafts(Object.fromEntries(data.alerts.map((a) => [a.alert_id, a.note || ""]))); }
+      catch (e) {}
+    }
+  };
+  const saveNote = async (alertId) => {
+    try {
+      await api.patch(`/admin/deploy/diagnose/alerts/${alertId}/note`, { note: noteDrafts[alertId] || "" });
+      setAllAlerts((a) => a.map((x) => (x.alert_id === alertId ? { ...x, note: noteDrafts[alertId] || "" } : x)));
+      toast.success("Incident note saved");
+    } catch (e) { toast.error("Couldn't save note"); }
   };
 
   const runDiagnostics = async () => {
@@ -264,6 +300,7 @@ export function DeploymentTab() {
               Auto {diagState.auto_enabled ? "on" : "off"}
             </button>
             <button data-testid="history-toggle-btn" onClick={toggleHistory} className="neu-btn rounded-2xl px-4 py-3 font-semibold text-primary-stitch flex items-center gap-2"><History className="w-4 h-4" /> History</button>
+            <button data-testid="incidents-toggle-btn" onClick={toggleIncidents} className="neu-btn rounded-2xl px-4 py-3 font-semibold text-primary-stitch flex items-center gap-2"><NotebookPen className="w-4 h-4" /> Incidents</button>
             <button data-testid="channels-toggle-btn" onClick={() => setShowChannels((v) => !v)} className="neu-btn rounded-2xl px-4 py-3 font-semibold text-primary-stitch flex items-center gap-2"><Bell className="w-4 h-4" /> Channels</button>
             {diag && <button data-testid="diagnose-download-btn" onClick={downloadDiag} className="neu-btn rounded-2xl px-4 py-3 font-semibold text-primary-stitch flex items-center gap-2"><Download className="w-4 h-4" /> Report</button>}
             <button data-testid="run-diagnose-btn" onClick={runDiagnostics} disabled={diagRunning} className="neu-primary rounded-2xl px-5 py-3 font-semibold flex items-center gap-2"><Stethoscope className="w-4 h-4" />{diagRunning ? "Scanning…" : "Run diagnostics"}</button>
@@ -314,9 +351,35 @@ export function DeploymentTab() {
           </div>
         )}
 
+        {showIncidents && (
+          <div className="neu-pressed rounded-2xl p-4 mt-4" data-testid="incident-log-panel">
+            <p className="text-sm font-semibold mb-1 flex items-center gap-2" style={{ color: "var(--text)" }}><NotebookPen className="w-4 h-4 text-primary-stitch" /> Incident log</p>
+            <p className="text-xs text-muted-stitch mb-3">Annotate any health alert with a short note (e.g. "fixed by rotating the Mailgun key"). Notes with text also appear on your public status page.</p>
+            {allAlerts.length === 0 ? <p className="text-xs text-muted-stitch">No health alerts recorded yet.</p> : (
+              <div className="space-y-2 max-h-80 overflow-y-auto">
+                {allAlerts.map((a) => (
+                  <div key={a.alert_id} data-testid="incident-row" className="rounded-xl p-3" style={{ background: "var(--neu-dark)" }}>
+                    <div className="flex items-center gap-2 flex-wrap text-xs">
+                      {a.kind === "recovery"
+                        ? <span className="text-green-500 font-bold">✓ recovered</span>
+                        : <span className="text-red-400 font-bold">▲ broke</span>}
+                      <span className="font-semibold" style={{ color: "var(--text)" }}>{a.label}</span>
+                      <span className="text-muted-stitch">({a.from_status} → {a.to_status})</span>
+                      <span className="text-muted-stitch ml-auto">{new Date(a.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                      <input data-testid={`incident-note-input-${a.alert_id}`} value={noteDrafts[a.alert_id] ?? ""} onChange={(e) => setNoteDrafts({ ...noteDrafts, [a.alert_id]: e.target.value })} placeholder="Add an incident note…" className="neu-input rounded-xl py-2 px-3 text-xs flex-1" style={{ color: "var(--text)" }} />
+                      <button data-testid={`incident-note-save-${a.alert_id}`} onClick={() => saveNote(a.alert_id)} className="neu-btn rounded-xl px-3 py-2 text-xs font-semibold text-primary-stitch">Save</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {showHistory && (
-          <div className="neu-pressed rounded-2xl p-4 mt-4" data-testid="scan-history-panel">
-            <p className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: "var(--text)" }}><History className="w-4 h-4 text-primary-stitch" /> Scan history</p>
+          <div className="neu-pressed rounded-2xl p-4 mt-4" data-testid="scan-history-panel">            <p className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: "var(--text)" }}><History className="w-4 h-4 text-primary-stitch" /> Scan history</p>
             {history.length === 0 ? <p className="text-xs text-muted-stitch">No scans recorded yet.</p> : (
               <>
                 <div className="mb-4" data-testid="uptime-chart">
@@ -400,6 +463,34 @@ export function DeploymentTab() {
             </div>
           </div>
         )}
+      </div>
+
+      <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="status-page-card">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center"><Globe className="w-5 h-5 text-primary-stitch" /></div>
+            <div className="min-w-0">
+              <h3 className="font-head font-bold text-xl" style={{ color: "var(--text)" }}>Public status page</h3>
+              <p className="text-sm text-muted-stitch">Turn your subsystem uptime strips into a shareable "all systems operational" page anyone can view — no login required.</p>
+            </div>
+          </div>
+          <button data-testid="status-page-toggle" onClick={() => saveStatusPage({ enabled: !statusPage.enabled })} disabled={savingStatus}
+            className="neu-btn rounded-2xl px-4 py-3 font-semibold text-xs flex items-center gap-2 shrink-0" style={{ color: statusPage.enabled ? "var(--primary)" : "var(--muted)" }}>
+            <span className="w-2 h-2 rounded-full" style={{ background: statusPage.enabled ? "#22c55e" : "var(--neu-dark)" }} />
+            {statusPage.enabled ? "Public — live" : "Private — hidden"}
+          </button>
+        </div>
+        <div className="grid sm:grid-cols-[1fr_auto] gap-3 items-end mt-4">
+          <div>
+            <label className="text-xs font-semibold text-muted-stitch">Status page title</label>
+            <input data-testid="status-page-title" value={statusPage.title} onChange={(e) => setStatusPage({ ...statusPage, title: e.target.value })} onBlur={() => saveStatusPage({})} placeholder="Stitches Status" className={`${input} mt-1`} />
+          </div>
+          <div className="flex gap-2">
+            <button data-testid="status-page-copy" onClick={copyStatusUrl} className="neu-btn rounded-2xl px-4 py-3 font-semibold text-primary-stitch flex items-center gap-2"><Copy className="w-4 h-4" /> Copy link</button>
+            <a data-testid="status-page-open" href={statusUrl} target="_blank" rel="noreferrer" className="neu-primary rounded-2xl px-4 py-3 font-semibold flex items-center gap-2"><ExternalLink className="w-4 h-4" /> View</a>
+          </div>
+        </div>
+        {!statusPage.enabled && <p className="text-xs text-amber-500 mt-3">Turn this on to make <span className="font-mono-stitch break-all">{statusUrl}</span> viewable by anyone.</p>}
       </div>
 
       <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up">

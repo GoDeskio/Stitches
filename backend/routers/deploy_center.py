@@ -663,6 +663,96 @@ async def test_alert_channels(user: dict = Depends(require_admin)):
     return {"ok": True, "sent_to": {"email": True, "slack": bool(ch.get("slack_webhook")), "webhook": bool(ch.get("webhook_url"))}}
 
 
+# ---------------- Incident notes ----------------
+@router.get("/admin/deploy/diagnose/alerts/all")
+async def all_alerts(user: dict = Depends(require_admin)):
+    alerts = await db.diagnostics_alerts.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return {"alerts": alerts}
+
+
+@router.patch("/admin/deploy/diagnose/alerts/{alert_id}/note")
+async def set_alert_note(alert_id: str, request: Request, user: dict = Depends(require_admin)):
+    body = await request.json()
+    note = (body.get("note") or "").strip()[:280]
+    res = await db.diagnostics_alerts.update_one({"alert_id": alert_id}, {"$set": {"note": note}})
+    if not res.matched_count:
+        raise HTTPException(status_code=404, detail="alert not found")
+    await log_activity(user["user_id"], "incident_note")
+    return {"ok": True, "note": note}
+
+
+# ---------------- Public status page ----------------
+# Curated, sanitised subsystem groups (internal check ids -> friendly public labels).
+PUBLIC_GROUPS = [
+    {"key": "platform", "label": "Platform", "ids": ["mongo", "admin", "frontendurl"]},
+    {"key": "ai", "label": "AI Assistant", "ids": ["llm", "aimemory"]},
+    {"key": "calls", "label": "Calls & Meetings", "ids": ["turn", "livekit"]},
+    {"key": "email", "label": "Email delivery", "ids": ["email"]},
+]
+_ID_TO_GROUP = {i: g["label"] for g in PUBLIC_GROUPS for i in g["ids"]}
+
+
+async def _status_page_cfg():
+    v = ((await db.settings.find_one({"key": "status_page"})) or {}).get("value", {})
+    return {"enabled": bool(v.get("enabled", False)), "title": v.get("title", "Stitches Status")}
+
+
+@router.get("/admin/deploy/status-page")
+async def get_status_page(user: dict = Depends(require_admin)):
+    return await _status_page_cfg()
+
+
+@router.put("/admin/deploy/status-page")
+async def set_status_page(request: Request, user: dict = Depends(require_admin)):
+    body = await request.json()
+    cur = await _status_page_cfg()
+    title = (body.get("title") if body.get("title") is not None else cur["title"]) or ""
+    val = {"enabled": bool(body.get("enabled", cur["enabled"])),
+           "title": title.strip()[:60] or "Stitches Status"}
+    await db.settings.update_one({"key": "status_page"},
+                                 {"$set": {"key": "status_page", "value": val}}, upsert=True)
+    return {"ok": True, **val}
+
+
+def _worst(ids, statuses):
+    r = 0
+    for i in ids:
+        s = statuses.get(i)
+        if s:
+            r = max(r, _RANK.get(s, 0))
+    return {0: "ok", 1: "warn", 2: "fail"}[r]
+
+
+@router.get("/status/public")
+async def public_status():
+    """Public, unauthenticated status page data — only served when an admin enables it."""
+    cfg = await _status_page_cfg()
+    if not cfg["enabled"]:
+        return {"enabled": False}
+    runs = await db.diagnostics_history.find({}, {"_id": 0}).sort("generated_at", -1).to_list(100)
+    latest = (runs[0].get("statuses") or {}) if runs else {}
+    groups = []
+    for g in PUBLIC_GROUPS:
+        cur = _worst(g["ids"], latest) if latest else "ok"
+        seen = [r for r in runs if any(i in (r.get("statuses") or {}) for i in g["ids"])]
+        okc = sum(1 for r in seen if _worst(g["ids"], r.get("statuses") or {}) == "ok")
+        pct = round(okc / len(seen) * 100) if seen else 100
+        strip = [_worst(g["ids"], r.get("statuses") or {}) for r in reversed(runs)][-40:]
+        groups.append({"key": g["key"], "label": g["label"], "status": cur, "uptime": pct, "strip": strip})
+    overall = "operational"
+    if any(x["status"] == "fail" for x in groups):
+        overall = "outage"
+    elif any(x["status"] == "warn" for x in groups):
+        overall = "degraded"
+    inc = await db.diagnostics_alerts.find({"note": {"$exists": True, "$ne": ""}}, {"_id": 0}).sort("created_at", -1).to_list(20)
+    incidents = [{"label": _ID_TO_GROUP.get(a.get("check_id"), a.get("label")),
+                  "note": a.get("note"), "created_at": a.get("created_at"),
+                  "resolved": a.get("kind") == "recovery" or a.get("to_status") == "ok"} for a in inc]
+    return {"enabled": True, "title": cfg["title"], "overall": overall,
+            "generated_at": runs[0]["generated_at"] if runs else now_iso(),
+            "groups": groups, "incidents": incidents}
+
+
 
 
 
