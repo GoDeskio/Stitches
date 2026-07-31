@@ -375,3 +375,8 @@
 - **Select All**: in the Memory panel's Select mode, each category header shows a "Select all" / "Clear" shortcut that toggles selection of every fact in that group in one tap (frontend-only, uses existing bulk-category endpoint to move).
 - **Digest Preview**: new GET /api/ai/memory/digest/preview returns the exact rendered summary-email HTML (+count). Frontend "Preview" button in the digest card opens a modal rendering it in an iframe (srcDoc) so users see precisely what will be emailed before sending.
 - Verified via curl (preview count=4, HTML contains header) and screenshots (email preview modal + per-category Select all selecting 2 in one tap).
+
+## Implemented (2026-07-31, part 9) — Bulk Forget, Digest Test Address
+- **Bulk Forget**: new POST /api/ai/memory/bulk-delete {ids} (own user-scoped only). Memory panel Select mode now has a red "Forget" button next to Move (with confirm) to clear several memories at once.
+- **Digest Test Address**: new admin POST /api/admin/ai-memory/digest/test {email} sends a one-off sample "What Stitch remembers" email to any address to verify email config end-to-end. UI: "Test digest delivery" card in Admin → AI Memory (email input + Send test digest).
+- Verified via curl (bulk-delete deleted=1; digest test attempts + graceful email fail) and screenshots (Forget button in bulk bar; Test digest card in admin).

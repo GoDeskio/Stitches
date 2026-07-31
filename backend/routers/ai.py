@@ -173,6 +173,25 @@ async def clear_ai_memory(scope: str = "", user: dict = Depends(require_admin)):
     return {"ok": True, "deleted": res.deleted_count}
 
 
+@router.post("/admin/ai-memory/digest/test")
+async def test_digest_delivery(request: Request, user: dict = Depends(require_admin)):
+    """Send a one-off sample memory digest to any address to confirm email delivery."""
+    from services.email import send_email_detailed
+    body = await request.json()
+    email = (body.get("email") or "").strip()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="valid email required")
+    sample_groups = {
+        "preference": ["Prefers concise, bullet-point answers", "Works best in the mornings"],
+        "project": ["Leading the Q3 Launch project"],
+        "deadline": ["Website relaunch due Sept 15"],
+    }
+    frontend = os.environ.get("FRONTEND_URL", "")
+    html = _build_memory_digest_html("there", sample_groups, f"{frontend}/assistant?memory=open")
+    ok, detail = await send_email_detailed(email, "[Test] What Stitch remembers about you", html)
+    return {"ok": ok, "detail": detail}
+
+
 # ---- User-facing memory transparency ("What Stitch remembers about you") ----
 @router.get("/ai/memory")
 async def my_ai_memory(user: dict = Depends(get_current_user)):
@@ -216,6 +235,17 @@ async def bulk_recategorize(request: Request, user: dict = Depends(get_current_u
         {"mem_id": {"$in": ids}, "scope": "user", "owner_id": user["user_id"]},
         {"$set": {"category": category, "edited_at": now_iso()}})
     return {"ok": True, "updated": res.modified_count, "category": category}
+
+
+@router.post("/ai/memory/bulk-delete")
+async def bulk_forget(request: Request, user: dict = Depends(get_current_user)):
+    body = await request.json()
+    ids = [str(i) for i in (body.get("ids") or [])]
+    if not ids:
+        raise HTTPException(status_code=400, detail="no memories selected")
+    res = await db.ai_memories.delete_many(
+        {"mem_id": {"$in": ids}, "scope": "user", "owner_id": user["user_id"]})
+    return {"ok": True, "deleted": res.deleted_count}
 
 
 @router.post("/ai/memory")

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import api from "@/lib/api";
-import { Brain, Trash2, Plus, Search, User, Users } from "lucide-react";
+import { Brain, Trash2, Plus, Search, User, Users, Mail } from "lucide-react";
 
 export function AiMemoryTab() {
   const [cfg, setCfg] = useState(null);
@@ -12,6 +12,8 @@ export function AiMemoryTab() {
   const [newContent, setNewContent] = useState("");
   const [newScope, setNewScope] = useState("workspace");
   const [adding, setAdding] = useState(false);
+  const [testEmail, setTestEmail] = useState("");
+  const [testing, setTesting] = useState(false);
 
   const loadCfg = () => api.get("/admin/ai-memory/config").then(({ data }) => setCfg(data)).catch(() => {});
   const loadList = () => api.get("/admin/ai-memory/list", { params: { scope, q } }).then(({ data }) => setItems(data)).catch(() => {});
@@ -40,6 +42,16 @@ export function AiMemoryTab() {
     if (!window.confirm(sc ? `Clear all ${sc} memories?` : "Clear ALL AI memories?")) return;
     try { const { data } = await api.delete("/admin/ai-memory", { params: sc ? { scope: sc } : {} }); toast.success(`Cleared ${data.deleted} memories`); loadList(); loadCfg(); }
     catch (e) { toast.error("Clear failed"); }
+  };
+
+  const sendTestDigest = async () => {
+    if (!testEmail.trim() || !testEmail.includes("@")) { toast.error("Enter a valid email"); return; }
+    setTesting(true);
+    try {
+      const { data } = await api.post("/admin/ai-memory/digest/test", { email: testEmail.trim() });
+      if (data.ok) toast.success(`Test digest sent to ${testEmail}`);
+      else toast.error("Email not configured — check Admin → Email settings");
+    } catch (e) { toast.error("Send failed"); } finally { setTesting(false); }
   };
 
   if (!cfg) return null;
@@ -105,6 +117,20 @@ export function AiMemoryTab() {
             <option value="user">My user</option>
           </select>
           <button data-testid="mem-add-btn" onClick={add} disabled={adding} className="neu-primary rounded-2xl px-5 py-3 font-semibold flex items-center gap-2"><Plus className="w-4 h-4" />Add</button>
+        </div>
+      </div>
+
+      <div className="neu-raised rounded-[1.75rem] p-6 animate-fade-up" data-testid="mem-digest-test-card">
+        <div className="flex items-center gap-3 mb-1">
+          <div className="neu-sm w-11 h-11 rounded-2xl flex items-center justify-center"><Mail className="w-5 h-5 text-primary-stitch" /></div>
+          <div>
+            <h3 className="font-head font-bold text-lg" style={{ color: "var(--text)" }}>Test digest delivery</h3>
+            <p className="text-sm text-muted-stitch">Send a one-off sample "What Stitch remembers" email to any address to confirm your email setup works end-to-end.</p>
+          </div>
+        </div>
+        <div className="flex gap-3 flex-wrap mt-3">
+          <input data-testid="mem-test-email" value={testEmail} onChange={(e) => setTestEmail(e.target.value)} placeholder="you@company.com" className={`${input} flex-1 min-w-[16rem]`} />
+          <button data-testid="mem-test-send-btn" onClick={sendTestDigest} disabled={testing} className="neu-primary rounded-2xl px-5 py-3 font-semibold flex items-center gap-2"><Mail className="w-4 h-4" />{testing ? "Sending…" : "Send test digest"}</button>
         </div>
       </div>
 

@@ -82,6 +82,12 @@ function MemoryPanel({ open, onClose }) {
     try { const { data: r } = await api.post("/ai/memory/bulk-category", { ids: selectedIds, category: bulkCat }); toast.success(`Moved ${r.updated} to ${bulkCat}`); exitSelect(); load(); }
     catch (e) { toast.error("Couldn't move those"); }
   };
+  const bulkForget = async () => {
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`Forget ${selectedIds.length} ${selectedIds.length === 1 ? "memory" : "memories"}?`)) return;
+    try { const { data: r } = await api.post("/ai/memory/bulk-delete", { ids: selectedIds }); toast.success(`Forgot ${r.deleted}`); exitSelect(); load(); }
+    catch (e) { toast.error("Couldn't forget those"); }
+  };
   const toggleAuto = async () => {
     const next = !data.auto_capture;
     setData({ ...data, auto_capture: next });
@@ -246,6 +252,7 @@ function MemoryPanel({ open, onClose }) {
                   {CAT_ORDER.map((c) => <option key={c} value={c}>{CAT_META[c].label}</option>)}
                 </select>
                 <button data-testid="bulk-move-btn" onClick={bulkMove} disabled={selectedIds.length === 0} className="neu-primary rounded-xl px-4 py-2 text-xs font-semibold disabled:opacity-60">Move</button>
+                <button data-testid="bulk-forget-btn" onClick={bulkForget} disabled={selectedIds.length === 0} className="neu-btn rounded-xl px-4 py-2 text-xs font-semibold text-red-500 disabled:opacity-60 flex items-center gap-1.5"><Trash2 className="w-3.5 h-3.5" /> Forget</button>
               </div>
             )}
 
