@@ -380,3 +380,9 @@
 - **Bulk Forget**: new POST /api/ai/memory/bulk-delete {ids} (own user-scoped only). Memory panel Select mode now has a red "Forget" button next to Move (with confirm) to clear several memories at once.
 - **Digest Test Address**: new admin POST /api/admin/ai-memory/digest/test {email} sends a one-off sample "What Stitch remembers" email to any address to verify email config end-to-end. UI: "Test digest delivery" card in Admin → AI Memory (email input + Send test digest).
 - Verified via curl (bulk-delete deleted=1; digest test attempts + graceful email fail) and screenshots (Forget button in bulk bar; Test digest card in admin).
+
+## Implemented (2026-07-31, part 10) — Undo Forget, Memory Export, "Why isn't it working?" diagnostics
+- **Undo Forget**: bulk-forget now shows a sonner toast with an Undo action that restores the deleted facts via new POST /api/ai/memory/restore {memories} (idempotent, own user-scoped only).
+- **Memory Export**: new GET /api/ai/memory/export?format=json|csv returns a downloadable file of everything Stitch remembers about the user. JSON/CSV buttons added to the Memory panel.
+- **Diagnostics ("Why isn't it working?")**: Admin → Deployment now has a full-app scanner. POST /api/admin/deploy/diagnose {autofix} runs 12 checks (mongo, LLM key, frontend URL, email, TURN, LiveKit, deploy secrets/target, AI memory, admin account, bots, indexes), SAFELY auto-fixes what it can (generates missing deploy secrets, seeds default ai_memory settings, ensures DB indexes), and reports the rest with NEEDS YOU + fix hints. GET /api/admin/deploy/diagnose/download returns a markdown report. UI shows summary chips, an "Auto-fixed by System AI" panel, per-check status rows, and a Report download.
+- Verified iteration_45: backend 14/14, frontend 100%, zero issues. (Email check correctly shows WARN until real email creds are added.)
